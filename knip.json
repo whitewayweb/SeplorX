@@ -1,0 +1,10 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "project": ["src/**/*.{ts,tsx}"],
+  "ignoreDependencies": [
+    "tailwindcss-animate",
+    "tailwindcss",
+    "lucide-react"
+  ],
+  "ignoreExportsUsedInFile": true
+}
