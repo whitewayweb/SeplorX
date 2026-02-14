@@ -1,11 +1,10 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "project": ["src/**/*.{ts,tsx}", "scripts/*.ts"],
-  "entry": ["src/db/index.ts", "src/auth.ts", "src/middleware.ts", "scripts/*.ts"],
+  "entry": ["src/db/index.ts", "src/auth.ts", "scripts/*.ts"],
   "ignoreDependencies": [
     "tailwindcss-animate",
     "tailwindcss",
-    "postcss",
     "tsx",
     "lucide-react"
   ],

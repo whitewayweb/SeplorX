@@ -2,19 +2,25 @@
 
 import { signIn, signOut } from "@/auth";
 import { AuthError } from "next-auth";
+import { LoginSchema } from "@/lib/validations/auth";
 
 export async function loginAction(_prevState: unknown, formData: FormData) {
   const email = formData.get("email");
   const password = formData.get("password");
 
-  if (!email || !password) {
-    return { error: "Please fill in all fields" };
+  const validatedFields = LoginSchema.safeParse({
+    email,
+    password,
+  });
+
+  if (!validatedFields.success) {
+    return { error: "Invalid fields" };
   }
 
   try {
     await signIn("credentials", {
-      email,
-      password,
+      email: validatedFields.data.email,
+      password: validatedFields.data.password,
       redirectTo: "/",
     });
   } catch (error) {

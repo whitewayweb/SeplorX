@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import { LoginSchema } from "@/lib/validations/auth";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
@@ -13,17 +14,21 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) return null;
+        const validatedFields = LoginSchema.safeParse(credentials);
+
+        if (!validatedFields.success) return null;
+
+        const { email, password } = validatedFields.data;
 
         const [user] = await db
           .select()
           .from(users)
-          .where(eq(users.email, credentials.email as string));
+          .where(eq(users.email, email));
 
         if (!user || !user.password) return null;
 
         const isPasswordValid = await bcrypt.compare(
-          credentials.password as string,
+          password,
           user.password
         );
 
@@ -55,4 +60,5 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   pages: {
     signIn: "/login",
   },
+  secret: process.env.NEXT_AUTH_SECRET,
 });

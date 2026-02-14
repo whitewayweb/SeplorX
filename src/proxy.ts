@@ -1,6 +1,6 @@
 import { auth } from "@/auth";
 
-export default auth((req) => {
+export const proxy = auth((req) => {
   const isLoggedIn = !!req.auth;
   const isAuthPage = req.nextUrl.pathname.startsWith("/login") || req.nextUrl.pathname.startsWith("/register");
 
@@ -15,6 +15,8 @@ export default auth((req) => {
     return Response.redirect(new URL("/login", req.nextUrl));
   }
 });
+
+export default proxy;
 
 export const config = {
   matcher: ["/((?!api|_next/static|_next/image|favicon.ico|next.svg|vercel.svg).*)"],
