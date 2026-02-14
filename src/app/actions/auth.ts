@@ -29,10 +29,14 @@ export async function loginAction(_prevState: unknown, formData: FormData) {
         case "CredentialsSignin":
           return { error: "Invalid credentials" };
         default:
-          return { error: "Something went wrong" };
+          return { error: `Auth Error: ${error.message || error.type}` };
       }
     }
-    throw error;
+    // If it's a redirect, we must throw it
+    if (error instanceof Error && error.message === "NEXT_REDIRECT") {
+      throw error;
+    }
+    return { error: error instanceof Error ? error.message : "An unexpected error occurred" };
   }
 }
 
