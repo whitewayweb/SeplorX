@@ -1,21 +1,24 @@
-import { db } from "../src/db";
-import { users } from "../src/db/schema";
-import bcrypt from "bcryptjs";
 import * as dotenv from "dotenv";
-import readline from "readline";
+import path from "path";
 
-// Load environment variables for the database connection
-dotenv.config({ path: ".env.local" });
-
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
-
-const question = (query: string): Promise<string> =>
-  new Promise((resolve) => rl.question(query, resolve));
+// Load environment variables BEFORE any other imports
+dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
 
 async function main() {
+  // Use dynamic imports to ensure env vars are loaded first
+  const { db } = await import("../src/db");
+  const { users } = await import("../src/db/schema");
+  const bcrypt = await import("bcryptjs");
+  const readline = await import("readline");
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  const question = (query: string): Promise<string> =>
+    new Promise((resolve) => rl.question(query, resolve));
+
   console.log("\n--- Create Admin User ---");
   
   const name = await question("Admin Name: ");
@@ -29,7 +32,7 @@ async function main() {
   }
 
   // Hash the password for security
-  const hashedPassword = await bcrypt.hash(password, 10);
+  const hashedPassword = await bcrypt.default.hash(password, 10);
 
   try {
     await db.insert(users).values({
@@ -41,11 +44,11 @@ async function main() {
     console.log("\n✅ Admin user created successfully!");
     console.log(`Email: ${email}`);
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Database error";
-    console.error("\n❌ Failed to create admin:", errorMessage);
+    console.error("\n❌ Failed to create admin:");
+    console.error(error);
   }
 
   rl.close();
 }
 
-main();
+main().catch(console.error);
