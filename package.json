@@ -18,6 +18,10 @@
     "create:admin": "tsx scripts/create-admin.ts"
   },
   "dependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/node": "^25.2.3",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -26,27 +30,23 @@
     "mysql2": "^3.17.1",
     "next": "16.1.6",
     "next-auth": "^5.0.0-beta.30",
+    "postcss": "^8.5.6",
     "radix-ui": "^1.4.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "tailwind-merge": "^3.4.0",
+    "tailwindcss": "^4.1.18",
     "tailwindcss-animate": "^1.0.7",
+    "typescript": "^5",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^25.2.3",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
     "dotenv": "^17.3.1",
     "drizzle-kit": "^0.31.9",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "knip": "^5.83.1",
     "only-allow": "^1.2.2",
-    "postcss": "^8.5.6",
-    "tailwindcss": "^4.1.18",
-    "tsx": "^4.21.0",
-    "typescript": "^5"
+    "tsx": "^4.21.0"
   }
 }
