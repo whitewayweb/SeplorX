@@ -1,24 +1,41 @@
-# SeplorX Production Deployment Guide
+# SeplorX Deployment Guide
+
+## Stack
+
+- **Framework:** Next.js on Vercel
+- **Database:** Supabase (PostgreSQL)
+- **ORM:** Drizzle
+- **Auth:** Auth.js v5
+
+---
+
+## Supabase Setup
+
+1. Create a project at [supabase.com/dashboard](https://supabase.com/dashboard)
+2. Go to **Settings > Database > Connection string**
+3. Note two connection URLs:
+   - **Transaction pooler** (port 6543) — use for Vercel and local dev
+   - **Direct connection** (port 5432) — use for migrations and CLI scripts
+
+---
 
 ## Required Environment Variables
 
-Set these in your hosting provider's dashboard (Hostinger, Vercel, etc.):
+Set these in your Vercel dashboard (Settings > Environment Variables):
 
 ### Database
 ```bash
-DATABASE_URL="mysql://user:password@host:port/database"
+DATABASE_URL="postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres"
 ```
-**Important Notes:**
-- URL-encode special characters in password (e.g., `|` becomes `%7C`)
-- For Hostinger: Use the exact connection string from your MySQL dashboard
+Use the **Transaction pooler** URL (port 6543) for Vercel.
 
 ### Authentication
 ```bash
 AUTH_SECRET="your-secret-here"
-AUTH_URL="https://your-domain.com"
+AUTH_URL="https://your-domain.vercel.app"
 AUTH_TRUST_HOST="true"
 ```
-**Generate AUTH_SECRET:**
+Generate AUTH_SECRET:
 ```bash
 openssl rand -base64 32
 ```
@@ -28,22 +45,54 @@ openssl rand -base64 32
 NODE_ENV="production"
 ```
 
+---
+
+## Database Migrations
+
+Migrations use the **direct connection** URL (port 5432), not the pooler.
+
+```bash
+# Temporarily set direct connection URL for migrations
+export DATABASE_URL="postgresql://postgres.[ref]:[pw]@aws-0-[region].pooler.supabase.com:5432/postgres"
+
+# Generate and run migrations
+yarn db
+
+# Create admin user
+yarn create:admin
+```
+
+---
+
+## Vercel Deployment
+
+1. Connect your Git repository in the Vercel dashboard
+2. Set all environment variables listed above
+3. Deploy — Vercel auto-detects Next.js and configures the build
+
+No special configuration (`vercel.json`) is needed.
+
+---
+
 ## Deployment Checklist
 
 ### Before Deploying
-- [ ] All environment variables are set in hosting dashboard
-- [ ] Database is accessible from production server
-- [ ] AUTH_URL matches your production domain (no trailing slash!)
-- [ ] Special characters in DATABASE_URL are URL-encoded
+- [ ] Supabase project created and database accessible
+- [ ] Migrations run successfully (`yarn db`)
+- [ ] Admin user created (`yarn create:admin`)
+- [ ] All environment variables set in Vercel dashboard
+- [ ] AUTH_URL matches your production domain (no trailing slash)
 
 ### After Deploying
 - [ ] Visit `/api/health` to check system status
 - [ ] Test login functionality
-- [ ] Check server logs for any warnings
+- [ ] Check Vercel function logs for warnings
+
+---
 
 ## Health Monitoring
 
-Visit `https://your-domain.com/api/health` to check:
+Visit `https://your-domain/api/health` to check:
 - Database connectivity
 - Auth configuration
 - Overall system health
@@ -59,46 +108,7 @@ Visit `https://your-domain.com/api/health` to check:
 }
 ```
 
-**Unhealthy response (503):** Check server logs for details
-
-## Common Issues
-
-### 503 Service Unavailable
-**Cause:** Database connection failure or resource limits exceeded  
-**Fix:** 
-1. Check `/api/health` for specific errors
-2. Verify DATABASE_URL is correct
-3. Check database connection limits (we use max 5 connections)
-
-### CallbackRouteError
-**Cause:** AUTH_URL mismatch  
-**Fix:** 
-1. Ensure AUTH_URL matches your exact domain
-2. Remove trailing slashes from AUTH_URL
-3. Use `https://` not `http://` for production
-
-### Database Connection Hangs
-**Cause:** Connection pool exhaustion  
-**Fix:** Application automatically retries with exponential backoff. If persists, restart the Node.js application.
-
-## Architecture Features
-
-### Resilience
-- **Automatic retry** for transient connection failures (3 attempts, exponential backoff)
-- **Connection pooling** optimized for shared hosting (max 5 connections)
-- **Health checks** for proactive monitoring
-- **Error boundaries** to prevent cascade failures
-
-### Monitoring
-- `/api/health` endpoint for status checks
-- Detailed logging in development mode
-- Production-safe error messages for users
-
-### Security
-- Environment variable validation at startup
-- Secure password handling with bcrypt
-- Session-based authentication with Auth.js v5
-- Protected routes via middleware
+---
 
 ## Local Development
 
@@ -107,8 +117,8 @@ Visit `https://your-domain.com/api/health` to check:
 yarn install
 
 # Set up environment
-cp .env.example .env.local
-# Edit .env.local with your values
+cp env.example .env.local
+# Edit .env.local with your Supabase connection string and auth secret
 
 # Run database migrations
 yarn db
@@ -120,18 +130,42 @@ yarn create:admin
 yarn dev
 ```
 
-## Troubleshooting
+---
 
-If you encounter issues:
+## Common Issues
 
-1. **Check health endpoint:** `curl https://your-domain.com/api/health`
-2. **Review server logs** in your hosting dashboard
-3. **Verify environment variables** are set correctly
-4. **Test database connection** from your hosting environment
-5. **Check for special characters** in DATABASE_URL (URL-encode them!)
+### 503 Service Unavailable
+**Cause:** Database connection failure
+**Fix:**
+1. Check `/api/health` for specific errors
+2. Verify DATABASE_URL is correct and uses the pooler URL (port 6543)
+3. Check Supabase dashboard for database status
 
-For persistent issues, review the application logs which include:
-- ✅ Successful database connections
-- ❌ Failed health checks
-- ⚠️ Retry attempts
-- 🔌 Connection pool events
+### CallbackRouteError
+**Cause:** AUTH_URL mismatch
+**Fix:**
+1. Ensure AUTH_URL matches your exact domain
+2. Remove trailing slashes from AUTH_URL
+3. Use `https://` for production
+
+### Connection Refused
+**Cause:** Wrong connection URL or Supabase project paused
+**Fix:**
+1. Verify you're using the pooler URL (port 6543) for the app
+2. Check if your Supabase project is active (free tier pauses after inactivity)
+3. Use direct connection URL (port 5432) only for migrations
+
+---
+
+## Architecture
+
+### Connection Handling
+- **Supabase PgBouncer** handles server-side connection pooling (port 6543)
+- **postgres-js** connects with `max: 1` per serverless function instance
+- Connections are cached in module scope for dev hot-reload safety
+
+### Security
+- Environment variable validation at startup
+- Bcrypt password hashing
+- JWT session management with Auth.js v5
+- Protected routes via middleware
