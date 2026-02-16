@@ -1,0 +1,1 @@
+ALTER TABLE "app_installations" ALTER COLUMN "config" SET NOT NULL;

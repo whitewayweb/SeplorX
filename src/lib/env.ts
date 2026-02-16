@@ -1,12 +1,18 @@
 /**
  * Environment variable validation and type-safe access
  * This ensures all required environment variables are present at runtime
+ *
+ * Supports both naming conventions:
+ * - DATABASE_URL (manual setup / .env.local)
+ * - POSTGRES_URL (Vercel + Supabase integration)
  */
 
 function getEnv() {
-  const requiredEnvVars = {
-    DATABASE_URL: process.env.DATABASE_URL,
-  } as const;
+  // Resolve database URL: prefer POSTGRES_URL (Vercel/Supabase pooler), fallback to DATABASE_URL
+  const databaseUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+
+  // ENCRYPTION_KEY: 64-char hex string (32 bytes) for AES-256-GCM config encryption
+  const encryptionKey = process.env.ENCRYPTION_KEY;
 
   const optionalEnvVars = {
     NODE_ENV: process.env.NODE_ENV || 'development',
@@ -16,20 +22,16 @@ function getEnv() {
   if (process.env.NEXT_PHASE !== 'phase-production-build') {
     const missing: string[] = [];
 
-    for (const [key, value] of Object.entries(requiredEnvVars)) {
-      if (!value) {
-        missing.push(key);
-      }
-    }
+    if (!databaseUrl) missing.push('DATABASE_URL (or POSTGRES_URL)');
+    if (!encryptionKey) missing.push('ENCRYPTION_KEY');
 
     if (missing.length > 0) {
       const errorMessage =
         `Missing required environment variables:\n${missing.map(v => `  - ${v}`).join('\n')}\n\n` +
-        `Please check your .env.local file or environment configuration.`;
+        `Please check your .env.local file or Vercel environment configuration.`;
 
-      // In development, just warn instead of crashing
       if (process.env.NODE_ENV === 'development') {
-        console.warn('⚠️', errorMessage);
+        console.warn('\u26a0\ufe0f', errorMessage);
       } else {
         throw new Error(errorMessage);
       }
@@ -37,15 +39,11 @@ function getEnv() {
   }
 
   return {
-    ...requiredEnvVars,
+    DATABASE_URL: databaseUrl as string,
+    ENCRYPTION_KEY: encryptionKey as string,
     ...optionalEnvVars,
     isDevelopment: process.env.NODE_ENV === 'development',
     isProduction: process.env.NODE_ENV === 'production',
-  } as {
-    DATABASE_URL: string;
-    NODE_ENV: string;
-    isDevelopment: boolean;
-    isProduction: boolean;
   };
 }
 
