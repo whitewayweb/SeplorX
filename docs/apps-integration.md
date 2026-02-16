@@ -157,9 +157,28 @@ function buildAppConfigSchema(appId: string) {
 | `app-status-badge.tsx` | Badge showing installation status |
 | `app-icon.tsx` | Dynamic Lucide icon from string name |
 
-## Security Notes
+## Security
 
-- API keys are stored as plain text in JSONB for now
+### Config Encryption
+
+Sensitive config fields (`type: "password"` in the registry) are encrypted at rest using AES-256-GCM before being stored in the JSONB `config` column. Non-sensitive fields (`text`, `url`) are stored as plain text.
+
+**Encryption flow:**
+1. User enters API key in the config dialog
+2. `configureApp` action encrypts password-type fields via `encrypt()` from `src/lib/crypto.ts`
+3. Encrypted format stored in JSONB: `iv:authTag:ciphertext` (hex-encoded)
+4. When the page loads, encrypted values are **redacted** (replaced with `••••••••` mask) — they are never sent to the client
+
+**Environment variable:** `ENCRYPTION_KEY` — a 64-character hex string (32 bytes) used as the AES-256-GCM master key. Required in `.env.local` and Vercel environment settings.
+
+**Key files:**
+- `src/lib/crypto.ts` — `encrypt()`, `decrypt()`, `isEncrypted()` utilities
+- `src/app/apps/actions.ts` — encrypts on write, detects masked sentinel to preserve existing values
+- `src/app/apps/page.tsx` — redacts encrypted values before sending to client
+
+### Other Security Notes
+
 - When auth is re-added, installations will be scoped per-user via `userId`
 - Currently `userId` is hardcoded to `1`
-- Future: encrypt sensitive config fields at rest
+- Server actions wrap all DB operations in try-catch with user-friendly error messages
+- `configureApp` and `uninstallApp` verify the installation exists before operating

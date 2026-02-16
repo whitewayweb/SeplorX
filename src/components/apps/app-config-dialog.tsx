@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -14,6 +14,9 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { installApp, configureApp, uninstallApp } from "@/app/apps/actions";
 import type { AppWithStatus } from "@/lib/apps";
+
+/** Must match the sentinel in actions.ts and page.tsx */
+const MASKED_SENTINEL = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
 
 interface AppConfigDialogProps {
   app: AppWithStatus;
@@ -73,6 +76,47 @@ function InstallDialog({ app, open, onOpenChange }: AppConfigDialogProps) {
   );
 }
 
+/**
+ * A password input that shows a masked placeholder when a value exists.
+ * On focus, clears the mask so the user can type a new value.
+ * On blur, if left empty, restores the mask to preserve the existing secret.
+ */
+function SecretInput({
+  fieldKey,
+  hasExistingValue,
+  placeholder,
+  required,
+}: {
+  fieldKey: string;
+  hasExistingValue: boolean;
+  placeholder?: string;
+  required: boolean;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  return (
+    <Input
+      ref={inputRef}
+      id={fieldKey}
+      name={fieldKey}
+      type="password"
+      placeholder={hasExistingValue ? "Leave blank to keep current" : placeholder}
+      defaultValue={hasExistingValue ? MASKED_SENTINEL : ""}
+      required={required && !hasExistingValue}
+      onFocus={() => {
+        if (inputRef.current?.value === MASKED_SENTINEL) {
+          inputRef.current.value = "";
+        }
+      }}
+      onBlur={() => {
+        if (hasExistingValue && inputRef.current?.value === "") {
+          inputRef.current.value = MASKED_SENTINEL;
+        }
+      }}
+    />
+  );
+}
+
 function ConfigureDialog({ app, open, onOpenChange }: AppConfigDialogProps) {
   const [configState, configAction, configPending] = useActionState(configureApp, null);
   const [uninstallState, uninstallAction, uninstallPending] = useActionState(uninstallApp, null);
@@ -98,27 +142,43 @@ function ConfigureDialog({ app, open, onOpenChange }: AppConfigDialogProps) {
         <form action={configAction} className="space-y-4">
           <input type="hidden" name="appId" value={app.id} />
 
-          {app.configFields.map((field) => (
-            <div key={field.key} className="space-y-2">
-              <Label htmlFor={field.key}>
-                {field.label}
-                {field.required && <span className="text-destructive ml-1">*</span>}
-              </Label>
-              <Input
-                id={field.key}
-                name={field.key}
-                type={field.type}
-                placeholder={field.placeholder}
-                defaultValue={existingConfig[field.key] ?? ""}
-                required={field.required}
-              />
-              {configState?.fieldErrors?.[field.key] && (
-                <p className="text-sm text-destructive">
-                  {configState.fieldErrors[field.key]?.[0]}
-                </p>
-              )}
-            </div>
-          ))}
+          {app.configFields.map((field) => {
+            const existingValue = existingConfig[field.key] ?? "";
+            const hasExistingValue = field.type === "password" && existingValue === MASKED_SENTINEL;
+
+            return (
+              <div key={field.key} className="space-y-2">
+                <Label htmlFor={field.key}>
+                  {field.label}
+                  {field.required && <span className="text-destructive ml-1">*</span>}
+                </Label>
+
+                {field.type === "password" ? (
+                  <SecretInput
+                    fieldKey={field.key}
+                    hasExistingValue={hasExistingValue}
+                    placeholder={field.placeholder}
+                    required={field.required}
+                  />
+                ) : (
+                  <Input
+                    id={field.key}
+                    name={field.key}
+                    type={field.type}
+                    placeholder={field.placeholder}
+                    defaultValue={existingValue}
+                    required={field.required}
+                  />
+                )}
+
+                {configState?.fieldErrors?.[field.key] && (
+                  <p className="text-sm text-destructive">
+                    {configState.fieldErrors[field.key]?.[0]}
+                  </p>
+                )}
+              </div>
+            );
+          })}
 
           {configState?.error && !configState.fieldErrors && (
             <p className="text-sm text-destructive">{configState.error}</p>

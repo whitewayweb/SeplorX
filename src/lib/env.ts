@@ -11,20 +11,27 @@ function getEnv() {
   // Resolve database URL: prefer POSTGRES_URL (Vercel/Supabase pooler), fallback to DATABASE_URL
   const databaseUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
 
+  // ENCRYPTION_KEY: 64-char hex string (32 bytes) for AES-256-GCM config encryption
+  const encryptionKey = process.env.ENCRYPTION_KEY;
+
   const optionalEnvVars = {
     NODE_ENV: process.env.NODE_ENV || 'development',
   } as const;
 
   // Validate required environment variables (skip during build phase)
   if (process.env.NEXT_PHASE !== 'phase-production-build') {
-    if (!databaseUrl) {
+    const missing: string[] = [];
+
+    if (!databaseUrl) missing.push('DATABASE_URL (or POSTGRES_URL)');
+    if (!encryptionKey) missing.push('ENCRYPTION_KEY');
+
+    if (missing.length > 0) {
       const errorMessage =
-        `Missing required environment variable: DATABASE_URL (or POSTGRES_URL)\n\n` +
+        `Missing required environment variables:\n${missing.map(v => `  - ${v}`).join('\n')}\n\n` +
         `Please check your .env.local file or Vercel environment configuration.`;
 
-      // In development, just warn instead of crashing
       if (process.env.NODE_ENV === 'development') {
-        console.warn('⚠️', errorMessage);
+        console.warn('\u26a0\ufe0f', errorMessage);
       } else {
         throw new Error(errorMessage);
       }
@@ -33,6 +40,7 @@ function getEnv() {
 
   return {
     DATABASE_URL: databaseUrl as string,
+    ENCRYPTION_KEY: encryptionKey as string,
     ...optionalEnvVars,
     isDevelopment: process.env.NODE_ENV === 'development',
     isProduction: process.env.NODE_ENV === 'production',

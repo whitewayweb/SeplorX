@@ -47,16 +47,18 @@ Stores which apps a user has installed and their configuration.
 
 ## JSONB Config Column
 
-The `config` column stores a flat `Record<string, string>`:
+The `config` column stores a flat `Record<string, string>`. Sensitive fields (where `type === "password"` in the app registry) are encrypted with AES-256-GCM before storage:
 
 ```json
 {
-  "apiKey": "sk-live-xxx",
+  "apiKey": "a1b2c3d4...:e5f6a7b8...:9c0d1e2f...",
   "accountId": "ACC-12345"
 }
 ```
 
-The app registry defines which keys are valid. Zod validates dynamically before writes.
+Encrypted values use the format `iv:authTag:ciphertext` (all hex-encoded). Non-sensitive fields are stored as plain text.
+
+The app registry defines which keys are valid. Zod validates dynamically before writes. See `src/lib/crypto.ts` for encrypt/decrypt utilities.
 
 ## Enums
 
