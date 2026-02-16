@@ -24,19 +24,19 @@ export async function loginAction(_prevState: unknown, formData: FormData) {
       redirectTo: "/",
     });
   } catch (error) {
-    if (error instanceof AuthError) {
-      switch (error.type) {
-        case "CredentialsSignin":
-          return { error: "Invalid credentials" };
-        default:
-          return { error: `Auth Error: ${error.message || error.type}` };
-      }
-    }
-    // If it's a redirect, we must throw it
+    // NextAuth redirect must be re-thrown
     if (error instanceof Error && error.message === "NEXT_REDIRECT") {
       throw error;
     }
-    return { error: error instanceof Error ? error.message : "An unexpected error occurred" };
+    if (error instanceof AuthError) {
+      if (error.type === "CredentialsSignin") {
+        return { error: "Invalid email or password" };
+      }
+      console.error("Auth error:", error.type);
+      return { error: "Authentication failed. Please try again." };
+    }
+    console.error("Login error:", error instanceof Error ? error.message : error);
+    return { error: "Something went wrong. Please try again." };
   }
 }
 

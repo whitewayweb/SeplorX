@@ -1,7 +1,6 @@
 import type { NextAuthConfig } from "next-auth";
 import { env } from "@/lib/env";
 
-
 export const authConfig = {
   pages: {
     signIn: "/login",
@@ -9,7 +8,7 @@ export const authConfig = {
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;
-      const isAuthPage = nextUrl.pathname.startsWith("/login") || nextUrl.pathname.startsWith("/register");
+      const isAuthPage = nextUrl.pathname.startsWith("/login");
 
       if (isAuthPage) {
         if (isLoggedIn) {
@@ -38,5 +37,5 @@ export const authConfig = {
     },
   },
   providers: [], // Add providers in auth.ts
-  secret: env.AUTH_SECRET || process.env.AUTH_SECRET,
+  secret: env.AUTH_SECRET,
 } satisfies NextAuthConfig;
