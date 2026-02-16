@@ -1,10 +1,12 @@
-import { mysqlTable, int, varchar, timestamp, mysqlEnum } from "drizzle-orm/mysql-core";
+import { pgTable, serial, varchar, timestamp, pgEnum } from "drizzle-orm/pg-core";
 
-export const users = mysqlTable("users", {
-  id: int("id").primaryKey().autoincrement(),
+export const roleEnum = pgEnum("role", ["admin", "customer"]);
+
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
   name: varchar("name", { length: 255 }),
   email: varchar("email", { length: 255 }).notNull().unique(),
   password: varchar("password", { length: 255 }),
-  role: mysqlEnum("role", ["admin", "customer"]).default("customer").notNull(),
+  role: roleEnum("role").default("customer").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
