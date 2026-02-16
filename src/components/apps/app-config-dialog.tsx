@@ -118,6 +118,7 @@ function SecretInput({
 }
 
 function ConfigureDialog({ app, open, onOpenChange }: AppConfigDialogProps) {
+  const configFormId = `config-form-${app.id}`;
   const [configState, configAction, configPending] = useActionState(configureApp, null);
   const [uninstallState, uninstallAction, uninstallPending] = useActionState(uninstallApp, null);
 
@@ -139,7 +140,8 @@ function ConfigureDialog({ app, open, onOpenChange }: AppConfigDialogProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <form action={configAction} className="space-y-4">
+        {/* Configure form — uses an id so the footer button can reference it via form= */}
+        <form id={configFormId} action={configAction} className="space-y-4">
           <input type="hidden" name="appId" value={app.id} />
 
           {app.configFields.map((field) => {
@@ -186,29 +188,30 @@ function ConfigureDialog({ app, open, onOpenChange }: AppConfigDialogProps) {
           {uninstallState?.error && (
             <p className="text-sm text-destructive">{uninstallState.error}</p>
           )}
-
-          <DialogFooter className="flex-col gap-2 sm:flex-row">
-            <form action={uninstallAction}>
-              <input type="hidden" name="appId" value={app.id} />
-              <Button
-                type="submit"
-                variant="destructive"
-                size="sm"
-                disabled={uninstallPending}
-              >
-                {uninstallPending ? "Uninstalling..." : "Uninstall"}
-              </Button>
-            </form>
-            <div className="flex gap-2 ml-auto">
-              <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={configPending}>
-                {configPending ? "Saving..." : "Save Configuration"}
-              </Button>
-            </div>
-          </DialogFooter>
         </form>
+
+        {/* Footer with sibling forms — avoids invalid nested <form> elements */}
+        <DialogFooter className="flex-col gap-2 sm:flex-row">
+          <form action={uninstallAction}>
+            <input type="hidden" name="appId" value={app.id} />
+            <Button
+              type="submit"
+              variant="destructive"
+              size="sm"
+              disabled={uninstallPending}
+            >
+              {uninstallPending ? "Uninstalling..." : "Uninstall"}
+            </Button>
+          </form>
+          <div className="flex gap-2 ml-auto">
+            <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" form={configFormId} disabled={configPending}>
+              {configPending ? "Saving..." : "Save Configuration"}
+            </Button>
+          </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

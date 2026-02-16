@@ -18,7 +18,7 @@ export const appInstallations = pgTable("app_installations", {
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   appId: varchar("app_id", { length: 100 }).notNull(),
   status: appStatusEnum("status").default("installed").notNull(),
-  config: jsonb("config").$type<Record<string, string>>().default({}),
+  config: jsonb("config").$type<Record<string, string>>().default({}).notNull(),
   installedAt: timestamp("installed_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [

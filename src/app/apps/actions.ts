@@ -56,8 +56,15 @@ export async function installApp(_prevState: unknown, formData: FormData) {
 }
 
 export async function configureApp(_prevState: unknown, formData: FormData) {
-  const appId = formData.get("appId") as string;
+  const parsed = InstallAppSchema.safeParse({
+    appId: formData.get("appId"),
+  });
 
+  if (!parsed.success) {
+    return { error: "Invalid app ID." };
+  }
+
+  const { appId } = parsed.data;
   const app = getAppById(appId);
   if (!app) {
     return { error: "App not found." };
