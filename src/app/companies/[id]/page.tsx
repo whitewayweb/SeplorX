@@ -1,41 +1,42 @@
 import { db } from "@/db";
-import { vendors } from "@/db/schema";
+import { companies } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Mail, Phone, MapPin, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { VendorStatusBadge } from "@/components/vendors/vendor-status-badge";
-import { VendorDialog } from "@/components/vendors/vendor-dialog";
+import { CompanyStatusBadge } from "@/components/companies/company-status-badge";
+import { CompanyTypeBadge } from "@/components/companies/company-type-badge";
+import { CompanyDialog } from "@/components/companies/company-dialog";
 
 export const dynamic = "force-dynamic";
 
-interface VendorDetailPageProps {
+interface CompanyDetailPageProps {
   params: Promise<{ id: string }>;
 }
 
-export default async function VendorDetailPage({ params }: VendorDetailPageProps) {
+export default async function CompanyDetailPage({ params }: CompanyDetailPageProps) {
   const { id } = await params;
-  const vendorId = parseInt(id, 10);
+  const companyId = parseInt(id, 10);
 
-  if (isNaN(vendorId)) {
+  if (isNaN(companyId)) {
     notFound();
   }
 
   const result = await db
     .select()
-    .from(vendors)
-    .where(eq(vendors.id, vendorId))
+    .from(companies)
+    .where(eq(companies.id, companyId))
     .limit(1);
 
   if (result.length === 0) {
     notFound();
   }
 
-  const vendor = result[0];
+  const company = result[0];
 
-  const addressParts = [vendor.address, vendor.city, vendor.state, vendor.pincode]
+  const addressParts = [company.address, company.city, company.state, company.pincode]
     .filter(Boolean)
     .join(", ");
 
@@ -45,25 +46,26 @@ export default async function VendorDetailPage({ params }: VendorDetailPageProps
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
-            <Link href="/vendors">
+            <Link href="/companies">
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-3xl font-bold tracking-tight">
-                {vendor.name}
+                {company.name}
               </h1>
-              <VendorStatusBadge isActive={vendor.isActive} />
+              <CompanyTypeBadge type={company.type} />
+              <CompanyStatusBadge isActive={company.isActive} />
             </div>
-            {vendor.contactPerson && (
+            {company.contactPerson && (
               <p className="text-muted-foreground mt-1">
-                Contact: {vendor.contactPerson}
+                Contact: {company.contactPerson}
               </p>
             )}
           </div>
         </div>
-        <VendorDialog vendor={vendor} />
+        <CompanyDialog company={company} />
       </div>
 
       {/* Details Grid */}
@@ -74,25 +76,25 @@ export default async function VendorDetailPage({ params }: VendorDetailPageProps
             <CardTitle className="text-lg">Contact Information</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {vendor.email && (
+            {company.email && (
               <div className="flex items-center gap-3">
                 <Mail className="h-4 w-4 text-muted-foreground" />
                 <a
-                  href={`mailto:${vendor.email}`}
+                  href={`mailto:${company.email}`}
                   className="text-sm hover:underline"
                 >
-                  {vendor.email}
+                  {company.email}
                 </a>
               </div>
             )}
-            {vendor.phone && (
+            {company.phone && (
               <div className="flex items-center gap-3">
                 <Phone className="h-4 w-4 text-muted-foreground" />
                 <a
-                  href={`tel:${vendor.phone}`}
+                  href={`tel:${company.phone}`}
                   className="text-sm hover:underline"
                 >
-                  {vendor.phone}
+                  {company.phone}
                 </a>
               </div>
             )}
@@ -102,7 +104,7 @@ export default async function VendorDetailPage({ params }: VendorDetailPageProps
                 <span className="text-sm">{addressParts}</span>
               </div>
             )}
-            {!vendor.email && !vendor.phone && !addressParts && (
+            {!company.email && !company.phone && !addressParts && (
               <p className="text-sm text-muted-foreground">
                 No contact information provided.
               </p>
@@ -116,20 +118,20 @@ export default async function VendorDetailPage({ params }: VendorDetailPageProps
             <CardTitle className="text-lg">Business Details</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {vendor.gstNumber && (
+            {company.gstNumber && (
               <div className="flex items-center gap-3">
                 <Building2 className="h-4 w-4 text-muted-foreground" />
                 <div>
                   <p className="text-xs text-muted-foreground">GST Number</p>
-                  <p className="text-sm font-mono">{vendor.gstNumber}</p>
+                  <p className="text-sm font-mono">{company.gstNumber}</p>
                 </div>
               </div>
             )}
             <div>
               <p className="text-xs text-muted-foreground">Added</p>
               <p className="text-sm">
-                {vendor.createdAt
-                  ? new Date(vendor.createdAt).toLocaleDateString("en-IN", {
+                {company.createdAt
+                  ? new Date(company.createdAt).toLocaleDateString("en-IN", {
                       day: "numeric",
                       month: "long",
                       year: "numeric",
@@ -137,7 +139,7 @@ export default async function VendorDetailPage({ params }: VendorDetailPageProps
                   : "—"}
               </p>
             </div>
-            {!vendor.gstNumber && (
+            {!company.gstNumber && (
               <p className="text-sm text-muted-foreground">
                 No GST number provided.
               </p>
@@ -146,13 +148,13 @@ export default async function VendorDetailPage({ params }: VendorDetailPageProps
         </Card>
 
         {/* Notes */}
-        {vendor.notes && (
+        {company.notes && (
           <Card className="md:col-span-2">
             <CardHeader>
               <CardTitle className="text-lg">Notes</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm whitespace-pre-wrap">{vendor.notes}</p>
+              <p className="text-sm whitespace-pre-wrap">{company.notes}</p>
             </CardContent>
           </Card>
         )}

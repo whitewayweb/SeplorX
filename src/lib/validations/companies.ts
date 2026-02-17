@@ -1,7 +1,10 @@
 import { z } from "zod";
 
-export const CreateVendorSchema = z.object({
-  name: z.string().trim().min(1, "Vendor name is required"),
+const companyTypes = ["supplier", "customer", "both"] as const;
+
+export const CreateCompanySchema = z.object({
+  name: z.string().trim().min(1, "Company name is required"),
+  type: z.enum(companyTypes, { message: "Invalid company type" }),
   contactPerson: z.string().trim().optional().or(z.literal("")),
   email: z
     .string()
@@ -18,10 +21,10 @@ export const CreateVendorSchema = z.object({
   notes: z.string().trim().optional().or(z.literal("")),
 });
 
-export const UpdateVendorSchema = CreateVendorSchema.extend({
-  id: z.coerce.number().int().positive("Invalid vendor ID"),
+export const UpdateCompanySchema = CreateCompanySchema.extend({
+  id: z.coerce.number().int().positive("Invalid company ID"),
 });
 
-export const VendorIdSchema = z.object({
-  id: z.coerce.number().int().positive("Invalid vendor ID"),
+export const CompanyIdSchema = z.object({
+  id: z.coerce.number().int().positive("Invalid company ID"),
 });

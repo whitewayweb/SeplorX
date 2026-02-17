@@ -1,10 +1,10 @@
 import { Badge } from "@/components/ui/badge";
 
-interface VendorStatusBadgeProps {
+interface CompanyStatusBadgeProps {
   isActive: boolean;
 }
 
-export function VendorStatusBadge({ isActive }: VendorStatusBadgeProps) {
+export function CompanyStatusBadge({ isActive }: CompanyStatusBadgeProps) {
   return (
     <Badge variant={isActive ? "default" : "secondary"}>
       {isActive ? "Active" : "Inactive"}

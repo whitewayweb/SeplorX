@@ -18,6 +18,11 @@ import {
 
 export const roleEnum = pgEnum("role", ["admin", "customer", "vendor"]);
 export const appStatusEnum = pgEnum("app_status", ["installed", "configured"]);
+export const companyTypeEnum = pgEnum("company_type", [
+  "supplier",
+  "customer",
+  "both",
+]);
 
 export const purchaseInvoiceStatusEnum = pgEnum("purchase_invoice_status", [
   "draft",
@@ -67,11 +72,12 @@ export const appInstallations = pgTable("app_installations", {
   uniqueIndex("app_installations_user_app_idx").on(table.userId, table.appId),
 ]);
 
-// ─── Vendors ─────────────────────────────────────────────────────────────────
+// ─── Companies ──────────────────────────────────────────────────────────────
 
-export const vendors = pgTable("vendors", {
+export const companies = pgTable("companies", {
   id: serial("id").primaryKey(),
   name: varchar("name", { length: 255 }).notNull(),
+  type: companyTypeEnum("type").default("supplier").notNull(),
   contactPerson: varchar("contact_person", { length: 255 }),
   email: varchar("email", { length: 255 }),
   phone: varchar("phone", { length: 50 }),
@@ -110,7 +116,7 @@ export const products = pgTable("products", {
 export const purchaseInvoices = pgTable("purchase_invoices", {
   id: serial("id").primaryKey(),
   invoiceNumber: varchar("invoice_number", { length: 100 }).notNull(),
-  vendorId: integer("vendor_id").notNull().references(() => vendors.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
   invoiceDate: date("invoice_date").notNull(),
   dueDate: date("due_date"),
   status: purchaseInvoiceStatusEnum("status").default("received").notNull(),
@@ -125,7 +131,7 @@ export const purchaseInvoices = pgTable("purchase_invoices", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
-  index("purchase_invoices_vendor_idx").on(table.vendorId),
+  index("purchase_invoices_company_idx").on(table.companyId),
   index("purchase_invoices_status_idx").on(table.status),
 ]);
 

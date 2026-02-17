@@ -14,13 +14,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { createVendor, updateVendor } from "@/app/vendors/actions";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { createCompany, updateCompany } from "@/app/companies/actions";
 import { useState } from "react";
 import { Plus, Pencil } from "lucide-react";
 
-type Vendor = {
+type Company = {
   id: number;
   name: string;
+  type: "supplier" | "customer" | "both";
   contactPerson: string | null;
   email: string | null;
   phone: string | null;
@@ -32,20 +40,20 @@ type Vendor = {
   notes: string | null;
 };
 
-interface VendorDialogProps {
-  vendor?: Vendor;
+interface CompanyDialogProps {
+  company?: Company;
 }
 
-export function VendorDialog({ vendor }: VendorDialogProps) {
-  const isEdit = !!vendor;
+export function CompanyDialog({ company }: CompanyDialogProps) {
+  const isEdit = !!company;
   const [open, setOpen] = useState(false);
   const [formKey, setFormKey] = useState(0);
 
   const [state, action, pending] = useActionState(
     async (prev: unknown, formData: FormData) => {
       const result = isEdit
-        ? await updateVendor(prev, formData)
-        : await createVendor(prev, formData);
+        ? await updateCompany(prev, formData)
+        : await createCompany(prev, formData);
 
       if (result?.success) {
         setOpen(false);
@@ -58,7 +66,7 @@ export function VendorDialog({ vendor }: VendorDialogProps) {
   );
 
   const fields = [
-    { key: "name", label: "Vendor Name", required: true, type: "text" as const },
+    { key: "name", label: "Company Name", required: true, type: "text" as const },
     { key: "contactPerson", label: "Contact Person", required: false, type: "text" as const },
     { key: "email", label: "Email", required: false, type: "email" as const },
     { key: "phone", label: "Phone", required: false, type: "tel" as const },
@@ -79,27 +87,53 @@ export function VendorDialog({ vendor }: VendorDialogProps) {
         ) : (
           <Button>
             <Plus className="h-4 w-4 mr-2" />
-            Add Vendor
+            Add Company
           </Button>
         )}
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit Vendor" : "Add Vendor"}</DialogTitle>
+          <DialogTitle>{isEdit ? "Edit Company" : "Add Company"}</DialogTitle>
           <DialogDescription>
             {isEdit
-              ? "Update vendor details below."
-              : "Enter the vendor details to add a new supplier."}
+              ? "Update company details below."
+              : "Enter the company details to add a new business entity."}
           </DialogDescription>
         </DialogHeader>
 
         <form key={formKey} action={action} className="space-y-4">
-          {isEdit && <input type="hidden" name="id" value={vendor.id} />}
+          {isEdit && <input type="hidden" name="id" value={company.id} />}
+
+          {/* Company Type */}
+          <div className="space-y-2">
+            <Label htmlFor="type">
+              Type
+              <span className="text-destructive ml-1">*</span>
+            </Label>
+            <Select
+              name="type"
+              defaultValue={isEdit ? company.type : "supplier"}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="supplier">Supplier</SelectItem>
+                <SelectItem value="customer">Customer</SelectItem>
+                <SelectItem value="both">Both (Supplier & Customer)</SelectItem>
+              </SelectContent>
+            </Select>
+            {state?.fieldErrors?.type && (
+              <p className="text-sm text-destructive">
+                {(state.fieldErrors.type as string[])?.[0]}
+              </p>
+            )}
+          </div>
 
           {fields.map((field) => {
             const defaultValue =
-              isEdit && vendor
-                ? (vendor[field.key as keyof Vendor] as string) ?? ""
+              isEdit && company
+                ? (company[field.key as keyof Company] as string) ?? ""
                 : "";
 
             return (
@@ -143,9 +177,9 @@ export function VendorDialog({ vendor }: VendorDialogProps) {
             <Textarea
               id="notes"
               name="notes"
-              defaultValue={isEdit ? vendor.notes ?? "" : ""}
+              defaultValue={isEdit ? company.notes ?? "" : ""}
               rows={3}
-              placeholder="Internal notes about this vendor..."
+              placeholder="Internal notes about this company..."
             />
           </div>
 
@@ -168,7 +202,7 @@ export function VendorDialog({ vendor }: VendorDialogProps) {
                   : "Creating..."
                 : isEdit
                   ? "Save Changes"
-                  : "Create Vendor"}
+                  : "Create Company"}
             </Button>
           </DialogFooter>
         </form>

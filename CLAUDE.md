@@ -33,11 +33,11 @@ yarn db:studio        # Drizzle Studio GUI
 src/
 ├── app/
 │   ├── apps/               # Shipping API integrations
-│   ├── vendors/             # Vendor management (CRUD)
-│   │   ├── page.tsx         # Vendor list
+│   ├── companies/           # Company management (CRUD, type: supplier/customer/both)
+│   │   ├── page.tsx         # Company list
 │   │   ├── actions.ts       # Server actions
 │   │   ├── loading.tsx      # Skeleton
-│   │   └── [id]/page.tsx    # Vendor detail
+│   │   └── [id]/page.tsx    # Company detail
 │   ├── products/            # Product catalog (planned)
 │   ├── invoices/            # Purchase invoices (planned)
 │   ├── inventory/           # Inventory overview (planned)
@@ -47,7 +47,7 @@ src/
 │   └── error.tsx            # Global error boundary
 ├── components/
 │   ├── apps/                # App integration components
-│   ├── vendors/             # Vendor UI components
+│   ├── companies/           # Company UI components
 │   ├── layout/              # Layout components (sidebar)
 │   └── ui/                  # shadcn/ui primitives
 ├── db/
@@ -56,7 +56,7 @@ src/
 ├── hooks/                   # React hooks (use-mobile)
 └── lib/
     ├── apps/                # App registry system
-    ├── validations/         # Zod schemas (apps, vendors, etc.)
+    ├── validations/         # Zod schemas (apps, companies, etc.)
     ├── crypto.ts            # AES-256-GCM encryption
     ├── env.ts               # Environment variable validation
     └── utils.ts             # cn() class merge helper
@@ -72,7 +72,7 @@ src/
 
 ## Database
 
-- Tables: `users`, `app_installations`, `vendors`, `products`, `purchase_invoices`, `purchase_invoice_items`, `payments`, `inventory_transactions`
+- Tables: `users`, `app_installations`, `companies` (type: supplier/customer/both), `products`, `purchase_invoices`, `purchase_invoice_items`, `payments`, `inventory_transactions`
 - Migrations in `drizzle/` directory (PostgreSQL dialect)
 - Use **port 6543** (transaction pooler) for the app, **port 5432** (direct) for migrations
 - Decimal(12,2) for all money columns; integer for stock quantities
@@ -87,7 +87,7 @@ src/
 ## Lint Rules
 
 - React 19 strict lint: no `setState` inside `useEffect`, no ref access during render
-- Use wrapper pattern in `useActionState` callback to close dialogs on success (see `vendor-dialog.tsx`)
+- Use wrapper pattern in `useActionState` callback to close dialogs on success (see `company-dialog.tsx`)
 
 ## Design Docs
 
@@ -96,4 +96,4 @@ Read these before working on related features:
 - `docs/architecture.md` — system architecture, layout, data flow patterns
 - `docs/apps-integration.md` — apps registry pattern, how to add new apps/categories
 - `docs/database.md` — all tables, JSONB config design, connection conventions
-- `docs/business-modules.md` — vendors, products, invoices, payments, inventory
+- `docs/business-modules.md` — companies, products, invoices, payments, inventory

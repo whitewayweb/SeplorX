@@ -11,14 +11,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { VendorStatusBadge } from "@/components/vendors/vendor-status-badge";
-import { VendorDialog } from "@/components/vendors/vendor-dialog";
-import { toggleVendorActive, deleteVendor } from "@/app/vendors/actions";
+import { CompanyStatusBadge } from "@/components/companies/company-status-badge";
+import { CompanyTypeBadge } from "@/components/companies/company-type-badge";
+import { CompanyDialog } from "@/components/companies/company-dialog";
+import { toggleCompanyActive, deleteCompany } from "@/app/companies/actions";
 import { Eye, Power, Trash2 } from "lucide-react";
 
-type Vendor = {
+type Company = {
   id: number;
   name: string;
+  type: "supplier" | "customer" | "both";
   contactPerson: string | null;
   email: string | null;
   phone: string | null;
@@ -32,41 +34,41 @@ type Vendor = {
   createdAt: Date | null;
 };
 
-interface VendorListProps {
-  vendors: Vendor[];
+interface CompanyListProps {
+  companies: Company[];
 }
 
-function ToggleButton({ vendor }: { vendor: Vendor }) {
-  const [, action, pending] = useActionState(toggleVendorActive, null);
+function ToggleButton({ company }: { company: Company }) {
+  const [, action, pending] = useActionState(toggleCompanyActive, null);
 
   return (
     <form action={action}>
-      <input type="hidden" name="id" value={vendor.id} />
+      <input type="hidden" name="id" value={company.id} />
       <Button
         variant="ghost"
         size="icon"
         type="submit"
         disabled={pending}
-        title={vendor.isActive ? "Deactivate" : "Activate"}
+        title={company.isActive ? "Deactivate" : "Activate"}
       >
-        <Power className={`h-4 w-4 ${vendor.isActive ? "text-green-600" : "text-muted-foreground"}`} />
+        <Power className={`h-4 w-4 ${company.isActive ? "text-green-600" : "text-muted-foreground"}`} />
       </Button>
     </form>
   );
 }
 
-function DeleteButton({ vendor }: { vendor: Vendor }) {
-  const [state, action, pending] = useActionState(deleteVendor, null);
+function DeleteButton({ company }: { company: Company }) {
+  const [state, action, pending] = useActionState(deleteCompany, null);
 
   return (
     <form action={action}>
-      <input type="hidden" name="id" value={vendor.id} />
+      <input type="hidden" name="id" value={company.id} />
       <Button
         variant="ghost"
         size="icon"
         type="submit"
         disabled={pending}
-        title="Delete vendor"
+        title="Delete company"
       >
         <Trash2 className="h-4 w-4 text-destructive" />
       </Button>
@@ -77,13 +79,13 @@ function DeleteButton({ vendor }: { vendor: Vendor }) {
   );
 }
 
-export function VendorList({ vendors }: VendorListProps) {
-  if (vendors.length === 0) {
+export function CompanyList({ companies }: CompanyListProps) {
+  if (companies.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
-        <p className="text-muted-foreground text-lg">No vendors yet</p>
+        <p className="text-muted-foreground text-lg">No companies yet</p>
         <p className="text-muted-foreground text-sm mt-1">
-          Add your first vendor to get started.
+          Add your first company to get started.
         </p>
       </div>
     );
@@ -95,6 +97,7 @@ export function VendorList({ vendors }: VendorListProps) {
         <TableHeader>
           <TableRow>
             <TableHead>Name</TableHead>
+            <TableHead>Type</TableHead>
             <TableHead>Contact</TableHead>
             <TableHead>Phone</TableHead>
             <TableHead>GST</TableHead>
@@ -104,28 +107,31 @@ export function VendorList({ vendors }: VendorListProps) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {vendors.map((vendor) => (
-            <TableRow key={vendor.id}>
-              <TableCell className="font-medium">{vendor.name}</TableCell>
-              <TableCell>{vendor.contactPerson ?? "—"}</TableCell>
-              <TableCell>{vendor.phone ?? "—"}</TableCell>
-              <TableCell className="font-mono text-sm">
-                {vendor.gstNumber ?? "—"}
-              </TableCell>
-              <TableCell>{vendor.city ?? "—"}</TableCell>
+          {companies.map((company) => (
+            <TableRow key={company.id}>
+              <TableCell className="font-medium">{company.name}</TableCell>
               <TableCell>
-                <VendorStatusBadge isActive={vendor.isActive} />
+                <CompanyTypeBadge type={company.type} />
+              </TableCell>
+              <TableCell>{company.contactPerson ?? "—"}</TableCell>
+              <TableCell>{company.phone ?? "—"}</TableCell>
+              <TableCell className="font-mono text-sm">
+                {company.gstNumber ?? "—"}
+              </TableCell>
+              <TableCell>{company.city ?? "—"}</TableCell>
+              <TableCell>
+                <CompanyStatusBadge isActive={company.isActive} />
               </TableCell>
               <TableCell>
                 <div className="flex items-center justify-end gap-1">
                   <Button variant="ghost" size="icon" asChild>
-                    <Link href={`/vendors/${vendor.id}`}>
+                    <Link href={`/companies/${company.id}`}>
                       <Eye className="h-4 w-4" />
                     </Link>
                   </Button>
-                  <VendorDialog vendor={vendor} />
-                  <ToggleButton vendor={vendor} />
-                  <DeleteButton vendor={vendor} />
+                  <CompanyDialog company={company} />
+                  <ToggleButton company={company} />
+                  <DeleteButton company={company} />
                 </div>
               </TableCell>
             </TableRow>

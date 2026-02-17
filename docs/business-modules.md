@@ -2,36 +2,41 @@
 
 ## Overview
 
-SeplorX business modules provide vendor management, purchase invoice tracking, inventory/stock management, and payment recording for ecommerce operations.
+SeplorX business modules provide company management, purchase invoice tracking, inventory/stock management, and payment recording for ecommerce operations.
 
 ## Architecture
 
-### Vendor as Business Entity
+### Company as Business Entity
 
-Vendors have their own table — separate from `users`. A vendor represents a business/company (with GST, address, bank details) while a user represents a system login. The optional `user_id` FK on vendors allows future vendor portal access.
+Companies have their own table — separate from `users`. A company represents a business entity (with GST, address, contact details) while a user represents a system login. The `type` column classifies companies as:
 
-The `role` enum on `users` includes `"vendor"` for when vendors need login accounts, but the primary vendor management operates via the `vendors` table.
+- **supplier** — you buy products from them
+- **customer** — you sell products to them
+- **both** — acts as both supplier and customer
+
+The optional `user_id` FK on companies allows future portal access. The `role` enum on `users` includes `"vendor"` for when companies need login accounts.
 
 ### Data Flow
 
 ```
-Vendor → Purchase Invoice → Line Items → Products
-                ↓                          ↓
-             Payments            Inventory Transactions
-                                         ↓
-                                  Stock Level (cached)
+Company (supplier) → Purchase Invoice → Line Items → Products
+                            ↓                          ↓
+                         Payments            Inventory Transactions
+                                                     ↓
+                                              Stock Level (cached)
 ```
 
-1. **Create vendor** in the vendors table
+1. **Create company** in the companies table (type: supplier, customer, or both)
 2. **Record purchase invoice** with line items referencing products
 3. **Stock updates** automatically when invoice is created (inventory transactions + cached quantity)
 4. **Record payments** against invoices; status auto-updates (received → partial → paid)
 
 ## Modules
 
-### Vendors (`/vendors`)
+### Companies (`/companies`)
 
-CRUD for supplier/vendor management. Each vendor has:
+CRUD for business entity management. Each company has:
+- Type: supplier, customer, or both
 - Business info: name, GST number
 - Contact info: person, email, phone
 - Address: street, city, state, pincode
@@ -39,9 +44,9 @@ CRUD for supplier/vendor management. Each vendor has:
 - Notes: internal notes
 
 **Key patterns:**
-- Server actions for all mutations (`src/app/vendors/actions.ts`)
-- Zod validation schemas (`src/lib/validations/vendors.ts`)
-- Cannot delete vendors with existing invoices (FK constraint returns user-friendly error)
+- Server actions for all mutations (`src/app/companies/actions.ts`)
+- Zod validation schemas (`src/lib/validations/companies.ts`)
+- Cannot delete companies with existing invoices (FK constraint returns user-friendly error)
 
 ### Products (`/products`)
 
@@ -54,8 +59,8 @@ Product catalog with stock tracking:
 
 ### Purchase Invoices (`/invoices`)
 
-Bills received from vendors:
-- Invoice number, vendor, dates
+Bills received from supplier companies:
+- Invoice number, company, dates
 - Line items with product reference, quantity, unit price, tax
 - Auto-calculated subtotal, tax, discount, total
 - File upload for invoice PDF (deferred — column exists, UI added later)
@@ -83,9 +88,9 @@ See `docs/database.md` for full schema reference.
 
 | Table | Purpose |
 |-------|---------|
-| vendors | Supplier business entities |
+| companies | Business entities (supplier, customer, both) |
 | products | Product catalog with stock levels |
-| purchase_invoices | Bills from vendors |
+| purchase_invoices | Bills from supplier companies |
 | purchase_invoice_items | Line items on invoices |
 | payments | Payments against invoices |
 | inventory_transactions | Stock movement audit log |

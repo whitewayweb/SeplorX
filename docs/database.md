@@ -60,14 +60,15 @@ Encrypted values use the format `iv:authTag:ciphertext` (all hex-encoded). Non-s
 
 The app registry defines which keys are valid. Zod validates dynamically before writes. See `src/lib/crypto.ts` for encrypt/decrypt utilities.
 
-### vendors
+### companies
 
-Supplier business entities. See `docs/business-modules.md` for full design rationale.
+Business entities (suppliers, customers, or both). See `docs/business-modules.md` for full design rationale.
 
 | Column | Type | Constraints |
 |--------|------|-------------|
 | id | serial | PK |
 | name | varchar(255) | NOT NULL |
+| type | company_type enum | NOT NULL, default "supplier" |
 | contact_person | varchar(255) | nullable |
 | email | varchar(255) | nullable |
 | phone | varchar(50) | nullable |
@@ -104,13 +105,13 @@ Product catalog with cached stock levels.
 
 ### purchase_invoices
 
-Bills from vendors. Status auto-updates based on payments.
+Bills from supplier companies. Status auto-updates based on payments.
 
 | Column | Type | Constraints |
 |--------|------|-------------|
 | id | serial | PK |
 | invoice_number | varchar(100) | NOT NULL |
-| vendor_id | integer | NOT NULL, FK → vendors.id |
+| company_id | integer | NOT NULL, FK → companies.id |
 | invoice_date | date | NOT NULL |
 | due_date | date | nullable |
 | status | purchase_invoice_status enum | NOT NULL, default "received" |
@@ -125,7 +126,7 @@ Bills from vendors. Status auto-updates based on payments.
 | created_at | timestamp | default now() |
 | updated_at | timestamp | default now() |
 
-**Indexes**: `(vendor_id)`, `(status)`
+**Indexes**: `(company_id)`, `(status)`
 
 ### purchase_invoice_items
 
@@ -188,6 +189,7 @@ Audit log for stock movements.
 |------|--------|---------|
 | role | admin, customer, vendor | users.role |
 | app_status | installed, configured | app_installations.status |
+| company_type | supplier, customer, both | companies.type |
 | purchase_invoice_status | draft, received, partial, paid, cancelled | purchase_invoices.status |
 | payment_mode | cash, bank_transfer, upi, cheque, other | payments.payment_mode |
 | inventory_transaction_type | purchase_in, sale_out, adjustment, return | inventory_transactions.type |
