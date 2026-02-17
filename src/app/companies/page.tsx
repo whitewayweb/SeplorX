@@ -8,7 +8,22 @@ export const dynamic = "force-dynamic";
 
 export default async function CompaniesPage() {
   const companyList = await db
-    .select()
+    .select({
+      id: companies.id,
+      name: companies.name,
+      type: companies.type,
+      contactPerson: companies.contactPerson,
+      email: companies.email,
+      phone: companies.phone,
+      gstNumber: companies.gstNumber,
+      address: companies.address,
+      city: companies.city,
+      state: companies.state,
+      pincode: companies.pincode,
+      notes: companies.notes,
+      isActive: companies.isActive,
+      createdAt: companies.createdAt,
+    })
     .from(companies)
     .orderBy(desc(companies.createdAt));
 

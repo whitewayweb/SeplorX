@@ -133,6 +133,7 @@ export const purchaseInvoices = pgTable("purchase_invoices", {
 }, (table) => [
   index("purchase_invoices_company_idx").on(table.companyId),
   index("purchase_invoices_status_idx").on(table.status),
+  uniqueIndex("purchase_invoices_company_invoice_unique").on(table.companyId, table.invoiceNumber),
 ]);
 
 // ─── Purchase Invoice Items ──────────────────────────────────────────────────

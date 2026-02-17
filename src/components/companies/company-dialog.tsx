@@ -44,6 +44,18 @@ interface CompanyDialogProps {
   company?: Company;
 }
 
+const COMPANY_FIELDS = [
+  { key: "name", label: "Company Name", required: true, type: "text" as const },
+  { key: "contactPerson", label: "Contact Person", required: false, type: "text" as const },
+  { key: "email", label: "Email", required: false, type: "email" as const },
+  { key: "phone", label: "Phone", required: false, type: "tel" as const },
+  { key: "gstNumber", label: "GST Number", required: false, type: "text" as const },
+  { key: "address", label: "Address", required: false, type: "textarea" as const },
+  { key: "city", label: "City", required: false, type: "text" as const },
+  { key: "state", label: "State", required: false, type: "text" as const },
+  { key: "pincode", label: "Pincode", required: false, type: "text" as const },
+] as const;
+
 export function CompanyDialog({ company }: CompanyDialogProps) {
   const isEdit = !!company;
   const [open, setOpen] = useState(false);
@@ -64,18 +76,6 @@ export function CompanyDialog({ company }: CompanyDialogProps) {
     },
     null,
   );
-
-  const fields = [
-    { key: "name", label: "Company Name", required: true, type: "text" as const },
-    { key: "contactPerson", label: "Contact Person", required: false, type: "text" as const },
-    { key: "email", label: "Email", required: false, type: "email" as const },
-    { key: "phone", label: "Phone", required: false, type: "tel" as const },
-    { key: "gstNumber", label: "GST Number", required: false, type: "text" as const },
-    { key: "address", label: "Address", required: false, type: "textarea" as const },
-    { key: "city", label: "City", required: false, type: "text" as const },
-    { key: "state", label: "State", required: false, type: "text" as const },
-    { key: "pincode", label: "Pincode", required: false, type: "text" as const },
-  ] as const;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -130,7 +130,7 @@ export function CompanyDialog({ company }: CompanyDialogProps) {
             )}
           </div>
 
-          {fields.map((field) => {
+          {COMPANY_FIELDS.map((field) => {
             const defaultValue =
               isEdit && company
                 ? (company[field.key as keyof Company] as string) ?? ""

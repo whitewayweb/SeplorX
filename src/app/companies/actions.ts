@@ -39,7 +39,7 @@ export async function createCompany(_prevState: unknown, formData: FormData) {
   try {
     await db.insert(companies).values(parsed.data);
   } catch (err) {
-    console.error("createCompany error:", err);
+    console.error("[createCompany]", { error: String(err) });
     return { error: "Failed to create company. Please try again." };
   }
 
@@ -88,7 +88,7 @@ export async function updateCompany(_prevState: unknown, formData: FormData) {
       .set({ ...data, updatedAt: new Date() })
       .where(eq(companies.id, id));
   } catch (err) {
-    console.error("updateCompany error:", err);
+    console.error("[updateCompany]", { companyId: id, error: String(err) });
     return { error: "Failed to update company. Please try again." };
   }
 
@@ -124,7 +124,7 @@ export async function toggleCompanyActive(_prevState: unknown, formData: FormDat
       .set({ isActive: !existing[0].isActive, updatedAt: new Date() })
       .where(eq(companies.id, id));
   } catch (err) {
-    console.error("toggleCompanyActive error:", err);
+    console.error("[toggleCompanyActive]", { companyId: id, error: String(err) });
     return { error: "Failed to update company status. Please try again." };
   }
 
@@ -157,10 +157,14 @@ export async function deleteCompany(_prevState: unknown, formData: FormData) {
 
     await db.delete(companies).where(eq(companies.id, id));
   } catch (err) {
-    console.error("deleteCompany error:", err);
+    console.error("[deleteCompany]", { companyId: id, error: String(err) });
     // Handle FK constraint — company may have invoices
-    const pgError = err as { code?: string };
-    if (pgError.code === "23503") {
+    if (
+      err &&
+      typeof err === "object" &&
+      "code" in err &&
+      err.code === "23503"
+    ) {
       return { error: "Cannot delete company with existing invoices. Deactivate instead." };
     }
     return { error: "Failed to delete company. Please try again." };
