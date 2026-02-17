@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "purchase_invoices_company_invoice_unique" ON "purchase_invoices" USING btree ("company_id","invoice_number");

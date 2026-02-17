@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Puzzle } from "lucide-react";
+import {
+  LayoutDashboard,
+  Building2,
+  Package,
+  FileText,
+  Warehouse,
+  Puzzle,
+} from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -18,6 +25,10 @@ import {
 
 const navItems = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
+  { title: "Companies", href: "/companies", icon: Building2 },
+  { title: "Products", href: "/products", icon: Package },
+  { title: "Invoices", href: "/invoices", icon: FileText },
+  { title: "Inventory", href: "/inventory", icon: Warehouse },
   { title: "Apps", href: "/apps", icon: Puzzle },
 ];
 

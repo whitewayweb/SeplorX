@@ -32,28 +32,32 @@ yarn db:studio        # Drizzle Studio GUI
 ```
 src/
 ├── app/
-│   ├── apps/               # Apps integration page
-│   │   ├── page.tsx         # Server component (dynamic, reads DB)
-│   │   ├── actions.ts       # Server actions (install/configure/uninstall)
-│   │   └── loading.tsx      # Skeleton loading state
+│   ├── apps/               # Shipping API integrations
+│   ├── companies/           # Company management (CRUD, type: supplier/customer/both)
+│   │   ├── page.tsx         # Company list
+│   │   ├── actions.ts       # Server actions
+│   │   ├── loading.tsx      # Skeleton
+│   │   └── [id]/page.tsx    # Company detail
+│   ├── products/            # Product catalog (planned)
+│   ├── invoices/            # Purchase invoices (planned)
+│   ├── inventory/           # Inventory overview (planned)
 │   ├── api/health/          # Health check endpoint
 │   ├── page.tsx             # Dashboard
 │   ├── layout.tsx           # Root layout with sidebar
 │   └── error.tsx            # Global error boundary
 ├── components/
 │   ├── apps/                # App integration components
+│   ├── companies/           # Company UI components
 │   ├── layout/              # Layout components (sidebar)
 │   └── ui/                  # shadcn/ui primitives
 ├── db/
-│   ├── schema.ts            # Drizzle schema (users, appInstallations)
+│   ├── schema.ts            # Drizzle schema (all tables)
 │   └── index.ts             # DB connection (globalForDb pattern)
 ├── hooks/                   # React hooks (use-mobile)
 └── lib/
     ├── apps/                # App registry system
-    │   ├── types.ts         # Type definitions
-    │   ├── registry.ts      # App definitions + helpers
-    │   └── index.ts         # Barrel export
-    ├── validations/apps.ts  # Zod schemas for app config
+    ├── validations/         # Zod schemas (apps, companies, etc.)
+    ├── crypto.ts            # AES-256-GCM encryption
     ├── env.ts               # Environment variable validation
     └── utils.ts             # cn() class merge helper
 ```
@@ -68,9 +72,10 @@ src/
 
 ## Database
 
-- Tables: `users`, `app_installations` (with JSONB `config` column)
+- Tables: `users`, `app_installations`, `companies` (type: supplier/customer/both), `products`, `purchase_invoices`, `purchase_invoice_items`, `payments`, `inventory_transactions`
 - Migrations in `drizzle/` directory (PostgreSQL dialect)
 - Use **port 6543** (transaction pooler) for the app, **port 5432** (direct) for migrations
+- Decimal(12,2) for all money columns; integer for stock quantities
 
 ## Conventions
 
@@ -79,6 +84,11 @@ src/
 - UI components follow shadcn/ui patterns with `cn()` from `@/lib/utils`
 - shadcn/ui files in `src/components/ui/` are ignored by knip (standard exports)
 
+## Lint Rules
+
+- React 19 strict lint: no `setState` inside `useEffect`, no ref access during render
+- Use wrapper pattern in `useActionState` callback to close dialogs on success (see `company-dialog.tsx`)
+
 ## Design Docs
 
 Read these before working on related features:
@@ -86,3 +96,4 @@ Read these before working on related features:
 - `docs/architecture.md` — system architecture, layout, data flow patterns
 - `docs/apps-integration.md` — apps registry pattern, how to add new apps/categories
 - `docs/database.md` — all tables, JSONB config design, connection conventions
+- `docs/business-modules.md` — companies, products, invoices, payments, inventory
