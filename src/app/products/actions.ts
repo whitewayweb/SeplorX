@@ -211,40 +211,52 @@ export async function adjustStock(_prevState: unknown, formData: FormData) {
   const { productId, quantity, notes } = parsed.data;
 
   try {
-    const existing = await db
-      .select({ id: products.id, quantityOnHand: products.quantityOnHand })
-      .from(products)
-      .where(eq(products.id, productId))
-      .limit(1);
+    // Use a transaction to ensure stock check + update + log are atomic
+    await db.transaction(async (tx) => {
+      // Check product exists
+      const existing = await tx
+        .select({ id: products.id, quantityOnHand: products.quantityOnHand })
+        .from(products)
+        .where(eq(products.id, productId))
+        .limit(1);
 
-    if (existing.length === 0) {
-      return { error: "Product not found." };
-    }
+      if (existing.length === 0) {
+        throw new Error("PRODUCT_NOT_FOUND");
+      }
 
-    const newQty = existing[0].quantityOnHand + quantity;
-    if (newQty < 0) {
-      return { error: `Insufficient stock. Current: ${existing[0].quantityOnHand}, adjustment: ${quantity}.` };
-    }
+      const newQty = existing[0].quantityOnHand + quantity;
+      if (newQty < 0) {
+        throw new Error(`INSUFFICIENT_STOCK:${existing[0].quantityOnHand}`);
+      }
 
-    // Atomically update stock and insert transaction log
-    await db
-      .update(products)
-      .set({
-        quantityOnHand: sql`${products.quantityOnHand} + ${quantity}`,
-        updatedAt: new Date(),
-      })
-      .where(eq(products.id, productId));
+      // Atomically update stock and insert transaction log
+      await tx
+        .update(products)
+        .set({
+          quantityOnHand: sql`${products.quantityOnHand} + ${quantity}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(products.id, productId));
 
-    await db.insert(inventoryTransactions).values({
-      productId,
-      type: "adjustment",
-      quantity,
-      referenceType: "manual",
-      notes: notes || null,
-      createdBy: CURRENT_USER_ID,
+      await tx.insert(inventoryTransactions).values({
+        productId,
+        type: "adjustment",
+        quantity,
+        referenceType: "manual",
+        notes: notes || null,
+        createdBy: CURRENT_USER_ID,
+      });
     });
   } catch (err) {
-    console.error("[adjustStock]", { productId, quantity, error: String(err) });
+    const message = String(err);
+    if (message.includes("PRODUCT_NOT_FOUND")) {
+      return { error: "Product not found." };
+    }
+    if (message.includes("INSUFFICIENT_STOCK:")) {
+      const currentQty = message.split("INSUFFICIENT_STOCK:")[1];
+      return { error: `Insufficient stock. Current: ${currentQty}, adjustment: ${quantity}.` };
+    }
+    console.error("[adjustStock]", { productId, quantity, error: message });
     return { error: "Failed to adjust stock. Please try again." };
   }
 
