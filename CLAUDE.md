@@ -38,9 +38,9 @@ src/
 │   │   ├── actions.ts       # Server actions
 │   │   ├── loading.tsx      # Skeleton
 │   │   └── [id]/page.tsx    # Company detail
-│   ├── products/            # Product catalog (planned)
-│   ├── invoices/            # Purchase invoices (planned)
-│   ├── inventory/           # Inventory overview (planned)
+│   ├── products/            # Product catalog + stock tracking
+│   ├── invoices/            # Purchase invoices + payments
+│   ├── inventory/           # Inventory overview + stock alerts
 │   ├── api/health/          # Health check endpoint
 │   ├── page.tsx             # Dashboard
 │   ├── layout.tsx           # Root layout with sidebar
