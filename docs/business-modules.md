@@ -69,11 +69,24 @@ Product catalog with stock tracking:
 ### Purchase Invoices (`/invoices`)
 
 Bills received from supplier companies:
-- Invoice number, company, dates
-- Line items with product reference, quantity, unit price, tax
-- Auto-calculated subtotal, tax, discount, total
+- Invoice number, company, dates (invoice date, due date)
+- Line items with optional product reference, quantity, unit price, tax %
+- Auto-calculated: line tax, line total, subtotal, tax total, grand total (minus discount)
 - File upload for invoice PDF (deferred — column exists, UI added later)
 - Status workflow: draft → received → partial → paid | cancelled
+
+**Key patterns:**
+- Server actions for create (with line items), update (header), delete (`src/app/invoices/actions.ts`)
+- Zod validation schemas (`src/lib/validations/invoices.ts`)
+- Invoice creation is a single DB transaction: insert invoice → insert line items → update product stock → create inventory transactions
+- Line items with `productId` reference auto-update stock on non-draft invoices (type: `purchase_in`)
+- Stock updates use atomic `sql` template: `quantity_on_hand + qty`
+- Unique constraint on `(company_id, invoice_number)` returns user-friendly error (23505)
+- Cannot delete invoices with payments (FK constraint 23503, suggests cancellation instead)
+- Invoice detail page (`/invoices/[id]`) shows header, line items with product join, payments list
+- Invoice list page joins with companies table for supplier name display
+- Line items sent as JSON-encoded array in FormData for create action
+- Dynamic line item form with add/remove, product selection auto-fills description + purchase price
 
 ### Payments
 
@@ -82,6 +95,15 @@ Recorded against purchase invoices:
 - Reference (cheque number, UTR, transaction ID)
 - Multiple partial payments supported
 - Invoice status auto-updates based on amount paid vs total
+
+**Key patterns:**
+- Server actions for add payment + delete payment (`src/app/invoices/actions.ts`)
+- Payment recording is a single DB transaction: validate invoice → check for overpayment → insert payment → atomically update `amount_paid` → auto-set status
+- Status auto-calculation: `paid >= total` → "paid", `paid > 0` → "partial", `paid <= 0` → "received"
+- Deleting a payment reverses the amount_paid and recalculates status
+- Cannot add payment to cancelled invoices
+- Overpayment validation: `currentPaid + newAmount > totalAmount` returns user-friendly error
+- Payment dialog pre-fills remaining balance as default amount
 
 ### Inventory (`/inventory`)
 
