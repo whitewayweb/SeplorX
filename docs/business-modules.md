@@ -52,10 +52,19 @@ CRUD for business entity management. Each company has:
 
 Product catalog with stock tracking:
 - SKU (unique), name, description, category
-- Purchase price, selling price
+- Purchase price, selling price (decimal 12,2)
 - Unit of measurement (pcs, kg, etc.)
 - Reorder level (alert threshold)
 - Quantity on hand (cached, updated via inventory transactions)
+
+**Key patterns:**
+- Server actions for CRUD + stock adjustment (`src/app/products/actions.ts`)
+- Zod validation schemas (`src/lib/validations/products.ts`)
+- Stock adjustment atomically updates `quantity_on_hand` using `sql` template and logs an `inventory_transaction`
+- Cannot delete products with existing invoices or inventory records (FK constraint)
+- Duplicate SKU returns user-friendly error (unique constraint violation 23505)
+- Product detail page (`/products/[id]`) shows pricing, stock levels, and transaction history
+- Stock alert badges: "Out of stock" (red) when qty ≤ 0, "Low stock" (amber) when qty ≤ reorder level
 
 ### Purchase Invoices (`/invoices`)
 
@@ -82,6 +91,12 @@ Transaction-based stock tracking:
 - Polymorphic reference: `reference_type` + `reference_id` links to source document
 - `products.quantity_on_hand` cached and atomically updated
 
+**Key patterns:**
+- Overview page with 4 summary cards: active products, low stock, out of stock, total stock value
+- Stock alerts table: products at or below reorder level, sorted by quantity ascending
+- Recent transactions table with product name join, type badges, signed quantity display
+- Stock value calculated as `sum(quantity_on_hand * purchase_price)` for active products
+
 ## Database Tables
 
 See `docs/database.md` for full schema reference.
@@ -103,3 +118,6 @@ See `docs/database.md` for full schema reference.
 - Pages use `export const dynamic = "force-dynamic"` for fresh data
 - `revalidatePath` after every mutation
 - Error handling: try-catch with user-friendly messages, FK violation handling
+- Structured logging: `console.error("[actionName]", { contextId, error: String(err) })`
+- Type-safe error checks: use `typeof err === "object" && "code" in err` instead of `as` casts
+- Module-level constants for static arrays to avoid re-creation on render (e.g. `PRODUCT_FIELDS`)
