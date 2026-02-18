@@ -84,6 +84,40 @@ src/
 - UI components follow shadcn/ui patterns with `cn()` from `@/lib/utils`
 - shadcn/ui files in `src/components/ui/` are ignored by knip (standard exports)
 
+## Architecture Principles
+
+Follow these principles for all code changes (based on sound software architecture):
+
+### Client vs Server Boundary (Next.js)
+
+- **Server Components** (default): Data fetching, DB queries, business logic. Never import `useState`, `useEffect`, or browser APIs.
+- **Client Components** (`"use client"`): Interactivity only — forms, dialogs, state, event handlers. Keep them thin; pass data via props from server components.
+- **Server Actions** (`"use server"`): All mutations. Validate with Zod, handle errors, `revalidatePath`. Never call from server components directly.
+- Data flows one way: **Server Component → props → Client Component → Server Action → revalidate**
+
+### Scalability
+
+- Write queries with explicit column selection (no `SELECT *`)
+- Use DB transactions for multi-step mutations (read-check-write must be atomic)
+- Keep server actions focused: one action = one operation
+- Prefer DB-level constraints (unique indexes, FK checks) over application-level checks
+- Use `sql` template for atomic field updates (e.g., `quantity + N`) instead of read-then-write
+
+### Minimal Engineering
+
+- Do the minimum required, but do it correctly
+- No premature abstractions — extract only when there are 3+ concrete uses
+- No speculative features, config flags, or "future-proofing"
+- Three similar lines > one premature helper function
+- If a pattern is used once, inline it. If used across modules, extract it.
+
+### Error Handling
+
+- Validate at boundaries (server actions receive untrusted FormData)
+- Trust internal code — don't re-validate data between your own functions
+- Use DB error codes (23505 = unique violation, 23503 = FK violation) for user-friendly messages
+- Structured logging: `console.error("[actionName]", { contextId, error: String(err) })`
+
 ## Lint Rules
 
 - React 19 strict lint: no `setState` inside `useEffect`, no ref access during render
