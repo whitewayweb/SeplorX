@@ -39,6 +39,14 @@ const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secon
   cancelled: { label: "Cancelled", variant: "destructive" },
 };
 
+const PAYMENT_MODE_LABELS: Record<string, string> = {
+  cash: "Cash",
+  bank_transfer: "Bank Transfer",
+  upi: "UPI",
+  cheque: "Cheque",
+  other: "Other",
+};
+
 function formatCurrency(value: string | null): string {
   if (!value) return "₹0.00";
   const num = parseFloat(value);
@@ -125,14 +133,6 @@ export default async function InvoiceDetailPage({ params }: InvoiceDetailPagePro
   const statusConfig = STATUS_CONFIG[invoice.status] ?? { label: invoice.status, variant: "outline" as const };
   const remainingBalance = parseFloat(invoice.totalAmount) - parseFloat(invoice.amountPaid);
   const canAddPayment = invoice.status !== "cancelled" && invoice.status !== "paid" && remainingBalance > 0;
-
-  const PAYMENT_MODE_LABELS: Record<string, string> = {
-    cash: "Cash",
-    bank_transfer: "Bank Transfer",
-    upi: "UPI",
-    cheque: "Cheque",
-    other: "Other",
-  };
 
   return (
     <div className="p-6 space-y-6">

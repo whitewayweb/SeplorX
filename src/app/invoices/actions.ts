@@ -24,10 +24,15 @@ const CURRENT_USER_ID = 1;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/** Round to 2 decimal places using banker's rounding to avoid floating point drift */
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
 function computeItemTotals(item: LineItemInput) {
-  const lineSubtotal = item.quantity * item.unitPrice;
-  const taxAmount = lineSubtotal * (item.taxPercent / 100);
-  const totalAmount = lineSubtotal + taxAmount;
+  const lineSubtotal = round2(item.quantity * item.unitPrice);
+  const taxAmount = round2(lineSubtotal * (item.taxPercent / 100));
+  const totalAmount = round2(lineSubtotal + taxAmount);
   return {
     taxAmount: taxAmount.toFixed(2),
     totalAmount: totalAmount.toFixed(2),
@@ -41,12 +46,12 @@ function computeInvoiceTotals(
   let subtotal = 0;
   let taxTotal = 0;
   for (const item of items) {
-    const lineSubtotal = item.quantity * item.unitPrice;
-    const lineTax = lineSubtotal * (item.taxPercent / 100);
-    subtotal += lineSubtotal;
-    taxTotal += lineTax;
+    const lineSubtotal = round2(item.quantity * item.unitPrice);
+    const lineTax = round2(lineSubtotal * (item.taxPercent / 100));
+    subtotal = round2(subtotal + lineSubtotal);
+    taxTotal = round2(taxTotal + lineTax);
   }
-  const total = subtotal + taxTotal - discountAmount;
+  const total = round2(subtotal + taxTotal - discountAmount);
   return {
     subtotal: subtotal.toFixed(2),
     taxAmount: taxTotal.toFixed(2),
