@@ -15,22 +15,6 @@ export const AGENT_REGISTRY = {
     route: "/api/agents/reorder",
     triggerPage: "/inventory",
   },
-  overdue: {
-    id: "overdue",
-    name: "Overdue Invoice Reminder",
-    description: "Drafts payment reminders for overdue supplier invoices.",
-    enabled: false,
-    route: "/api/agents/overdue",
-    triggerPage: "/invoices",
-  },
-  rateCompare: {
-    id: "rate-compare",
-    name: "Carrier Rate Comparison",
-    description: "Compares rates across your configured shipping carriers and recommends the best option.",
-    enabled: false,
-    route: "/api/agents/rate-compare",
-    triggerPage: "/invoices/[id]",
-  },
 } as const;
 
 export type AgentId = keyof typeof AGENT_REGISTRY;
