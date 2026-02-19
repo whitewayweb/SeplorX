@@ -183,6 +183,28 @@ Audit log for stock movements.
 
 **Indexes**: `(product_id)`, `(reference_type, reference_id)`
 
+### agent_actions
+
+Approval queue and audit log for all AI agent recommendations. Agents write here; humans approve or dismiss; Server Actions then execute the actual writes to core tables.
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | serial | PK |
+| agent_type | varchar(100) | NOT NULL (matches registry key, e.g. "reorder") |
+| status | agent_status enum | NOT NULL, default "pending_approval" |
+| plan | jsonb | NOT NULL (structured plan from agent, shape varies by agent_type) |
+| rationale | text | nullable (agent's reasoning summary) |
+| tool_calls | jsonb | nullable (raw tool call trace for debugging) |
+| resolved_by | integer | FK → users.id (SET NULL), nullable |
+| created_at | timestamp | default now() |
+| resolved_at | timestamp | nullable |
+
+**Indexes**: `(status)`, `(agent_type)`
+
+**Status lifecycle**: `pending_approval` → `executed` (user approved) or `dismissed` (user dismissed). `failed` if the agent threw before producing a plan.
+
+**Note**: The `plan` JSONB shape is agent-specific. For `agent_type = "reorder"`, it matches the `ReorderPlan` type in `src/lib/agents/tools/inventory-tools.ts`. Core tables are never written by agents directly — only via Server Actions after human approval.
+
 ## Enums
 
 | Enum | Values | Used By |
@@ -193,6 +215,7 @@ Audit log for stock movements.
 | purchase_invoice_status | draft, received, partial, paid, cancelled | purchase_invoices.status |
 | payment_mode | cash, bank_transfer, upi, cheque, other | payments.payment_mode |
 | inventory_transaction_type | purchase_in, sale_out, adjustment, return | inventory_transactions.type |
+| agent_status | pending_approval, approved, dismissed, executed, failed | agent_actions.status |
 
 ## Conventions
 

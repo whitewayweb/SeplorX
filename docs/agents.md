@@ -132,9 +132,9 @@ src/
    - One "propose" tool that writes to `agent_actions`
 
 3. **Create agent** (`src/lib/agents/my-agent.ts`):
-   - `generateText()` with `google("gemini-2.0-flash")`
+   - `generateText()` with `google("gemini-2.0-flash")` (import `google` from `@ai-sdk/google`)
    - System prompt with exact instructions
-   - `maxSteps: 15`
+   - `stopWhen: stepCountIs(15)` (import `stepCountIs` from `ai`)
 
 4. **Create API route** (`src/app/api/agents/my-agent/route.ts`):
    - Check `AGENT_REGISTRY.myAgent.enabled`
@@ -167,9 +167,19 @@ Get a key at [aistudio.google.com](https://aistudio.google.com). Add to `.env.lo
 
 ## Upgrading the AI Model
 
-The model is one line in `src/lib/agents/reorder-agent.ts`:
+The model is one line in each agent file, e.g. `src/lib/agents/reorder-agent.ts`:
 ```typescript
+import { google } from "@ai-sdk/google";
+// ...
 model: google("gemini-2.0-flash"),
 ```
 
-To upgrade to Claude or GPT-4: install `@ai-sdk/anthropic` or `@ai-sdk/openai`, change this line. Everything else stays the same.
+To upgrade to Claude or GPT-4:
+```bash
+yarn add @ai-sdk/anthropic   # or @ai-sdk/openai
+```
+Then swap the import and model string — everything else stays the same:
+```typescript
+import { anthropic } from "@ai-sdk/anthropic";
+model: anthropic("claude-opus-4-6"),
+```

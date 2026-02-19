@@ -10,6 +10,7 @@ SeplorX — Next.js 16 shipping management portal deployed on Vercel with Supaba
 - **Database:** Supabase PostgreSQL via Drizzle ORM + postgres-js
 - **Styling:** Tailwind CSS v4, shadcn/ui (New York style), Radix UI, Lucide icons
 - **Validation:** Zod v4
+- **AI Agents:** Vercel AI SDK (`ai` + `@ai-sdk/google`), Gemini 2.0 Flash
 - **Deployment:** Vercel (serverless)
 - **Package manager:** Yarn 1 (enforced via `preinstall` script — do not use npm/pnpm)
 
@@ -32,7 +33,11 @@ yarn db:studio        # Drizzle Studio GUI
 ```
 src/
 ├── app/
-│   ├── apps/               # Shipping API integrations
+│   ├── agents/              # Agent Server Actions (approve/dismiss)
+│   ├── api/agents/          # Agent API routes (POST triggers)
+│   │   └── reorder/         # Low-stock reorder agent endpoint
+│   ├── api/health/          # Health check endpoint
+│   ├── apps/                # Shipping API integrations
 │   ├── companies/           # Company management (CRUD, type: supplier/customer/both)
 │   │   ├── page.tsx         # Company list
 │   │   ├── actions.ts       # Server actions
@@ -40,21 +45,25 @@ src/
 │   │   └── [id]/page.tsx    # Company detail
 │   ├── products/            # Product catalog + stock tracking
 │   ├── invoices/            # Purchase invoices + payments
-│   ├── inventory/           # Inventory overview + stock alerts
-│   ├── api/health/          # Health check endpoint
+│   ├── inventory/           # Inventory overview + stock alerts + AI reorder trigger
 │   ├── page.tsx             # Dashboard
 │   ├── layout.tsx           # Root layout with sidebar
 │   └── error.tsx            # Global error boundary
 ├── components/
+│   ├── agents/              # Agent UI components (trigger button, approval cards)
 │   ├── apps/                # App integration components
 │   ├── companies/           # Company UI components
 │   ├── layout/              # Layout components (sidebar)
 │   └── ui/                  # shadcn/ui primitives
 ├── db/
-│   ├── schema.ts            # Drizzle schema (all tables)
+│   ├── schema.ts            # Drizzle schema (all tables incl. agent_actions)
 │   └── index.ts             # DB connection (globalForDb pattern)
 ├── hooks/                   # React hooks (use-mobile)
 └── lib/
+    ├── agents/              # AI agent system (registry, tools, agent logic)
+    │   ├── registry.ts      # Agent definitions + enabled/disabled flags
+    │   ├── reorder-agent.ts # Low-stock reorder agent (Gemini 2.0 Flash)
+    │   └── tools/           # Typed read-only DB tools per agent
     ├── apps/                # App registry system
     ├── validations/         # Zod schemas (apps, companies, etc.)
     ├── crypto.ts            # AES-256-GCM encryption
@@ -67,12 +76,14 @@ src/
 - **Path alias:** `@/*` maps to `./src/*`
 - **DB connection:** `globalForDb` pattern, `max: 1` connection, PgBouncer (port 6543) handles pooling
 - **App registry:** App definitions in TypeScript (`src/lib/apps/registry.ts`), DB stores only installations + config JSONB. See `docs/apps-integration.md`
+- **Agent registry:** Agent definitions in TypeScript (`src/lib/agents/registry.ts`), `enabled` flag controls visibility. See `docs/agents.md`
 - **Dynamic validation:** Zod schemas built at runtime from registry `configFields`
 - **Server actions:** Mutations via `"use server"` actions with `useActionState` on client
+- **Agent pattern:** Agents are reasoning-only (read-only DB tools); writes happen via existing Server Actions after human approval. Two-phase serverless-safe flow.
 
 ## Database
 
-- Tables: `users`, `app_installations`, `companies` (type: supplier/customer/both), `products`, `purchase_invoices`, `purchase_invoice_items`, `payments`, `inventory_transactions`
+- Tables: `users`, `app_installations`, `companies` (type: supplier/customer/both), `products`, `purchase_invoices`, `purchase_invoice_items`, `payments`, `inventory_transactions`, `agent_actions`
 - Migrations in `drizzle/` directory (PostgreSQL dialect)
 - Use **port 6543** (transaction pooler) for the app, **port 5432** (direct) for migrations
 - Decimal(12,2) for all money columns; integer for stock quantities
