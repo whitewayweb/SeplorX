@@ -52,7 +52,7 @@ export function OcrUploadTrigger() {
     e.preventDefault();
     setDragging(false);
     accept(e.dataTransfer.files?.[0]);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);  
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     accept(e.target.files?.[0]);

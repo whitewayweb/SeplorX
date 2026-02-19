@@ -49,7 +49,15 @@ export async function createProduct(_prevState: unknown, formData: FormData) {
       "code" in err &&
       err.code === "23505"
     ) {
-      return { error: "A product with this SKU already exists." };
+      const existing = await db
+        .select({ id: products.id, name: products.name, sku: products.sku, purchasePrice: products.purchasePrice, unit: products.unit })
+        .from(products)
+        .where(eq(products.sku, rest.sku || ""))
+        .limit(1);
+      return { 
+        error: "A product with this SKU already exists.", 
+        existingProduct: existing.length > 0 ? existing[0] : null 
+      };
     }
     return { error: "Failed to create product. Please try again." };
   }

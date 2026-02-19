@@ -92,8 +92,8 @@ function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
                 current === s.n
                   ? "bg-blue-600 border-blue-600 text-white"
                   : current > s.n
-                  ? "bg-blue-100 border-blue-400 text-blue-700"
-                  : "bg-white border-muted-foreground/30 text-muted-foreground",
+                    ? "bg-blue-100 border-blue-400 text-blue-700"
+                    : "bg-white border-muted-foreground/30 text-muted-foreground",
               )}
             >
               {current > s.n ? <CheckCircle className="h-4 w-4" /> : s.n}
@@ -126,6 +126,11 @@ function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
 export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSuppliers, products: initialProducts }: Props) {
   const router = useRouter();
   const [step, setStep] = useState<1 | 2 | 3>(1);
+
+  const [extraProducts, setExtraProducts] = useState<ProductOption[]>([]);
+  const allProducts = [...initialProducts, ...extraProducts].filter(
+    (v, i, a) => a.findIndex((t) => t.id === v.id) === i
+  );
 
   // ── Step 1 — Supplier ─────────────────────────────────────────────────────────
   const preMatchId = findSupplierMatch(initialSuppliers, plan.supplierName);
@@ -160,8 +165,8 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
       return matched ? "existing" : "create";
     }),
   );
-  // Ref (not state) to track pending new product names — avoids infinite useEffect loops
-  const pendingNewProductNamesRef = useRef<(string | null)[]>(plan.items.map(() => null));
+  // Track pending new product names so we auto-link after routing refresh
+  const [pendingRefreshNames, setPendingRefreshNames] = useState<(string | null)[]>(plan.items.map(() => null));
   const [newProducts, setNewProducts] = useState(() =>
     plan.items.map((item) => ({
       name: item.description,
@@ -187,26 +192,33 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
     const needle = pendingNewSupplierName.toLowerCase();
     const found = initialSuppliers.find((s) => s.name.toLowerCase() === needle);
     if (found) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedSupplierId(String(found.id));
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSupplierMode("existing");
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPendingNewSupplierName(null);
     }
   }, [initialSuppliers, pendingNewSupplierName]);
 
   // ── Auto-link newly created products after router.refresh() ──────────────────
-  // Uses a ref (not state) so this effect only fires when initialProducts changes,
-  // not in a loop after each setPendingNewProductNames call.
+  // Uses state and checks if cleared to conditionally update Without loops
   useEffect(() => {
-    const pending = pendingNewProductNamesRef.current;
-    const hasPending = pending.some((n) => n !== null);
+    const hasPending = pendingRefreshNames.some((n) => n !== null);
     if (!hasPending) return;
+
+    let clearedAny = false;
+    const nextPending = [...pendingRefreshNames];
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLinkedItems((prev) =>
       prev.map((item, idx) => {
-        const name = pending[idx];
+        const name = pendingRefreshNames[idx];
         if (!name) return item;
-        const found = initialProducts.find((p) => p.name.toLowerCase() === name.toLowerCase());
+        const found = allProducts.find((p) => p.name.toLowerCase() === name.toLowerCase());
         if (found) {
-          pendingNewProductNamesRef.current[idx] = null;
+          clearedAny = true;
+          nextPending[idx] = null;
           return { ...item, productId: String(found.id) };
         }
         return item;
@@ -214,14 +226,18 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
     );
     setItemModes((prev) =>
       prev.map((mode, idx) => {
-        const name = pending[idx];
+        const name = pendingRefreshNames[idx];
         if (!name) return mode;
-        const found = initialProducts.find((p) => p.name.toLowerCase() === name.toLowerCase());
+        const found = allProducts.find((p) => p.name.toLowerCase() === name.toLowerCase());
         return found ? "existing" : mode;
       }),
     );
-  }, [initialProducts]); // eslint-disable-line react-hooks/exhaustive-deps
 
+    if (clearedAny) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setPendingRefreshNames(nextPending);
+    }
+  }, [allProducts, pendingRefreshNames]);
   // ── Server action wiring ───────────────────────────────────────────────────────
   const approveWithItems = async (prev: unknown, formData: FormData) => {
     const itemsData = linkedItems.map((item) => ({
@@ -320,17 +336,44 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
         ? Object.values(result.fieldErrors).flat().join(", ")
         : null;
       const msg = fieldMsgs ?? result.error ?? "Failed to create product.";
-      // If SKU already exists, switch to Link mode so user can find the existing product
-      const isDuplicate = msg.toLowerCase().includes("sku") || msg.toLowerCase().includes("already exists") || msg.toLowerCase().includes("failed to create");
-      if (isDuplicate && p.sku.trim()) {
-        errs[idx] = `SKU "${p.sku.trim()}" already exists — switch to "Link" to find it.`;
+      // Check if server returned the existing conflicting product
+      const ep = result.existingProduct;
+      if (ep) {
+        const extraProd: ProductOption = {
+          id: ep.id,
+          name: ep.name,
+          sku: ep.sku,
+          unit: ep.unit,
+          purchasePrice: ep.purchasePrice ? String(ep.purchasePrice) : "0",
+        };
+        setExtraProducts((prev) => [...prev, extraProd]);
+        updateItem(idx, { productId: String(ep.id) });
         updateItemMode(idx, "existing");
+        errs[idx] = `SKU "${p.sku.trim()}" already exists and was auto-linked.`;
       } else {
-        errs[idx] = msg;
+        const isDuplicate = msg.toLowerCase().includes("sku") || msg.toLowerCase().includes("already exists") || msg.toLowerCase().includes("failed to create");
+        if (isDuplicate && p.sku.trim()) {
+          const skuToFind = p.sku.trim().toLowerCase();
+          const existingProduct = allProducts.find((prod) => prod.sku?.toLowerCase() === skuToFind);
+          if (existingProduct) {
+            updateItem(idx, { productId: String(existingProduct.id) });
+            updateItemMode(idx, "existing");
+            errs[idx] = `SKU "${p.sku.trim()}" already exists and was auto-linked.`;
+          } else {
+            errs[idx] = `SKU "${p.sku.trim()}" already exists — switch to "Link" to find it.`;
+            updateItemMode(idx, "existing");
+          }
+        } else {
+          errs[idx] = msg;
+        }
       }
       setItemErrors(errs);
     } else {
-      pendingNewProductNamesRef.current[idx] = p.name.trim();
+      setPendingRefreshNames((prev) => {
+        const next = [...prev];
+        next[idx] = p.name.trim();
+        return next;
+      });
       router.refresh();
     }
   }
@@ -607,7 +650,7 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
                         <SelectValue placeholder="Link to product in catalog…" />
                       </SelectTrigger>
                       <SelectContent>
-                        {initialProducts.map((p) => (
+                        {allProducts.map((p) => (
                           <SelectItem key={p.id} value={String(p.id)}>
                             {p.name}
                             {p.sku && (
@@ -673,7 +716,7 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
                         {creatingItemIdx === idx && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                         {creatingItemIdx === idx ? "Saving Product…" : "Save Product"}
                       </Button>
-                      {pendingNewProductNamesRef.current[idx] && (
+                      {pendingRefreshNames[idx] && (
                         <p className="text-xs text-blue-700 text-center">Product saved — refreshing…</p>
                       )}
                     </div>
