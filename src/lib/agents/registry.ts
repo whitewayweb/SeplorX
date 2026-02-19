@@ -16,6 +16,3 @@ export const AGENT_REGISTRY = {
     triggerPage: "/inventory",
   },
 } as const;
-
-export type AgentId = keyof typeof AGENT_REGISTRY;
-export type AgentConfig = (typeof AGENT_REGISTRY)[AgentId];

@@ -107,8 +107,8 @@ export async function approveReorderPlan(_prevState: unknown, formData: FormData
     revalidatePath("/inventory");
     return { success: true, invoiceNumber };
   } catch (err) {
-    if (err && typeof err === "object" && "userError" in err) {
-      return { error: (err as Error).message };
+    if (err instanceof Error && "userError" in err) {
+      return { error: err.message };
     }
     console.error("[approveReorderPlan]", { taskId, error: String(err) });
     if (err && typeof err === "object" && "code" in err && err.code === "23505") {
