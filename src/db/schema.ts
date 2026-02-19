@@ -47,6 +47,14 @@ export const inventoryTransactionTypeEnum = pgEnum("inventory_transaction_type",
   "return",
 ]);
 
+export const agentStatusEnum = pgEnum("agent_status", [
+  "pending_approval",
+  "approved",
+  "dismissed",
+  "executed",
+  "failed",
+]);
+
 // ─── Users ───────────────────────────────────────────────────────────────────
 
 export const users = pgTable("users", {
@@ -184,4 +192,23 @@ export const inventoryTransactions = pgTable("inventory_transactions", {
 }, (table) => [
   index("inventory_transactions_product_idx").on(table.productId),
   index("inventory_transactions_reference_idx").on(table.referenceType, table.referenceId),
+]);
+
+// ─── Agent Actions ────────────────────────────────────────────────────────────
+// Audit log and approval queue for all AI agent recommendations.
+// Agents write here; humans approve/dismiss; Server Actions execute approved plans.
+
+export const agentActions = pgTable("agent_actions", {
+  id: serial("id").primaryKey(),
+  agentType: varchar("agent_type", { length: 100 }).notNull(),
+  status: agentStatusEnum("status").default("pending_approval").notNull(),
+  plan: jsonb("plan").notNull(),
+  rationale: text("rationale"),
+  toolCalls: jsonb("tool_calls"),
+  resolvedBy: integer("resolved_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow(),
+  resolvedAt: timestamp("resolved_at"),
+}, (table) => [
+  index("agent_actions_status_idx").on(table.status),
+  index("agent_actions_agent_type_idx").on(table.agentType),
 ]);

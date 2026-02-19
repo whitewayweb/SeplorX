@@ -36,6 +36,13 @@
       "when": 1771312497104,
       "tag": "0004_rare_cargill",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1771484125114,
+      "tag": "0005_free_rumiko_fujikawa",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { products, inventoryTransactions } from "@/db/schema";
+import { products, inventoryTransactions, agentActions } from "@/db/schema";
 import { desc, eq, lte, sql } from "drizzle-orm";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Package, AlertTriangle, PackageX, Eye } from "lucide-react";
+import { AGENT_REGISTRY } from "@/lib/agents/registry";
+import { ReorderTrigger } from "@/components/agents/reorder-trigger";
+import { ReorderApprovalCard } from "@/components/agents/reorder-approval-card";
+import type { ReorderPlan } from "@/lib/agents/tools/inventory-tools";
 
 export const dynamic = "force-dynamic";
 
@@ -74,6 +78,17 @@ export default async function InventoryPage() {
     .orderBy(desc(inventoryTransactions.createdAt))
     .limit(20);
 
+  // Pending reorder recommendations from the AI agent
+  const pendingReorderTasks = await db
+    .select({
+      id: agentActions.id,
+      plan: agentActions.plan,
+      createdAt: agentActions.createdAt,
+    })
+    .from(agentActions)
+    .where(eq(agentActions.status, "pending_approval"))
+    .orderBy(desc(agentActions.createdAt));
+
   const stockValueNum = parseFloat(stockValue.totalValue);
   const formattedStockValue = isNaN(stockValueNum)
     ? "₹0.00"
@@ -81,12 +96,29 @@ export default async function InventoryPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Inventory</h1>
-        <p className="text-muted-foreground">
-          Stock overview, alerts, and recent transactions.
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Inventory</h1>
+          <p className="text-muted-foreground">
+            Stock overview, alerts, and recent transactions.
+          </p>
+        </div>
+        {AGENT_REGISTRY.reorder.enabled && <ReorderTrigger />}
       </div>
+
+      {/* Pending AI Recommendations */}
+      {pendingReorderTasks.length > 0 && (
+        <div className="space-y-3">
+          {pendingReorderTasks.map((task) => (
+            <ReorderApprovalCard
+              key={task.id}
+              taskId={task.id}
+              plan={task.plan as unknown as ReorderPlan}
+              createdAt={task.createdAt}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-4">

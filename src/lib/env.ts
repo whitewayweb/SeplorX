@@ -14,6 +14,9 @@ function getEnv() {
   // ENCRYPTION_KEY: 64-char hex string (32 bytes) for AES-256-GCM config encryption
   const encryptionKey = process.env.ENCRYPTION_KEY;
 
+  // GOOGLE_GENERATIVE_AI_API_KEY: Google Gemini API key for AI agents (optional — agents won't run without it)
+  const googleAiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+
   const optionalEnvVars = {
     NODE_ENV: process.env.NODE_ENV || 'development',
   } as const;
@@ -41,6 +44,7 @@ function getEnv() {
   return {
     DATABASE_URL: databaseUrl as string,
     ENCRYPTION_KEY: encryptionKey as string,
+    GOOGLE_GENERATIVE_AI_API_KEY: googleAiKey,
     ...optionalEnvVars,
     isDevelopment: process.env.NODE_ENV === 'development',
     isProduction: process.env.NODE_ENV === 'production',
