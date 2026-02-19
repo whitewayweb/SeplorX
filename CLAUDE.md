@@ -23,9 +23,16 @@ yarn lint             # ESLint
 yarn knip             # Find unused code/deps
 yarn fix              # lint --fix + knip --fix + build
 yarn db:generate      # Generate Drizzle migrations
-yarn db:migrate       # Run migrations (needs direct connection URL, port 5432)
+yarn db:migrate       # Run migrations (needs POSTGRES_URL_NON_POOLING, port 5432 direct)
 yarn db               # Generate + migrate
 yarn db:studio        # Drizzle Studio GUI
+```
+
+**Migration flow:** Migrations run automatically as a required GitHub Actions check on every PR to `main` (`.github/workflows/migrate.yml`). PRs are blocked from merging if migration fails. Vercel auto-deploys after merge — schema is already up to date by then.
+
+**Local:** Set `POSTGRES_URL_NON_POOLING` (port 5432 direct) in `.env.local` alongside `POSTGRES_URL` (port 6543 pooler). Never point `DATABASE_URL` at a MySQL URL — Drizzle uses the PostgreSQL driver.
+
+```bash
 ```
 
 ## Project Structure
