@@ -28,12 +28,9 @@ yarn db               # Generate + migrate
 yarn db:studio        # Drizzle Studio GUI
 ```
 
-**Migration flow:** Migrations run automatically as a required GitHub Actions check on every PR to `main` (`.github/workflows/migrate.yml`). PRs are blocked from merging if migration fails. Vercel auto-deploys after merge — schema is already up to date by then.
+**Migration flow:** Migrations run automatically via GitHub Actions on every push to `main` (`.github/workflows/migrate.yml`). Vercel auto-deploys in parallel — schema is already up to date by the time the deployment goes live.
 
 **Local:** Set `POSTGRES_URL_NON_POOLING` (port 5432 direct) in `.env.local` alongside `POSTGRES_URL` (port 6543 pooler). Never point `DATABASE_URL` at a MySQL URL — Drizzle uses the PostgreSQL driver.
-
-```bash
-```
 
 ## Project Structure
 

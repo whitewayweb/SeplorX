@@ -60,12 +60,23 @@ export const getPreferredSupplier = tool({
     }),
   ),
   execute: async ({ productId }) => {
+    // Group only by supplier — not by unitPrice — so a supplier with varying
+    // historical prices still counts as one supplier across all their orders.
+    // lastUnitPrice uses a subquery to get the price from their most recent invoice.
     const rows = await db
       .select({
         companyId: purchaseInvoices.companyId,
         companyName: companies.name,
-        lastUnitPrice: purchaseInvoiceItems.unitPrice,
         orderCount: sql<number>`count(*)::int`,
+        lastUnitPrice: sql<string>`(
+          SELECT pii2.unit_price
+          FROM purchase_invoice_items pii2
+          INNER JOIN purchase_invoices pi2 ON pii2.invoice_id = pi2.id
+          WHERE pii2.product_id = ${productId}
+            AND pi2.company_id = ${purchaseInvoices.companyId}
+          ORDER BY pi2.invoice_date DESC, pii2.id DESC
+          LIMIT 1
+        )`,
       })
       .from(purchaseInvoiceItems)
       .innerJoin(
@@ -74,11 +85,7 @@ export const getPreferredSupplier = tool({
       )
       .innerJoin(companies, eq(purchaseInvoices.companyId, companies.id))
       .where(eq(purchaseInvoiceItems.productId, productId))
-      .groupBy(
-        purchaseInvoices.companyId,
-        companies.name,
-        purchaseInvoiceItems.unitPrice,
-      )
+      .groupBy(purchaseInvoices.companyId, companies.name)
       .orderBy(sql`count(*) DESC`)
       .limit(1);
 

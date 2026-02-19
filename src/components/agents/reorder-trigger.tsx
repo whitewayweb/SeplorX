@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Bot, Loader2 } from "lucide-react";
 
@@ -10,6 +11,7 @@ type TriggerResult =
   | { error: string };
 
 export function ReorderTrigger() {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<TriggerResult | null>(null);
 
@@ -23,8 +25,8 @@ export function ReorderTrigger() {
       if (!res.ok || "error" in data) {
         // keep error visible; no page refresh needed
       } else {
-        // Trigger a page refresh to show the new pending recommendation
-        window.location.reload();
+        // Re-fetch server data to show the new pending recommendation
+        router.refresh();
       }
     } catch {
       setResult({ error: "Network error. Please try again." });

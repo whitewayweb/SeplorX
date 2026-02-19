@@ -239,14 +239,12 @@ The correct order is: **migrate → merge → Vercel auto-deploys already-compat
 
 ### GitHub Actions gate (`.github/workflows/migrate.yml`)
 
-Every PR targeting `main` runs `yarn db:migrate` as a required status check. If the migration fails, the PR is blocked from merging. Once merged, Vercel auto-deploys and the schema is already up to date.
+On every push to `main` (i.e. after merge), `yarn db:migrate` runs automatically. Migrations are idempotent — already-applied ones are skipped. Vercel auto-deploys in parallel and the schema is up to date by the time traffic hits the new deployment.
 
 ```
-Open PR → GitHub Actions runs yarn db:migrate
-              ↓ pass                 ↓ fail
-         PR can merge          PR is blocked
-              ↓
-         Merge to main → Vercel deploys (no DB work needed)
+Merge to main → GitHub Actions runs yarn db:migrate
+                     ↓ pass
+                Vercel deploys (schema already up to date)
 ```
 
 ### Environment variables needed

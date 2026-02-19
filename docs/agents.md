@@ -33,7 +33,6 @@ export const AGENT_REGISTRY = {
     route: "/api/agents/reorder",
     triggerPage: "/inventory",
   },
-  // ... more agents
 };
 ```
 
@@ -81,13 +80,13 @@ User clicks "Approve"
 ```sql
 agent_actions (
   id            SERIAL PRIMARY KEY,
-  agent_type    VARCHAR(100)    -- 'reorder', 'overdue', 'rate-compare'
-  status        agent_status    -- pending_approval | approved | dismissed | executed | failed
-  plan          JSONB           -- the agent's structured recommendation
-  rationale     TEXT            -- the agent's natural language reasoning
-  tool_calls    JSONB           -- audit trace of all tool calls made
-  resolved_by   INTEGER         -- FK to users; who approved/dismissed
-  created_at    TIMESTAMP
+  agent_type    VARCHAR(100),   -- 'reorder', 'overdue', 'rate-compare'
+  status        agent_status,   -- pending_approval | approved | dismissed | executed | failed
+  plan          JSONB,          -- the agent's structured recommendation
+  rationale     TEXT,           -- the agent's natural language reasoning
+  tool_calls    JSONB,          -- audit trace of all tool calls made
+  resolved_by   INTEGER,        -- FK to users; who approved/dismissed
+  created_at    TIMESTAMP,
   resolved_at   TIMESTAMP
 )
 ```
@@ -154,8 +153,6 @@ src/
 | Agent | Status | Trigger | Value |
 |-------|--------|---------|-------|
 | Low-Stock Reorder | ✅ Enabled | `/inventory` → "AI Reorder Check" button | Drafts purchase order from supplier history |
-| Overdue Invoice Reminder | 🔴 Disabled | `/invoices` | Drafts payment reminder emails |
-| Carrier Rate Comparison | 🔴 Disabled | `/invoices/[id]` | Compares rates across configured carriers |
 
 ## Environment Variables
 
