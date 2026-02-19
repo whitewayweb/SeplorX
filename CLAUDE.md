@@ -10,6 +10,7 @@ SeplorX — Next.js 16 shipping management portal deployed on Vercel with Supaba
 - **Database:** Supabase PostgreSQL via Drizzle ORM + postgres-js
 - **Styling:** Tailwind CSS v4, shadcn/ui (New York style), Radix UI, Lucide icons
 - **Validation:** Zod v4
+- **AI Agents:** Vercel AI SDK (`ai` + `@ai-sdk/google`), Gemini 2.0 Flash
 - **Deployment:** Vercel (serverless)
 - **Package manager:** Yarn 1 (enforced via `preinstall` script — do not use npm/pnpm)
 
@@ -22,17 +23,25 @@ yarn lint             # ESLint
 yarn knip             # Find unused code/deps
 yarn fix              # lint --fix + knip --fix + build
 yarn db:generate      # Generate Drizzle migrations
-yarn db:migrate       # Run migrations (needs direct connection URL, port 5432)
+yarn db:migrate       # Run migrations (needs POSTGRES_URL_NON_POOLING, port 5432 direct)
 yarn db               # Generate + migrate
 yarn db:studio        # Drizzle Studio GUI
 ```
+
+**Migration flow:** Migrations run automatically via GitHub Actions on every push to `main` (`.github/workflows/migrate.yml`). Vercel auto-deploys in parallel — schema is already up to date by the time the deployment goes live.
+
+**Local:** Set `POSTGRES_URL_NON_POOLING` (port 5432 direct) in `.env.local` alongside `POSTGRES_URL` (port 6543 pooler). Never point `DATABASE_URL` at a MySQL URL — Drizzle uses the PostgreSQL driver.
 
 ## Project Structure
 
 ```
 src/
 ├── app/
-│   ├── apps/               # Shipping API integrations
+│   ├── agents/              # Agent Server Actions (approve/dismiss)
+│   ├── api/agents/          # Agent API routes (POST triggers)
+│   │   └── reorder/         # Low-stock reorder agent endpoint
+│   ├── api/health/          # Health check endpoint
+│   ├── apps/                # Shipping API integrations
 │   ├── companies/           # Company management (CRUD, type: supplier/customer/both)
 │   │   ├── page.tsx         # Company list
 │   │   ├── actions.ts       # Server actions
@@ -40,21 +49,25 @@ src/
 │   │   └── [id]/page.tsx    # Company detail
 │   ├── products/            # Product catalog + stock tracking
 │   ├── invoices/            # Purchase invoices + payments
-│   ├── inventory/           # Inventory overview + stock alerts
-│   ├── api/health/          # Health check endpoint
+│   ├── inventory/           # Inventory overview + stock alerts + AI reorder trigger
 │   ├── page.tsx             # Dashboard
 │   ├── layout.tsx           # Root layout with sidebar
 │   └── error.tsx            # Global error boundary
 ├── components/
+│   ├── agents/              # Agent UI components (trigger button, approval cards)
 │   ├── apps/                # App integration components
 │   ├── companies/           # Company UI components
 │   ├── layout/              # Layout components (sidebar)
 │   └── ui/                  # shadcn/ui primitives
 ├── db/
-│   ├── schema.ts            # Drizzle schema (all tables)
+│   ├── schema.ts            # Drizzle schema (all tables incl. agent_actions)
 │   └── index.ts             # DB connection (globalForDb pattern)
 ├── hooks/                   # React hooks (use-mobile)
 └── lib/
+    ├── agents/              # AI agent system (registry, tools, agent logic)
+    │   ├── registry.ts      # Agent definitions + enabled/disabled flags
+    │   ├── reorder-agent.ts # Low-stock reorder agent (Gemini 2.0 Flash)
+    │   └── tools/           # Typed read-only DB tools per agent
     ├── apps/                # App registry system
     ├── validations/         # Zod schemas (apps, companies, etc.)
     ├── crypto.ts            # AES-256-GCM encryption
@@ -67,12 +80,14 @@ src/
 - **Path alias:** `@/*` maps to `./src/*`
 - **DB connection:** `globalForDb` pattern, `max: 1` connection, PgBouncer (port 6543) handles pooling
 - **App registry:** App definitions in TypeScript (`src/lib/apps/registry.ts`), DB stores only installations + config JSONB. See `docs/apps-integration.md`
+- **Agent registry:** Agent definitions in TypeScript (`src/lib/agents/registry.ts`), `enabled` flag controls visibility. See `docs/agents.md`
 - **Dynamic validation:** Zod schemas built at runtime from registry `configFields`
 - **Server actions:** Mutations via `"use server"` actions with `useActionState` on client
+- **Agent pattern:** Agents are reasoning-only (read-only DB tools); writes happen via existing Server Actions after human approval. Two-phase serverless-safe flow.
 
 ## Database
 
-- Tables: `users`, `app_installations`, `companies` (type: supplier/customer/both), `products`, `purchase_invoices`, `purchase_invoice_items`, `payments`, `inventory_transactions`
+- Tables: `users`, `app_installations`, `companies` (type: supplier/customer/both), `products`, `purchase_invoices`, `purchase_invoice_items`, `payments`, `inventory_transactions`, `agent_actions`
 - Migrations in `drizzle/` directory (PostgreSQL dialect)
 - Use **port 6543** (transaction pooler) for the app, **port 5432** (direct) for migrations
 - Decimal(12,2) for all money columns; integer for stock quantities

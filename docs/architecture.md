@@ -7,30 +7,34 @@ SeplorX is a shipping/logistics management portal. It serves as a central hub wh
 ## System Design
 
 ```
-┌─────────────────────────────────────────────────┐
-│                   Next.js App                    │
-│                                                  │
-│  ┌──────────┐  ┌──────────┐  ┌───────────────┐  │
-│  │ Dashboard │  │   Apps   │  │  Future Pages │  │
-│  │   /      │  │  /apps   │  │  /shipments   │  │
-│  └──────────┘  └──────────┘  └───────────────┘  │
-│         │             │              │           │
-│         └─────────────┼──────────────┘           │
-│                       │                          │
-│              ┌────────┴────────┐                 │
-│              │ Server Actions  │                 │
-│              │ (mutations)     │                 │
-│              └────────┬────────┘                 │
-│                       │                          │
-│              ┌────────┴────────┐                 │
-│              │   Drizzle ORM   │                 │
-│              └────────┬────────┘                 │
-└───────────────────────┼──────────────────────────┘
-                        │
-               ┌────────┴────────┐
-               │ Supabase PgSQL  │
-               │ (port 6543)     │
-               └─────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                        Next.js App                           │
+│                                                              │
+│  ┌──────────┐  ┌──────────┐  ┌───────────┐  ┌───────────┐  │
+│  │ Dashboard│  │  CRUD    │  │  Agents   │  │   Apps    │  │
+│  │    /     │  │  Pages   │  │/inventory │  │  /apps    │  │
+│  └──────────┘  └──────────┘  └─────┬─────┘  └───────────┘  │
+│                     │               │                        │
+│         ┌───────────┴───────┐  ┌────┴──────────────────┐   │
+│         │  Server Actions   │  │   Agent API Routes    │   │
+│         │   (mutations)     │  │  /api/agents/reorder  │   │
+│         └────────┬──────────┘  └────┬──────────────────┘   │
+│                  │                  │                        │
+│                  │           ┌──────┴──────────┐            │
+│                  │           │  Agent (Gemini)  │            │
+│                  │           │  read-only tools │            │
+│                  │           │  → agent_actions │            │
+│                  │           └─────────────────┘            │
+│                  │                                           │
+│         ┌────────┴────────┐                                 │
+│         │   Drizzle ORM   │                                 │
+│         └────────┬────────┘                                 │
+└──────────────────┼──────────────────────────────────────────┘
+                   │
+          ┌────────┴────────┐
+          │ Supabase PgSQL  │
+          │ (port 6543)     │
+          └─────────────────┘
 ```
 
 ## Layout
@@ -43,13 +47,28 @@ The sidebar uses shadcn/ui's `Sidebar` component with `SidebarProvider` wrapping
 
 ## Key Patterns
 
-### 1. Registry Pattern (Apps)
-App definitions are TypeScript objects in `src/lib/apps/registry.ts`. The database only stores what the user has installed and their configuration. This means:
-- No app metadata in the DB
-- Adding new apps is a code-only change
-- The registry is the single source of truth for app definitions
+### 1. Registry Pattern (Apps + Agents)
+Both apps and agents are defined as TypeScript objects in their respective `registry.ts` files. The database only stores runtime state (installations, agent_actions). This means:
+- No app/agent metadata in the DB
+- Adding, disabling, or removing is a code-only change
+- The registry is the single source of truth
 
-### 2. Server Components + Server Actions
+App registry: `src/lib/apps/registry.ts` — see `docs/apps-integration.md`
+Agent registry: `src/lib/agents/registry.ts` — see `docs/agents.md`
+
+### 2. Agent Layer (Two-Phase Approval)
+Agents are reasoning engines, not execution engines. They can only read from core tables and write to `agent_actions`. All actual mutations go through existing validated Server Actions after human approval:
+
+```
+Agent (read-only tools) → plan JSON → agent_actions (pending_approval)
+  ↓ human approves
+Server Action (validated write) → core tables → revalidatePath
+```
+
+Phase 1 (serverless-safe): Agent runs, stores plan, returns immediately.
+Phase 2 (separate request): User approves → Server Action executes write.
+
+### 3. Server Components + Server Actions
 - **Pages** are server components that read directly from the DB
 - **Mutations** happen through server actions (`"use server"`)
 - **Client components** handle interactivity (dialogs, forms, tabs)
@@ -143,6 +162,7 @@ function MyComponent() {
 | ORM | Drizzle ORM + postgres-js |
 | Styling | Tailwind CSS v4, shadcn/ui |
 | Validation | Zod v4 |
+| AI Agents | Vercel AI SDK (`ai`), `@ai-sdk/google`, Gemini 2.0 Flash |
 | Icons | Lucide React |
 | Deployment | Vercel (serverless) |
 | Package Manager | Yarn 1 |
@@ -156,12 +176,21 @@ src/
 │   │   ├── page.tsx            # Server component (reads DB + registry)
 │   │   ├── actions.ts          # Server actions (install/configure/uninstall)
 │   │   └── loading.tsx         # Streaming skeleton
-│   ├── api/health/             # Health check endpoint
+│   ├── agents/
+│   │   └── actions.ts          # Server actions (approve/dismiss agent tasks)
+│   ├── api/
+│   │   ├── health/             # Health check endpoint
+│   │   └── agents/
+│   │       └── reorder/
+│   │           └── route.ts    # POST — runs reorder agent, stores plan
 │   ├── page.tsx                # Dashboard
 │   ├── error.tsx               # Global error boundary
 │   ├── layout.tsx              # Root layout with sidebar
 │   └── globals.css             # Tailwind + design tokens
 ├── components/
+│   ├── agents/                 # Agent UI components
+│   │   ├── reorder-trigger.tsx # "AI Reorder Check" button
+│   │   └── reorder-approval-card.tsx # Pending recommendation card
 │   ├── apps/                   # App-specific components
 │   │   ├── app-card.tsx        # Individual app card
 │   │   ├── app-grid.tsx        # Responsive card grid
@@ -176,6 +205,11 @@ src/
 │   ├── schema.ts               # Drizzle schema (all tables)
 │   └── index.ts                # DB connection + health check
 └── lib/
+    ├── agents/                 # Agent system
+    │   ├── registry.ts         # Agent definitions + enabled flags
+    │   ├── reorder-agent.ts    # Reorder agent (generateText + tools)
+    │   └── tools/
+    │       └── inventory-tools.ts # Read-only tools + proposeReorderPlan
     ├── apps/                   # App registry system
     │   ├── types.ts            # Type definitions
     │   ├── registry.ts         # App definitions + helpers

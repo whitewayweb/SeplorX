@@ -1,0 +1,18 @@
+/**
+ * Agent Registry — single source of truth for all AI agents.
+ * Mirrors the Apps registry pattern: definitions live in code, state in the DB.
+ *
+ * To add a new agent: add one entry here. Nothing else changes in the CRUD layer.
+ * To disable an agent: set enabled: false. Its route returns 503, its UI button is hidden.
+ */
+
+export const AGENT_REGISTRY = {
+  reorder: {
+    id: "reorder",
+    name: "Low-Stock Reorder Assistant",
+    description: "Detects products below reorder level and drafts a purchase order for your review.",
+    enabled: true,
+    route: "/api/agents/reorder",
+    triggerPage: "/inventory",
+  },
+} as const;
