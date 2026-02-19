@@ -55,6 +55,7 @@ export async function createProduct(_prevState: unknown, formData: FormData) {
   }
 
   revalidatePath("/products");
+  revalidatePath("/purchase/bills");
   return { success: true };
 }
 

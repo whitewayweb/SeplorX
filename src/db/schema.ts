@@ -212,3 +212,18 @@ export const agentActions = pgTable("agent_actions", {
   index("agent_actions_status_idx").on(table.status),
   index("agent_actions_agent_type_idx").on(table.agentType),
 ]);
+
+// ─── Settings ────────────────────────────────────────────────────────────────
+// Scalable key-value store for all platform-wide configuration (agent toggles,
+// theme, notifications, etc.). Keys are namespaced by convention:
+//   agent:{agentId}:isActive  → boolean
+//   billing:currency          → string
+// No userId — these are global settings, not per-user.
+
+export const settings = pgTable("settings", {
+  id: serial("id").primaryKey(),
+  key: varchar("key", { length: 100 }).notNull().unique(), // e.g., 'agent:reorder:isActive'
+  value: jsonb("value").notNull(),                         // boolean, string, number, or object
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});

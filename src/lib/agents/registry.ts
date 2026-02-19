@@ -21,6 +21,6 @@ export const AGENT_REGISTRY = {
     description: "Extracts supplier details and line items from an uploaded invoice image or PDF.",
     enabled: true,
     route: "/api/agents/ocr",
-    triggerPage: "/purchase/new",
+    triggerPage: "/purchase/bills",
   }
 } as const;

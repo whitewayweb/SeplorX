@@ -39,14 +39,17 @@ export const invoiceSchema = z.object({
 export type ExtractedInvoice = z.infer<typeof invoiceSchema>;
 
 /**
- * Runs the synchronous OCR task using Google Gemini 1.5 Flash, 
- * then saves the result to agent_actions as a pending draft.
- * @param base64File The uploaded file converted to base64.
+ * Runs the OCR task using Google Gemini 2.0 Flash,
+ * then saves the result to agent_actions as a pending draft for human review.
+ * @param fileBuffer The uploaded file as a Node.js Buffer.
  * @param mimeType The mime type (e.g. application/pdf, image/jpeg).
  */
-export async function runOcrAgent(base64File: string, mimeType: string): Promise<{ taskId: number, status: string }> {
+export async function runOcrAgent(
+  fileBuffer: Buffer,
+  mimeType: string,
+): Promise<{ taskId: number; status: string }> {
   const result = await generateObject({
-    model: google("gemini-1.5-flash"),
+    model: google("gemini-2.5-flash"),
     schema: invoiceSchema,
     system: `You are an expert data entry assistant for a B2B wholesale distribution business.
 Your job is to extract billing information and physical product line items from supplier purchase invoices.
@@ -61,7 +64,7 @@ Be precise with numbers and do not invent any data.`,
           { type: "text", text: "Please extract the invoice details from this document." },
           {
             type: "file",
-            data: base64File,
+            data: new Uint8Array(fileBuffer),
             mediaType: mimeType,
           },
         ],

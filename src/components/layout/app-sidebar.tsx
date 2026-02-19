@@ -9,6 +9,8 @@ import {
   FileText,
   Warehouse,
   Puzzle,
+  Bot,
+  Receipt,
 } from "lucide-react";
 import {
   Sidebar,
@@ -28,8 +30,13 @@ const navItems = [
   { title: "Companies", href: "/companies", icon: Building2 },
   { title: "Products", href: "/products", icon: Package },
   { title: "Invoices", href: "/invoices", icon: FileText },
+  { title: "Purchase Bills", href: "/purchase/bills", icon: Receipt },
   { title: "Inventory", href: "/inventory", icon: Warehouse },
   { title: "Apps", href: "/apps", icon: Puzzle },
+];
+
+const aiNavItems = [
+  { title: "Agents", href: "/ai/agents", icon: Bot },
 ];
 
 export function AppSidebar() {
@@ -56,6 +63,27 @@ export function AppSidebar() {
                         ? pathname === "/"
                         : pathname.startsWith(item.href)
                     }
+                  >
+                    <Link href={item.href}>
+                      <item.icon />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>AI</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {aiNavItems.map((item) => (
+                <SidebarMenuItem key={item.href}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname.startsWith(item.href)}
                   >
                     <Link href={item.href}>
                       <item.icon />

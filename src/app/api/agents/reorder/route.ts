@@ -1,8 +1,18 @@
+import { db } from "@/db";
+import { settings } from "@/db/schema";
 import { AGENT_REGISTRY } from "@/lib/agents/registry";
 import { runReorderAgent } from "@/lib/agents/reorder-agent";
+import { eq } from "drizzle-orm";
 
 export async function POST() {
-  if (!AGENT_REGISTRY.reorder.enabled) {
+  const [setting] = await db
+    .select()
+    .from(settings)
+    .where(eq(settings.key, "agent:reorder:isActive"));
+
+  const isEnabled = setting !== undefined ? (setting.value as boolean) : AGENT_REGISTRY.reorder.enabled;
+
+  if (!isEnabled) {
     return Response.json({ error: "Reorder agent is disabled." }, { status: 503 });
   }
 
