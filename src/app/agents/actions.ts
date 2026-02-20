@@ -263,8 +263,15 @@ export async function approveOcrInvoice(_prevState: unknown, formData: FormData)
         });
 
         // Update stock — "received" invoice means goods have arrived
-        const qty = Math.floor(item.quantity);
+        const qty = item.quantity;
         if (qty > 0) {
+          if (!Number.isInteger(qty)) {
+            throw Object.assign(
+              new Error(`Fractional quantity (${qty}) for "${item.description}" is not supported for stock updates.`),
+              { userError: true }
+            );
+          }
+
           await tx
             .update(products)
             .set({

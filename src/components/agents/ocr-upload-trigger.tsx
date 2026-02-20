@@ -52,7 +52,7 @@ export function OcrUploadTrigger() {
     e.preventDefault();
     setDragging(false);
     accept(e.dataTransfer.files?.[0]);
-  }, []);  
+  }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     accept(e.target.files?.[0]);
@@ -76,9 +76,20 @@ export function OcrUploadTrigger() {
 
     try {
       const res = await fetch("/api/agents/ocr", { method: "POST", body: formData });
+
+      if (!res.ok) {
+        try {
+          const errorData = await res.json();
+          setResult({ error: errorData.error || `Server error: ${res.status}` });
+        } catch {
+          setResult({ error: `Server error: ${res.status}` });
+        }
+        return;
+      }
+
       const data = await res.json();
       setResult(data);
-      if (res.ok && "taskId" in data) {
+      if ("taskId" in data) {
         setFile(null);
         router.refresh();
       }
