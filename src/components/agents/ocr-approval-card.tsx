@@ -878,7 +878,7 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
                 </Label>
                 <Input
                   value={invoiceNumber}
-                  onChange={(e) => { setInvoiceNumber(e.target.value); setOverwriteDismissed(false); }}
+                  onChange={(e) => { setInvoiceNumber(e.target.value); setOverwriteDismissed(false); setProceedWithOverwrite(false); }}
                   placeholder="INV-001"
                 />
               </div>
