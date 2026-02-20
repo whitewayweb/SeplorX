@@ -142,6 +142,7 @@ const OcrApprovalSchema = z.object({
   discountAmount: z.coerce.number().min(0).default(0),
   notes: z.string().trim().optional().or(z.literal("")),
   items: z.array(OcrApprovalItemSchema).min(1, "At least one line item is required"),
+  overwrite: z.string().optional(),
 });
 
 // Helpers — duplicated inline from invoices/actions.ts (one use per CLAUDE.md principle)
@@ -197,6 +198,7 @@ export async function approveOcrInvoice(_prevState: unknown, formData: FormData)
     discountAmount: formData.get("discountAmount"),
     notes: formData.get("notes"),
     items: rawItems,
+    overwrite: formData.get("overwrite"),
   });
 
   if (!parsed.success) {
@@ -206,12 +208,39 @@ export async function approveOcrInvoice(_prevState: unknown, formData: FormData)
     };
   }
 
-  const { taskId, companyId, items, discountAmount, dueDate, notes, ...headerData } = parsed.data;
+  const { taskId, companyId, items, discountAmount, dueDate, notes, overwrite: overwriteStr, ...headerData } = parsed.data;
+  const overwrite = overwriteStr === "true";
   const totals = ocrComputeInvoiceTotals(items, discountAmount);
+
+  // 2. Duplicate check — fast early return before entering a transaction
+  if (!overwrite) {
+    const [existingDuplicate] = await db
+      .select({
+        id: purchaseInvoices.id,
+        invoiceDate: purchaseInvoices.invoiceDate,
+        totalAmount: purchaseInvoices.totalAmount,
+      })
+      .from(purchaseInvoices)
+      .where(
+        and(
+          eq(purchaseInvoices.companyId, companyId),
+          eq(purchaseInvoices.invoiceNumber, headerData.invoiceNumber),
+        ),
+      )
+      .limit(1);
+
+    if (existingDuplicate) {
+      return {
+        duplicate: true as const,
+        existingInvoiceDate: existingDuplicate.invoiceDate,
+        existingTotal: existingDuplicate.totalAmount,
+      };
+    }
+  }
 
   try {
     await db.transaction(async (tx) => {
-      // 2. Atomically claim the task — prevents double-approval
+      // 3. Atomically claim the task — prevents double-approval
       const [claimed] = await tx
         .update(agentActions)
         .set({ status: "executed", resolvedBy: CURRENT_USER_ID, resolvedAt: new Date() })
@@ -222,36 +251,132 @@ export async function approveOcrInvoice(_prevState: unknown, formData: FormData)
         throw Object.assign(new Error("This task has already been resolved."), { userError: true });
       }
 
-      // 3. Insert purchase invoice — status "received" because the bill is in hand
       const noteText = notes
         ? `${notes}\n\nCreated via AI Invoice OCR.`
         : "Created via AI Invoice OCR.";
 
-      const [invoice] = await tx
-        .insert(purchaseInvoices)
-        .values({
-          invoiceNumber: headerData.invoiceNumber,
-          companyId,
-          invoiceDate: headerData.invoiceDate,
-          dueDate: dueDate || null,
-          status: "received",
-          subtotal: totals.subtotal,
-          taxAmount: totals.taxAmount,
-          discountAmount: String(discountAmount),
-          totalAmount: totals.totalAmount,
-          amountPaid: "0",
-          notes: noteText,
-          createdBy: CURRENT_USER_ID,
-        })
-        .returning({ id: purchaseInvoices.id });
+      let invoiceId: number;
 
-      // 4. Insert line items + update stock (same logic as createInvoice for "received" status)
+      if (overwrite) {
+        // ── Overwrite path: replace header, items, and stock in one transaction ─────
+        const [existing] = await tx
+          .select({ id: purchaseInvoices.id, amountPaid: purchaseInvoices.amountPaid })
+          .from(purchaseInvoices)
+          .where(
+            and(
+              eq(purchaseInvoices.companyId, companyId),
+              eq(purchaseInvoices.invoiceNumber, headerData.invoiceNumber),
+            ),
+          )
+          .limit(1);
+
+        if (existing) {
+          // Reverse stock for every old line item
+          const oldItems = await tx
+            .select({ productId: purchaseInvoiceItems.productId, quantity: purchaseInvoiceItems.quantity })
+            .from(purchaseInvoiceItems)
+            .where(eq(purchaseInvoiceItems.invoiceId, existing.id));
+
+          for (const oldItem of oldItems) {
+            if (oldItem.productId) {
+              const qty = parseFloat(oldItem.quantity);
+              if (Number.isInteger(qty) && qty > 0) {
+                await tx
+                  .update(products)
+                  .set({ quantityOnHand: sql`${products.quantityOnHand} - ${qty}`, updatedAt: new Date() })
+                  .where(eq(products.id, oldItem.productId));
+              }
+            }
+          }
+
+          // Remove old inventory transactions and line items
+          await tx
+            .delete(inventoryTransactions)
+            .where(
+              and(
+                eq(inventoryTransactions.referenceType, "purchase_invoice"),
+                eq(inventoryTransactions.referenceId, existing.id),
+              ),
+            );
+          await tx
+            .delete(purchaseInvoiceItems)
+            .where(eq(purchaseInvoiceItems.invoiceId, existing.id));
+
+          // Recompute status preserving any existing payment amount
+          const amountPaid = parseFloat(existing.amountPaid);
+          const newTotal = parseFloat(totals.totalAmount);
+          const newStatus =
+            amountPaid >= newTotal && newTotal > 0 ? ("paid" as const)
+            : amountPaid > 0 ? ("partial" as const)
+            : ("received" as const);
+
+          // Update invoice header in place (keeps invoice ID, payments, and history intact)
+          await tx
+            .update(purchaseInvoices)
+            .set({
+              invoiceDate: headerData.invoiceDate,
+              dueDate: dueDate || null,
+              status: newStatus,
+              subtotal: totals.subtotal,
+              taxAmount: totals.taxAmount,
+              discountAmount: String(discountAmount),
+              totalAmount: totals.totalAmount,
+              notes: noteText,
+              updatedAt: new Date(),
+            })
+            .where(eq(purchaseInvoices.id, existing.id));
+
+          invoiceId = existing.id;
+        } else {
+          // Race condition: record deleted between check and tx — insert fresh
+          const [invoice] = await tx
+            .insert(purchaseInvoices)
+            .values({
+              invoiceNumber: headerData.invoiceNumber,
+              companyId,
+              invoiceDate: headerData.invoiceDate,
+              dueDate: dueDate || null,
+              status: "received",
+              subtotal: totals.subtotal,
+              taxAmount: totals.taxAmount,
+              discountAmount: String(discountAmount),
+              totalAmount: totals.totalAmount,
+              amountPaid: "0",
+              notes: noteText,
+              createdBy: CURRENT_USER_ID,
+            })
+            .returning({ id: purchaseInvoices.id });
+          invoiceId = invoice.id;
+        }
+      } else {
+        // ── Normal insert path ────────────────────────────────────────────────────
+        const [invoice] = await tx
+          .insert(purchaseInvoices)
+          .values({
+            invoiceNumber: headerData.invoiceNumber,
+            companyId,
+            invoiceDate: headerData.invoiceDate,
+            dueDate: dueDate || null,
+            status: "received",
+            subtotal: totals.subtotal,
+            taxAmount: totals.taxAmount,
+            discountAmount: String(discountAmount),
+            totalAmount: totals.totalAmount,
+            amountPaid: "0",
+            notes: noteText,
+            createdBy: CURRENT_USER_ID,
+          })
+          .returning({ id: purchaseInvoices.id });
+        invoiceId = invoice.id;
+      }
+
+      // 4. Insert line items + update stock — shared for both overwrite and insert paths
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
         const itemTotals = ocrComputeItemTotals(item);
 
         await tx.insert(purchaseInvoiceItems).values({
-          invoiceId: invoice.id,
+          invoiceId,
           productId: item.productId, // always non-null — validated by schema
           description: item.description,
           quantity: String(item.quantity),
@@ -262,22 +387,18 @@ export async function approveOcrInvoice(_prevState: unknown, formData: FormData)
           sortOrder: i,
         });
 
-        // Update stock — "received" invoice means goods have arrived
         const qty = item.quantity;
         if (qty > 0) {
           if (!Number.isInteger(qty)) {
             throw Object.assign(
               new Error(`Fractional quantity (${qty}) for "${item.description}" is not supported for stock updates.`),
-              { userError: true }
+              { userError: true },
             );
           }
 
           await tx
             .update(products)
-            .set({
-              quantityOnHand: sql`${products.quantityOnHand} + ${qty}`,
-              updatedAt: new Date(),
-            })
+            .set({ quantityOnHand: sql`${products.quantityOnHand} + ${qty}`, updatedAt: new Date() })
             .where(eq(products.id, item.productId));
 
           await tx.insert(inventoryTransactions).values({
@@ -285,7 +406,7 @@ export async function approveOcrInvoice(_prevState: unknown, formData: FormData)
             type: "purchase_in",
             quantity: qty,
             referenceType: "purchase_invoice",
-            referenceId: invoice.id,
+            referenceId: invoiceId,
             notes: `Invoice #${headerData.invoiceNumber}`,
             createdBy: CURRENT_USER_ID,
           });
@@ -344,5 +465,6 @@ export async function dismissAgentTask(_prevState: unknown, formData: FormData) 
   }
 
   revalidatePath("/inventory");
+  revalidatePath("/purchase/bills");
   return { success: true };
 }

@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Bot, CheckCircle, XCircle, AlertCircle, ChevronRight, ChevronLeft, Loader2 } from "lucide-react";
+import { Bot, CheckCircle, XCircle, AlertCircle, AlertTriangle, ChevronRight, ChevronLeft, Loader2 } from "lucide-react";
 import { approveOcrInvoice, dismissAgentTask } from "@/app/agents/actions";
 import { createCompany } from "@/app/companies/actions";
 import { createProduct } from "@/app/products/actions";
@@ -38,12 +38,15 @@ type LinkedItem = {
   taxPercent: number;
 };
 
+type DuplicateInfo = { invoiceDate: string | null; totalAmount: string } | null;
+
 type Props = {
   taskId: number;
   plan: ExtractedInvoice;
   createdAt: Date | null;
   suppliers: Supplier[];
   products: ProductOption[];
+  duplicateInfo?: DuplicateInfo;
 };
 
 function findSupplierMatch(suppliers: Supplier[], supplierName: string): string {
@@ -123,7 +126,7 @@ function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
   );
 }
 
-export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSuppliers, products: initialProducts }: Props) {
+export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSuppliers, products: initialProducts, duplicateInfo }: Props) {
   const router = useRouter();
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
@@ -185,6 +188,12 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
   const [dueDate, setDueDate] = useState(plan.dueDate ?? "");
   const [discountAmount, setDiscountAmount] = useState(String(plan.discountAmount ?? 0));
   const [notes, setNotes] = useState("");
+
+  // ── Duplicate overwrite state ──────────────────────────────────────────────────
+  const [overwriteDismissed, setOverwriteDismissed] = useState(false);
+  const [proceedWithOverwrite, setProceedWithOverwrite] = useState(false);
+  const approveFormRef = useRef<HTMLFormElement>(null);
+  const overwriteRef = useRef<HTMLInputElement>(null);
 
   // ── Auto-select newly created supplier after router.refresh() ─────────────────
   useEffect(() => {
@@ -399,6 +408,87 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
       </Button>
     </form>
   );
+
+  // ── Gate screen — shown immediately when a duplicate is detected ───────────────
+  // User must explicitly choose to dismiss or overwrite before seeing the steps.
+  if (duplicateInfo && !proceedWithOverwrite) {
+    return (
+      <Card className="border-amber-200 bg-amber-50/30">
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Bot className="h-5 w-5 text-blue-600 shrink-0" />
+              <CardTitle className="text-base">AI Invoice Extraction</CardTitle>
+              <Badge variant="outline" className="text-blue-700 border-blue-300 bg-blue-100">
+                Pending Review
+              </Badge>
+            </div>
+            {createdAt && (
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {new Date(createdAt).toLocaleString("en-IN", {
+                  day: "numeric",
+                  month: "short",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground mt-1 italic">
+            AI extracted: &ldquo;{plan.supplierName}&rdquo;
+            {plan.supplierGstNumber && ` · GST: ${plan.supplierGstNumber}`}
+          </p>
+        </CardHeader>
+
+        <CardContent className="pb-5">
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-4 space-y-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-amber-900">This bill is already saved</p>
+                <p className="text-sm text-amber-800">
+                  Invoice <span className="font-mono font-medium">#{plan.invoiceNumber}</span> from this
+                  supplier already exists in your records
+                  {duplicateInfo.invoiceDate && ` (dated ${duplicateInfo.invoiceDate})`}
+                  {duplicateInfo.totalAmount &&
+                    `, ₹${parseFloat(duplicateInfo.totalAmount).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`}.
+                </p>
+                <p className="text-sm text-amber-700 pt-0.5">What would you like to do?</p>
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <form action={dismissAction}>
+                <input type="hidden" name="taskId" value={taskId} />
+                <Button
+                  type="submit"
+                  variant="outline"
+                  size="sm"
+                  disabled={dismissing}
+                  className="border-amber-300 text-amber-800 hover:bg-amber-100"
+                >
+                  <XCircle className="h-4 w-4 mr-1.5" />
+                  {dismissing ? "Dismissing…" : "Dismiss, Keep Existing"}
+                </Button>
+              </form>
+              <Button
+                type="button"
+                size="sm"
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+                onClick={() => setProceedWithOverwrite(true)}
+              >
+                Review & Overwrite
+              </Button>
+            </div>
+
+            {dismissState && "error" in dismissState && (
+              <p className="text-xs text-destructive">{dismissState.error}</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="border-blue-200 bg-blue-50/50">
@@ -788,7 +878,7 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
                 </Label>
                 <Input
                   value={invoiceNumber}
-                  onChange={(e) => setInvoiceNumber(e.target.value)}
+                  onChange={(e) => { setInvoiceNumber(e.target.value); setOverwriteDismissed(false); }}
                   placeholder="INV-001"
                 />
               </div>
@@ -844,7 +934,7 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
             </div>
 
             {/* Approve form */}
-            <form action={approveAction} className="space-y-3">
+            <form ref={approveFormRef} action={approveAction} className="space-y-3">
               <input type="hidden" name="taskId" value={taskId} />
               <input type="hidden" name="companyId" value={selectedSupplierId} />
               <input type="hidden" name="invoiceNumber" value={invoiceNumber} />
@@ -852,6 +942,49 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
               <input type="hidden" name="dueDate" value={dueDate} />
               <input type="hidden" name="discountAmount" value={discountAmount} />
               <input type="hidden" name="notes" value={notes} />
+              <input type="hidden" name="overwrite" ref={overwriteRef} defaultValue={proceedWithOverwrite ? "true" : "false"} />
+
+              {/* Duplicate warning — shown when server detects an existing bill */}
+              {approveState && "duplicate" in approveState && !overwriteDismissed && (
+                <div className="rounded-md border border-amber-300 bg-amber-50 p-3 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="text-sm text-amber-800">
+                      <p className="font-semibold">Duplicate bill detected</p>
+                      <p className="text-xs mt-0.5">
+                        Invoice <span className="font-mono font-medium">#{invoiceNumber}</span> already exists for this supplier
+                        {approveState.existingInvoiceDate && ` (dated ${approveState.existingInvoiceDate})`}
+                        {approveState.existingTotal && `, ₹${parseFloat(approveState.existingTotal).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`}.
+                      </p>
+                      <p className="text-xs mt-1">
+                        Overwriting will replace all line items and reverse + reapply stock accordingly.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 justify-end">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-xs h-7"
+                      onClick={() => setOverwriteDismissed(true)}
+                    >
+                      No, Keep Existing
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="text-xs h-7 bg-amber-600 hover:bg-amber-700 text-white"
+                      onClick={() => {
+                        if (overwriteRef.current) overwriteRef.current.value = "true";
+                        approveFormRef.current?.requestSubmit();
+                      }}
+                    >
+                      Yes, Overwrite Bill
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               {approveState && "error" in approveState && (
                 <p className="text-sm text-destructive">{approveState.error}</p>
@@ -876,7 +1009,7 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
                   className="bg-green-600 hover:bg-green-700 text-white"
                 >
                   <CheckCircle className="h-4 w-4 mr-2" />
-                  {approving ? "Creating bill…" : "Create Purchase Bill"}
+                  {approving ? "Saving bill…" : "Create Purchase Bill"}
                 </Button>
               </div>
             </form>

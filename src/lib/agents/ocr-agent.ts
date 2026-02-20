@@ -3,6 +3,7 @@ import { google } from "@ai-sdk/google";
 import { z } from "zod";
 import { db } from "@/db";
 import { agentActions } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
 
 /**
  * The expected structure returned by the Gemini AI Model.
@@ -74,17 +75,31 @@ Be precise with numbers and do not invent any data.`,
 
   const parsedPlan = result.object;
 
-  // Insert into agent_actions table as a draft awaiting human review
-  const [task] = await db
-    .insert(agentActions)
-    .values({
-      agentType: "invoice_ocr",
-      status: "pending_approval",
-      plan: parsedPlan as unknown as Record<string, unknown>,
-      rationale: "Extracted data from uploaded document.",
-      toolCalls: null,
-    })
-    .returning({ id: agentActions.id });
+  // Dismiss any existing pending drafts, then insert the new one — atomically.
+  // This ensures only one OCR card is ever shown at a time; uploading a new
+  // bill replaces the old unreviewed draft rather than stacking a second card.
+  const [task] = await db.transaction(async (tx) => {
+    await tx
+      .update(agentActions)
+      .set({ status: "dismissed", resolvedAt: new Date() })
+      .where(
+        and(
+          eq(agentActions.agentType, "invoice_ocr"),
+          eq(agentActions.status, "pending_approval"),
+        ),
+      );
+
+    return tx
+      .insert(agentActions)
+      .values({
+        agentType: "invoice_ocr",
+        status: "pending_approval",
+        plan: parsedPlan as unknown as Record<string, unknown>,
+        rationale: "Extracted data from uploaded document.",
+        toolCalls: null,
+      })
+      .returning({ id: agentActions.id });
+  });
 
   return { taskId: task.id, status: "pending_approval" };
 }
