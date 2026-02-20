@@ -203,7 +203,33 @@ Approval queue and audit log for all AI agent recommendations. Agents write here
 
 **Status lifecycle**: `pending_approval` → `executed` (user approved) or `dismissed` (user dismissed). `failed` if the agent threw before producing a plan.
 
-**Note**: The `plan` JSONB shape is agent-specific. For `agent_type = "reorder"`, it matches the `ReorderPlan` type in `src/lib/agents/tools/inventory-tools.ts`. Core tables are never written by agents directly — only via Server Actions after human approval.
+**Note**: The `plan` JSONB shape is agent-specific. For `agent_type = "reorder"`, it matches the `ReorderPlan` type in `src/lib/agents/tools/inventory-tools.ts`. For `agent_type = "invoice_ocr"`, it matches the `ExtractedInvoice` type in `src/lib/agents/ocr-agent.ts`. Core tables are never written by agents directly — only via Server Actions after human approval.
+
+### settings
+
+Platform-wide key-value configuration store. Holds all toggles, flags, and preferences that apply globally (not per-user). Keys are namespaced by convention.
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | serial | PK |
+| key | varchar(100) | NOT NULL, UNIQUE |
+| value | jsonb | NOT NULL (boolean, string, number, or object) |
+| created_at | timestamp | default now() |
+| updated_at | timestamp | default now() |
+
+**Key naming convention** (enforced by application code, not DB):
+- `agent:{agentId}:isActive` → boolean toggle for an agent (e.g. `agent:reorder:isActive`)
+- `billing:currency` → string
+- Future: `notifications:slack:webhook`, etc.
+
+**Upsert pattern** (used in `src/app/ai/agents/actions.ts`):
+```typescript
+await db.insert(settings)
+  .values({ key, value: isActive })
+  .onConflictDoUpdate({ target: settings.key, set: { value: isActive, updatedAt: new Date() } });
+```
+
+**Rationale**: A single `settings` table is simpler than separate config tables per feature. JSON value allows booleans, strings, numbers, or objects without schema changes for new settings types.
 
 ## Enums
 

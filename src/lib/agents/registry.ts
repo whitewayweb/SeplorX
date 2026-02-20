@@ -15,4 +15,12 @@ export const AGENT_REGISTRY = {
     route: "/api/agents/reorder",
     triggerPage: "/inventory",
   },
+  invoice_ocr: {
+    id: "invoice_ocr",
+    name: "AI Invoice Extractor",
+    description: "Extracts supplier details and line items from an uploaded invoice image or PDF.",
+    enabled: true,
+    route: "/api/agents/ocr",
+    triggerPage: "/purchase/bills",
+  }
 } as const;

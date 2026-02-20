@@ -41,7 +41,7 @@ Rules:
 
 export async function runReorderAgent(): Promise<{ taskId: number } | { message: string } | { error: string }> {
   const result = await generateText({
-    model: google("gemini-2.0-flash"),
+    model: google("gemini-2.5-flash"),
     system: SYSTEM_PROMPT,
     prompt: "Check inventory now and draft a reorder recommendation if needed.",
     tools: {

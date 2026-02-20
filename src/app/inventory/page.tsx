@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { products, inventoryTransactions, agentActions } from "@/db/schema";
-import { desc, eq, lte, sql } from "drizzle-orm";
+import { and, desc, eq, lte, sql } from "drizzle-orm";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -78,7 +78,7 @@ export default async function InventoryPage() {
     .orderBy(desc(inventoryTransactions.createdAt))
     .limit(20);
 
-  // Pending reorder recommendations from the AI agent
+  // Pending reorder recommendations from the AI agent — filtered to reorder type only
   const pendingReorderTasks = await db
     .select({
       id: agentActions.id,
@@ -86,7 +86,12 @@ export default async function InventoryPage() {
       createdAt: agentActions.createdAt,
     })
     .from(agentActions)
-    .where(eq(agentActions.status, "pending_approval"))
+    .where(
+      and(
+        eq(agentActions.status, "pending_approval"),
+        eq(agentActions.agentType, "reorder"),
+      ),
+    )
     .orderBy(desc(agentActions.createdAt));
 
   const stockValueNum = parseFloat(stockValue.totalValue);
