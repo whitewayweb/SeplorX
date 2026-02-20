@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { agentActions, companies, products } from "@/db/schema";
+import { agentActions, companies, products, purchaseInvoices } from "@/db/schema";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { AGENT_REGISTRY } from "@/lib/agents/registry";
 import { OcrUploadTrigger } from "@/components/agents/ocr-upload-trigger";
@@ -54,6 +54,45 @@ export default async function PurchaseBillsPage() {
     .where(eq(products.isActive, true))
     .orderBy(products.name);
 
+  // 4. Duplicate check for each pending task — uses the same fuzzy supplier-name
+  //    match as the approval card so the user sees the warning immediately on load,
+  //    not only after clicking through all three steps.
+  type DuplicateInfo = { invoiceDate: string | null; totalAmount: string } | null;
+  const duplicateInfoMap = new Map<number, DuplicateInfo>();
+
+  for (const task of pendingOcrTasks) {
+    const plan = task.plan as unknown as ExtractedInvoice;
+    if (!plan.invoiceNumber || !plan.supplierName) {
+      duplicateInfoMap.set(task.id, null);
+      continue;
+    }
+
+    const needle = plan.supplierName.toLowerCase();
+    const matchedSupplier = supplierCompanies.find(
+      (s) =>
+        s.name.toLowerCase().includes(needle) ||
+        needle.includes(s.name.toLowerCase()),
+    );
+
+    if (!matchedSupplier) {
+      duplicateInfoMap.set(task.id, null);
+      continue;
+    }
+
+    const [existing] = await db
+      .select({ invoiceDate: purchaseInvoices.invoiceDate, totalAmount: purchaseInvoices.totalAmount })
+      .from(purchaseInvoices)
+      .where(
+        and(
+          eq(purchaseInvoices.companyId, matchedSupplier.id),
+          eq(purchaseInvoices.invoiceNumber, plan.invoiceNumber),
+        ),
+      )
+      .limit(1);
+
+    duplicateInfoMap.set(task.id, existing ?? null);
+  }
+
   return (
     <div className="p-6 space-y-8">
       <div>
@@ -80,6 +119,7 @@ export default async function PurchaseBillsPage() {
               createdAt={task.createdAt}
               suppliers={supplierCompanies}
               products={activeProducts}
+              duplicateInfo={duplicateInfoMap.get(task.id) ?? null}
             />
           ))}
         </div>
