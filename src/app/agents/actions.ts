@@ -280,7 +280,13 @@ export async function approveOcrInvoice(_prevState: unknown, formData: FormData)
           for (const oldItem of oldItems) {
             if (oldItem.productId) {
               const qty = parseFloat(oldItem.quantity);
-              if (Number.isInteger(qty) && qty > 0) {
+              if (qty > 0) {
+                if (!Number.isInteger(qty)) {
+                  throw Object.assign(
+                    new Error(`Cannot reverse stock for product ID ${oldItem.productId} due to fractional quantity (${qty}).`),
+                    { userError: true },
+                  );
+                }
                 await tx
                   .update(products)
                   .set({ quantityOnHand: sql`${products.quantityOnHand} - ${qty}`, updatedAt: new Date() })
