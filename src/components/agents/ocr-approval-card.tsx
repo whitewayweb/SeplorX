@@ -194,9 +194,9 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
     if (found) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedSupplierId(String(found.id));
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+       
       setSupplierMode("existing");
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+       
       setPendingNewSupplierName(null);
     }
   }, [initialSuppliers, pendingNewSupplierName]);
@@ -234,7 +234,7 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
     );
 
     if (clearedAny) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+       
       setPendingRefreshNames(nextPending);
     }
   }, [allProducts, pendingRefreshNames]);
