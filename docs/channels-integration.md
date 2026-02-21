@@ -84,24 +84,26 @@ WooCommerce has a built-in REST API key creation endpoint that drives the 1-clic
 2. Client calls createChannel server action
    → INSERT channels row with status="pending"
    → Returns channelId
-3. Client builds WooCommerce authorize URL:
+3. Client validates storeUrl protocol (http/https only), then builds WooCommerce authorize URL:
    {storeUrl}/wc-auth/v1/authorize
      ?app_name=SeplorX
      &scope=read_write
-     &user_id={channelId}          ← our internal row ID (WooCommerce echoes it back)
-     &return_url={appUrl}/channels
+     &user_id={channelId}                    ← our internal row ID (WooCommerce echoes it back)
+     &return_url={appUrl}/channels?connected=1
      &callback_url={appUrl}/api/channels/woocommerce/callback
-4. window.location.href = authorizeUrl  (browser redirects to WordPress admin)
+4. window.location.assign(authorizeUrl)  (browser redirects to WordPress admin)
 5. User clicks "Approve" in their WordPress admin
 6. WooCommerce POSTs to callback_url with:
      consumer_key, consumer_secret, key_permissions, user_id
 7. Callback route (/api/channels/woocommerce/callback):
-   → Looks up channels row by user_id (= channelId)
-   → encrypt(consumer_key), encrypt(consumer_secret)
-   → UPDATE channels SET status="connected", credentials={...}
-   → Redirects 302 to /channels?connected=1
-8. User sees channel in list with "Connected" badge
+   → Atomic UPDATE: SET status="connected", credentials={encrypted keys}
+     WHERE id=channelId AND status="pending" (prevents race conditions + replay)
+   → Returns HTTP 200  ← IMPORTANT: WooCommerce requires 200, not a redirect
+8. WooCommerce redirects user to return_url (/channels?connected=1)
+9. User sees "Store connected successfully" banner + channel with "Connected" badge
 ```
+
+> **Why HTTP 200?** WooCommerce treats any non-200 response from the callback as failure and shows "An error occurred in the request." The server must return 200 — WooCommerce handles the redirect to `return_url` itself.
 
 ### Callback route
 
@@ -124,9 +126,10 @@ The callback URL must be publicly reachable by the WooCommerce server. In local 
 ```bash
 curl -X POST http://localhost:3000/api/channels/woocommerce/callback \
   -d "user_id=CHANNEL_ID&consumer_key=ck_test123&consumer_secret=cs_test456"
+# Expect: HTTP 200 OK (callback returns 200, not a redirect)
 ```
 
-This tests the full encrypt + store + redirect flow.
+This tests the full encrypt + atomic-update flow. Then navigate to `/channels?connected=1` to see the success banner.
 
 ## Add Channel Wizard (`src/components/channels/add-channel-wizard.tsx`)
 
@@ -146,6 +149,7 @@ Step 4 calls `createChannel` server action, receives the new `channelId`, then r
 | Action | What it does |
 |--------|-------------|
 | `createChannel` | INSERT channels row (status: pending), returns `{ channelId }` |
+| `resetChannelStatus` | Reset status="pending", wipe credentials — used by "Complete Setup" / "Reconnect" buttons |
 | `disconnectChannel` | UPDATE status="disconnected", wipes credentials JSONB |
 | `deleteChannel` | DELETE the row entirely |
 

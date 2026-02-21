@@ -9,7 +9,13 @@ import type { ChannelInstance } from "@/lib/channels/types";
 
 const CURRENT_USER_ID = 1;
 
-export default async function ChannelsPage() {
+export default async function ChannelsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ connected?: string }>;
+}) {
+  const { connected } = await searchParams;
+
   const rows = await db
     .select({
       id: channels.id,
@@ -35,7 +41,7 @@ export default async function ChannelsPage() {
         </div>
         <AddChannelWizard />
       </div>
-      <ChannelList channels={rows as ChannelInstance[]} />
+      <ChannelList channels={rows as ChannelInstance[]} connected={connected === "1"} />
     </div>
   );
 }

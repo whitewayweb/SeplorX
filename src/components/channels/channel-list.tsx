@@ -1,8 +1,10 @@
 "use client";
 
-import { useActionState, useTransition, useState } from "react";
+import { useActionState, useTransition, useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Store } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -51,7 +53,7 @@ function ReconnectButton({ channelId, storeUrl, label }: ReconnectButtonProps) {
         app_name: "SeplorX",
         scope: "read_write",
         user_id: String(channelId),
-        return_url: `${appUrl}/channels`,
+        return_url: `${appUrl}/channels?connected=1`,
         callback_url: `${appUrl}/api/channels/woocommerce/callback`,
       });
       window.location.assign(`${storeUrl.replace(/\/$/, "")}/wc-auth/v1/authorize?${params}`);
@@ -143,9 +145,23 @@ function ChannelRowActions({ channel }: ChannelRowActionsProps) {
 
 interface ChannelListProps {
   channels: ChannelInstance[];
+  connected?: boolean;
 }
 
-export function ChannelList({ channels }: ChannelListProps) {
+export function ChannelList({ channels, connected }: ChannelListProps) {
+  const router = useRouter();
+  const shown = useRef(false);
+
+  useEffect(() => {
+    if (connected && !shown.current) {
+      shown.current = true;
+      toast.success("Store connected successfully.", {
+        description: "Your WooCommerce store is now syncing orders.",
+      });
+      router.replace("/channels");
+    }
+  }, [connected, router]);
+
   if (channels.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-16 text-center">

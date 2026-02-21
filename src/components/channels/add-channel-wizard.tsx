@@ -153,9 +153,18 @@ function WooCommerceConnectStep({
 
   // Once action succeeds we have channelId — redirect to WooCommerce authorize URL
   if (state?.success && state.channelId) {
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(storeUrl);
+    } catch {
+      return; // invalid URL — shouldn't reach here post-validation
+    }
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      return; // reject non-http(s) protocols
+    }
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin;
     const callbackUrl = `${appUrl}/api/channels/woocommerce/callback`;
-    const returnUrl = `${appUrl}/channels`;
+    const returnUrl = `${appUrl}/channels?connected=1`;
     const params = new URLSearchParams({
       app_name: "SeplorX",
       scope: "read_write",
@@ -163,7 +172,7 @@ function WooCommerceConnectStep({
       return_url: returnUrl,
       callback_url: callbackUrl,
     });
-    const authorizeUrl = `${storeUrl.replace(/\/$/, "")}/wc-auth/v1/authorize?${params}`;
+    const authorizeUrl = `${parsedUrl.origin}/wc-auth/v1/authorize?${params}`;
     window.location.assign(authorizeUrl);
   }
 

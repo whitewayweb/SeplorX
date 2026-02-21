@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { channels } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { encrypt } from "@/lib/crypto";
 
 // WooCommerce POSTs form-encoded data after user approves the connection:
@@ -25,17 +25,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const existing = await db
-      .select({ id: channels.id })
-      .from(channels)
-      .where(eq(channels.id, channelId))
-      .limit(1);
-
-    if (existing.length === 0) {
-      return new NextResponse("Not Found", { status: 404 });
-    }
-
-    await db
+    const updated = await db
       .update(channels)
       .set({
         status: "connected",
@@ -45,12 +35,17 @@ export async function POST(request: NextRequest) {
         },
         updatedAt: new Date(),
       })
-      .where(eq(channels.id, channelId));
+      .where(and(eq(channels.id, channelId), eq(channels.status, "pending")))
+      .returning({ id: channels.id });
+
+    if (updated.length === 0) {
+      return new NextResponse("Not Found", { status: 404 });
+    }
   } catch (err) {
     console.error("[woocommerce/callback]", { channelId, error: String(err) });
     return new NextResponse("Internal Server Error", { status: 500 });
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
-  return NextResponse.redirect(`${appUrl}/channels?connected=1`, 302);
+  // WooCommerce requires HTTP 200 — it then redirects the user to return_url itself.
+  return new NextResponse(null, { status: 200 });
 }

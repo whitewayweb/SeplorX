@@ -10,7 +10,15 @@ export function ChannelStatusBadge({ status }: ChannelStatusBadgeProps) {
     return <Badge variant="default">Connected</Badge>;
   }
   if (status === "pending") {
-    return <Badge variant="secondary">Pending</Badge>;
+    return (
+      <Badge
+        variant="secondary"
+        className="border-yellow-300 bg-yellow-50 text-yellow-800"
+        title="OAuth setup was not completed. Click 'Complete Setup' to finish connecting."
+      >
+        Setup Incomplete
+      </Badge>
+    );
   }
   return <Badge variant="outline">Disconnected</Badge>;
 }
