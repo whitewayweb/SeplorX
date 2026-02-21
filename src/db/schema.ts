@@ -55,6 +55,12 @@ export const agentStatusEnum = pgEnum("agent_status", [
   "failed",
 ]);
 
+export const channelStatusEnum = pgEnum("channel_status", [
+  "pending",
+  "connected",
+  "disconnected",
+]);
+
 // ─── Users ───────────────────────────────────────────────────────────────────
 
 export const users = pgTable("users", {
@@ -211,6 +217,26 @@ export const agentActions = pgTable("agent_actions", {
 }, (table) => [
   index("agent_actions_status_idx").on(table.status),
   index("agent_actions_agent_type_idx").on(table.agentType),
+]);
+
+// ─── Channels ────────────────────────────────────────────────────────────────
+// Each row = one user-defined e-commerce order channel instance.
+// Multiple rows of the same channelType are allowed (multi-store).
+// credentials JSONB holds encrypted OAuth keys (consumerKey, consumerSecret).
+
+export const channels = pgTable("channels", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  channelType: varchar("channel_type", { length: 100 }).notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  status: channelStatusEnum("status").default("pending").notNull(),
+  storeUrl: varchar("store_url", { length: 500 }),
+  defaultPickupLocation: varchar("default_pickup_location", { length: 255 }),
+  credentials: jsonb("credentials").$type<Record<string, string>>().default({}).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("channels_user_idx").on(table.userId),
 ]);
 
 // ─── Settings ────────────────────────────────────────────────────────────────

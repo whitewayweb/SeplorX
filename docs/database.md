@@ -45,6 +45,31 @@ Stores which apps a user has installed and their configuration.
 
 **Note**: `app_id` references the TypeScript registry, not another DB table. The registry is the source of truth for app definitions.
 
+### channels
+
+E-commerce order channel instances. Each row is one connected store. Multiple rows of the same `channel_type` are allowed (multi-store support, e.g. two WooCommerce shops).
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | serial | PK |
+| user_id | integer | NOT NULL, FK → users.id (CASCADE) |
+| channel_type | varchar(100) | NOT NULL (e.g. "woocommerce") |
+| name | varchar(255) | NOT NULL (user-defined, e.g. "hiyaautomotive.com") |
+| status | channel_status enum | NOT NULL, default "pending" |
+| store_url | varchar(500) | nullable (WooCommerce store base URL, non-sensitive) |
+| default_pickup_location | varchar(255) | nullable |
+| credentials | jsonb | NOT NULL, default {} |
+| created_at | timestamp | default now() |
+| updated_at | timestamp | default now() |
+
+**Index**: `(user_id)` — no unique constraint on `(user_id, channel_type)` by design.
+
+**Status lifecycle**: `pending` (OAuth initiated, row created before redirect) → `connected` (OAuth callback received, credentials stored) → `disconnected` (manually disconnected, credentials cleared).
+
+**credentials JSONB**: Stores `consumerKey` and `consumerSecret` encrypted with AES-256-GCM (same `encrypt()` helper as app config). Keys are written by the WooCommerce OAuth callback route (`/api/channels/woocommerce/callback`) and never read back to the client — only used server-side for API calls. Credentials are wiped on disconnect.
+
+**channel_type** references the TypeScript channel registry (`src/lib/channels/registry.ts`), not another DB table.
+
 ## JSONB Config Column
 
 The `config` column stores a flat `Record<string, string>`. Sensitive fields (where `type === "password"` in the app registry) are encrypted with AES-256-GCM before storage:
@@ -237,6 +262,7 @@ await db.insert(settings)
 |------|--------|---------|
 | role | admin, customer, vendor | users.role |
 | app_status | installed, configured | app_installations.status |
+| channel_status | pending, connected, disconnected | channels.status |
 | company_type | supplier, customer, both | companies.type |
 | purchase_invoice_status | draft, received, partial, paid, cancelled | purchase_invoices.status |
 | payment_mode | cash, bank_transfer, upi, cheque, other | payments.payment_mode |

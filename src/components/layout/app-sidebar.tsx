@@ -11,6 +11,7 @@ import {
   Puzzle,
   Bot,
   Receipt,
+  Store,
 } from "lucide-react";
 import {
   Sidebar,
@@ -32,6 +33,7 @@ const navItems = [
   { title: "Invoices", href: "/invoices", icon: FileText },
   { title: "Purchase Bills", href: "/purchase/bills", icon: Receipt },
   { title: "Inventory", href: "/inventory", icon: Warehouse },
+  { title: "Channels", href: "/channels", icon: Store },
   { title: "Apps", href: "/apps", icon: Puzzle },
 ];
 

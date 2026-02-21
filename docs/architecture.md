@@ -39,22 +39,35 @@ SeplorX is a shipping/logistics management portal. It serves as a central hub wh
 
 ## Layout
 
-Sidebar navigation with two main sections:
+Sidebar navigation with two groups:
+
+**Navigation**
 - **Dashboard** (`/`) — overview and quick stats
-- **Apps** (`/apps`) — install and configure third-party integrations
+- **Companies** (`/companies`) — supplier/customer management
+- **Products** (`/products`) — product catalog + stock levels
+- **Invoices** (`/invoices`) — purchase invoices + payments
+- **Purchase Bills** (`/purchase/bills`) — purchase bill management
+- **Inventory** (`/inventory`) — stock overview + alerts
+- **Channels** (`/channels`) — e-commerce order channel integrations (WooCommerce, etc.)
+- **Apps** (`/apps`) — logistics/payment/SMS API integrations
+
+**AI**
+- **Agents** (`/ai/agents`) — AI agent approval queue
 
 The sidebar uses shadcn/ui's `Sidebar` component with `SidebarProvider` wrapping the root layout.
 
 ## Key Patterns
 
-### 1. Registry Pattern (Apps + Agents)
-Both apps and agents are defined as TypeScript objects in their respective `registry.ts` files. The database only stores runtime state (installations, agent_actions). This means:
-- No app/agent metadata in the DB
+### 1. Registry Pattern (Apps + Channels + Agents)
+Apps, channels, and agents are defined as TypeScript objects in their respective `registry.ts` files. The database only stores runtime state (installations, channel instances, agent_actions). This means:
+- No metadata in the DB — the registry is the single source of truth
 - Adding, disabling, or removing is a code-only change
-- The registry is the single source of truth
 
 App registry: `src/lib/apps/registry.ts` — see `docs/apps-integration.md`
+Channel registry: `src/lib/channels/registry.ts` — see `docs/channels-integration.md`
 Agent registry: `src/lib/agents/registry.ts` — see `docs/agents.md`
+
+**Apps vs Channels**: Apps (logistics, payment, SMS) allow one installation per user per type, use API key config, and are managed via `app_installations`. Channels (WooCommerce, Shopify, Amazon) allow **multiple instances per type** (multi-store), use OAuth credentials, and are managed via `channels`.
 
 ### 2. Agent Layer (Two-Phase Approval)
 Agents are reasoning engines, not execution engines. They can only read from core tables and write to `agent_actions`. All actual mutations go through existing validated Server Actions after human approval:
@@ -176,13 +189,21 @@ src/
 │   │   ├── page.tsx            # Server component (reads DB + registry)
 │   │   ├── actions.ts          # Server actions (install/configure/uninstall)
 │   │   └── loading.tsx         # Streaming skeleton
+│   ├── channels/               # E-commerce channel integrations
+│   │   ├── page.tsx            # Server component (reads channels table)
+│   │   ├── actions.ts          # Server actions (create/disconnect/delete)
+│   │   └── loading.tsx         # Streaming skeleton
 │   ├── agents/
 │   │   └── actions.ts          # Server actions (approve/dismiss agent tasks)
 │   ├── api/
 │   │   ├── health/             # Health check endpoint
-│   │   └── agents/
-│   │       └── reorder/
-│   │           └── route.ts    # POST — runs reorder agent, stores plan
+│   │   ├── agents/
+│   │   │   └── reorder/
+│   │   │       └── route.ts    # POST — runs reorder agent, stores plan
+│   │   └── channels/
+│   │       └── woocommerce/
+│   │           └── callback/
+│   │               └── route.ts # POST — receives WooCommerce OAuth keys
 │   ├── page.tsx                # Dashboard
 │   ├── error.tsx               # Global error boundary
 │   ├── layout.tsx              # Root layout with sidebar
@@ -198,6 +219,10 @@ src/
 │   │   ├── app-icon.tsx        # Dynamic Lucide icon
 │   │   ├── app-status-badge.tsx # Status badge
 │   │   └── category-tabs.tsx   # Category tab navigation
+│   ├── channels/               # Channel-specific components
+│   │   ├── channel-list.tsx    # Table of connected channels
+│   │   ├── channel-status-badge.tsx # pending/connected/disconnected badge
+│   │   └── add-channel-wizard.tsx  # 4-step Dialog (select→name→prefs→connect)
 │   ├── layout/                 # Layout components
 │   │   └── app-sidebar.tsx     # Sidebar navigation
 │   └── ui/                     # shadcn/ui primitives
@@ -214,8 +239,12 @@ src/
     │   ├── types.ts            # Type definitions
     │   ├── registry.ts         # App definitions + helpers
     │   └── index.ts            # Barrel export
+    ├── channels/               # Channel registry system
+    │   ├── types.ts            # ChannelDefinition, ChannelInstance, ChannelType
+    │   └── registry.ts         # channelRegistry[], getChannelById(), getPopularChannels()
     ├── validations/            # Zod schemas
-    │   └── apps.ts             # App config validation
+    │   ├── apps.ts             # App config validation
+    │   └── channels.ts         # Channel create/delete validation
     ├── env.ts                  # Environment validation
     └── utils.ts                # cn() helper
 ```

@@ -57,6 +57,13 @@
       "when": 1771541200000,
       "tag": "0007_rename_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1771629769851,
+      "tag": "0008_little_scarecrow",
+      "breakpoints": true
     }
   ]
 }
