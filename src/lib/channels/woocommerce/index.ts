@@ -1,5 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
-import type { ChannelHandler, ChannelConfigField, WebhookStockChange } from "../types";
+import type { ChannelHandler, ChannelConfigField, WebhookStockChange, ExternalProduct } from "../types";
 
 // ─── WooCommerce credential shape stored in channels.credentials ─────────────
 
@@ -31,6 +31,15 @@ async function wcFetch(
     },
   });
   return res;
+}
+
+// ─── WooCommerce product payload (minimal shape we need) ─────────────────────
+
+interface WCProductListItem {
+  id: number;
+  name: string;
+  sku: string;
+  stock_quantity: number | null;
 }
 
 // ─── WooCommerce order webhook payload (minimal shape we need) ────────────────
@@ -110,6 +119,25 @@ export const woocommerceHandler: ChannelHandler = {
 
     if (!channelId || !consumerKey || !consumerSecret) return null;
     return { channelId, credentials: { consumerKey, consumerSecret } };
+  },
+
+  async fetchProducts(storeUrl, credentials, search) {
+    const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
+    const res = await wcFetch(storeUrl, `/products?per_page=100&status=publish${searchParam}`, {
+      method: "GET",
+      headers: { Authorization: basicAuth(credentials.consumerKey, credentials.consumerSecret) },
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`WooCommerce fetchProducts failed (${res.status}): ${text.substring(0, 200)}`);
+    }
+    const data = (await res.json()) as WCProductListItem[];
+    return data.map((p): ExternalProduct => ({
+      id: String(p.id),
+      name: p.name,
+      sku: p.sku || undefined,
+      stockQuantity: p.stock_quantity ?? undefined,
+    }));
   },
 
   async pushStock(storeUrl, credentials, externalProductId, quantity) {

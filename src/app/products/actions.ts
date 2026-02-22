@@ -13,6 +13,7 @@ import {
 import { ChannelMappingSchema, ChannelMappingIdSchema } from "@/lib/validations/channels";
 import { getChannelHandler } from "@/lib/channels/registry";
 import { decrypt } from "@/lib/crypto";
+import type { ExternalProduct } from "@/lib/channels/types";
 
 // TODO: replace with auth() when auth is re-added
 const CURRENT_USER_ID = 1;
@@ -280,7 +281,7 @@ export async function adjustStock(_prevState: unknown, formData: FormData) {
 
 // ─── Channel Product Mappings ─────────────────────────────────────────────────
 
-export async function saveChannelMapping(_prevState: unknown, formData: FormData) {
+async function saveChannelMapping(_prevState: unknown, formData: FormData) {
   const parsed = ChannelMappingSchema.safeParse({
     channelId: formData.get("channelId"),
     productId: formData.get("productId"),
@@ -461,4 +462,165 @@ export async function pushProductStockToChannels(productId: number) {
     console.error("[pushProductStockToChannels]", { productId, error: String(err) });
     return { error: "Failed to push stock to channels." };
   }
+}
+
+// ─── Fetch channel products with mapping state ────────────────────────────────
+
+export type ChannelProductWithState = ExternalProduct & {
+  mappingState:
+    | { kind: "unmapped" }
+    | { kind: "mapped_here" }
+    | { kind: "mapped_other"; productId: number; productName: string };
+};
+
+/**
+ * Fetch products from the remote channel and enrich each with its mapping state
+ * relative to the given SeplorX product (productId).
+ *
+ * - unmapped: not yet mapped to any SeplorX product on this channel
+ * - mapped_here: already mapped to THIS product → shown checked + disabled
+ * - mapped_other: mapped to a DIFFERENT SeplorX product → greyed, non-selectable
+ */
+export async function fetchChannelProducts(
+  channelId: number,
+  productId: number,
+  search?: string,
+): Promise<ChannelProductWithState[] | { error: string }> {
+  // Verify channel belongs to current user and is connected
+  const channelRows = await db
+    .select({
+      id: channels.id,
+      channelType: channels.channelType,
+      storeUrl: channels.storeUrl,
+      credentials: channels.credentials,
+      status: channels.status,
+    })
+    .from(channels)
+    .where(and(eq(channels.id, channelId), eq(channels.userId, CURRENT_USER_ID)))
+    .limit(1);
+
+  if (channelRows.length === 0) return { error: "Channel not found." };
+
+  const channel = channelRows[0];
+  if (channel.status !== "connected") {
+    return { error: "Channel is not connected." };
+  }
+
+  const handler = getChannelHandler(channel.channelType);
+  if (!handler || !handler.fetchProducts) {
+    return { error: "This channel does not support product listing." };
+  }
+
+  if (!channel.storeUrl) {
+    return { error: "Channel has no store URL configured." };
+  }
+
+  const creds = channel.credentials ?? {};
+  const consumerKey = creds.consumerKey ? decrypt(creds.consumerKey) : "";
+  const consumerSecret = creds.consumerSecret ? decrypt(creds.consumerSecret) : "";
+
+  if (!consumerKey || !consumerSecret) {
+    return { error: "Channel credentials are missing or invalid." };
+  }
+
+  let externalProducts: ExternalProduct[];
+  try {
+    externalProducts = await handler.fetchProducts(
+      channel.storeUrl,
+      { consumerKey, consumerSecret },
+      search,
+    );
+  } catch (err) {
+    console.error("[fetchChannelProducts] fetchProducts error", { channelId, error: String(err) });
+    return { error: "Unable to load products from this channel." };
+  }
+
+  // Load all existing mappings for this channel (to determine state)
+  const existingMappings = await db
+    .select({
+      externalProductId: channelProductMappings.externalProductId,
+      productId: channelProductMappings.productId,
+      productName: products.name,
+    })
+    .from(channelProductMappings)
+    .innerJoin(products, eq(channelProductMappings.productId, products.id))
+    .where(eq(channelProductMappings.channelId, channelId));
+
+  const mappingByExternalId = new Map(
+    existingMappings.map((m) => [m.externalProductId, { productId: m.productId, productName: m.productName }]),
+  );
+
+  return externalProducts.map((p): ChannelProductWithState => {
+    const existing = mappingByExternalId.get(p.id);
+    if (!existing) {
+      return { ...p, mappingState: { kind: "unmapped" } };
+    }
+    if (existing.productId === productId) {
+      return { ...p, mappingState: { kind: "mapped_here" } };
+    }
+    return { ...p, mappingState: { kind: "mapped_other", productId: existing.productId, productName: existing.productName } };
+  });
+}
+
+// ─── Batch save channel mappings ──────────────────────────────────────────────
+
+/**
+ * Bulk-insert channel product mappings selected via the dialog.
+ * Uses INSERT ON CONFLICT DO NOTHING — safe to re-run (idempotent for same product).
+ * The unique constraint (channel_id, external_product_id) blocks mapping a WC product
+ * to a second SeplorX product — that path returns { error }.
+ */
+export async function saveChannelMappings(
+  productId: number,
+  channelId: number,
+  items: { externalProductId: string; label: string }[],
+): Promise<{ added: number; skipped: number } | { error: string }> {
+  if (items.length === 0) return { added: 0, skipped: 0 };
+
+  // Verify channel belongs to current user
+  const channelRow = await db
+    .select({ id: channels.id })
+    .from(channels)
+    .where(and(eq(channels.id, channelId), eq(channels.userId, CURRENT_USER_ID)))
+    .limit(1);
+
+  if (channelRow.length === 0) return { error: "Channel not found." };
+
+  let added = 0;
+  let skipped = 0;
+
+  try {
+    for (const item of items) {
+      try {
+        const result = await db
+          .insert(channelProductMappings)
+          .values({
+            channelId,
+            productId,
+            externalProductId: item.externalProductId,
+            label: item.label || null,
+          })
+          .onConflictDoNothing()
+          .returning({ id: channelProductMappings.id });
+        if (result.length > 0) {
+          added++;
+        } else {
+          skipped++;
+        }
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        // 23505 = unique_violation — WC product already mapped to a different SeplorX product
+        if (code === "23505") {
+          return { error: `WC product ${item.externalProductId} is already mapped to another product.` };
+        }
+        throw err;
+      }
+    }
+  } catch (err) {
+    console.error("[saveChannelMappings]", { channelId, productId, error: String(err) });
+    return { error: "Failed to save mappings. Please try again." };
+  }
+
+  revalidatePath(`/products/${productId}`);
+  return { added, skipped };
 }

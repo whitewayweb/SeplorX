@@ -23,6 +23,8 @@ import {
 } from "@/app/channels/actions";
 import { getChannelById, getChannelHandler } from "@/lib/channels/registry";
 import type { ChannelInstance } from "@/lib/channels/types";
+import { ChannelMappingTrigger } from "@/components/agents/channel-mapping-trigger";
+import { AGENT_REGISTRY } from "@/lib/agents/registry";
 
 // ─── Reconnect button (pending / disconnected OAuth channels) ─────────────────
 
@@ -161,6 +163,11 @@ function ChannelRowActions({ channel }: { channel: ChannelInstance }) {
         <RegisterWebhooksButton channelId={channel.id} />
       )}
 
+      {/* AI Auto-Map: connected channels */}
+      {channel.status === "connected" && AGENT_REGISTRY.channelMapping.enabled && (
+        <ChannelMappingTrigger channelId={channel.id} />
+      )}
+
       {/* Disconnect: only when connected */}
       {channel.status === "connected" && (
         <form action={disconnectAction}>
@@ -186,9 +193,10 @@ function ChannelRowActions({ channel }: { channel: ChannelInstance }) {
 interface ChannelListProps {
   channels: ChannelInstance[];
   connected?: boolean;
+  mappedProductCounts?: Map<number, number>;
 }
 
-export function ChannelList({ channels, connected }: ChannelListProps) {
+export function ChannelList({ channels, connected, mappedProductCounts }: ChannelListProps) {
   const router = useRouter();
   const shown = useRef(false);
 
@@ -223,7 +231,8 @@ export function ChannelList({ channels, connected }: ChannelListProps) {
             <TableHead>Type</TableHead>
             <TableHead>Store URL</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead className="w-[280px]">Actions</TableHead>
+            <TableHead>Mapped Products</TableHead>
+            <TableHead className="w-[320px]">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -259,6 +268,13 @@ export function ChannelList({ channels, connected }: ChannelListProps) {
                 </TableCell>
                 <TableCell>
                   <ChannelStatusBadge status={channel.status} />
+                </TableCell>
+                <TableCell>
+                  <span className="text-sm text-muted-foreground">
+                    {mappedProductCounts?.get(channel.id)
+                      ? `${mappedProductCounts.get(channel.id)} products`
+                      : "—"}
+                  </span>
                 </TableCell>
                 <TableCell>
                   <ChannelRowActions channel={channel} />

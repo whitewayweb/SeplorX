@@ -98,7 +98,13 @@ export async function POST(
       .limit(1);
 
     if (mapping.length === 0) {
-      // Product not mapped in SeplorX — skip silently
+      // Product not mapped in SeplorX — log for operator visibility and skip
+      console.warn("[channels/webhook] unmapped product skipped", {
+        type,
+        channelId,
+        externalProductId: change.externalProductId,
+        referenceId: change.referenceId,
+      });
       continue;
     }
 

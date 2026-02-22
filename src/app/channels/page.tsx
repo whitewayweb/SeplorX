@@ -1,11 +1,13 @@
 export const dynamic = "force-dynamic";
 
 import { db } from "@/db";
-import { channels } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { channels, channelProductMappings, agentActions } from "@/db/schema";
+import { and, countDistinct, desc, eq } from "drizzle-orm";
 import { ChannelList } from "@/components/channels/channel-list";
 import { AddChannelWizard } from "@/components/channels/add-channel-wizard";
+import { ChannelMappingApprovalCard } from "@/components/agents/channel-mapping-approval-card";
 import type { ChannelInstance } from "@/lib/channels/types";
+import type { ChannelMappingPlan } from "@/lib/agents/tools/channel-mapping-tools";
 
 const CURRENT_USER_ID = 1;
 
@@ -37,6 +39,33 @@ export default async function ChannelsPage({
     hasWebhooks: typeof credentials?.webhookSecret === "string" && credentials.webhookSecret.length > 0,
   }));
 
+  // Count DISTINCT mapped products per channel (for the "Mapped Products" column)
+  const mappingCounts = await db
+    .select({
+      channelId: channelProductMappings.channelId,
+      count: countDistinct(channelProductMappings.productId),
+    })
+    .from(channelProductMappings)
+    .groupBy(channelProductMappings.channelId);
+
+  const mappedProductCounts = new Map(mappingCounts.map((r) => [r.channelId, r.count]));
+
+  // Pending AI channel mapping approvals
+  const pendingMappingTasks = await db
+    .select({
+      id: agentActions.id,
+      plan: agentActions.plan,
+      createdAt: agentActions.createdAt,
+    })
+    .from(agentActions)
+    .where(
+      and(
+        eq(agentActions.status, "pending_approval"),
+        eq(agentActions.agentType, "channel_mapping"),
+      ),
+    )
+    .orderBy(desc(agentActions.createdAt));
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -48,7 +77,26 @@ export default async function ChannelsPage({
         </div>
         <AddChannelWizard />
       </div>
-      <ChannelList channels={channelInstances} connected={connected === "1"} />
+
+      {/* Pending AI mapping approvals */}
+      {pendingMappingTasks.length > 0 && (
+        <div className="space-y-3">
+          {pendingMappingTasks.map((task) => (
+            <ChannelMappingApprovalCard
+              key={task.id}
+              taskId={task.id}
+              plan={task.plan as unknown as ChannelMappingPlan}
+              createdAt={task.createdAt}
+            />
+          ))}
+        </div>
+      )}
+
+      <ChannelList
+        channels={channelInstances}
+        connected={connected === "1"}
+        mappedProductCounts={mappedProductCounts}
+      />
     </div>
   );
 }

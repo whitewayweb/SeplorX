@@ -22,5 +22,13 @@ export const AGENT_REGISTRY = {
     enabled: true,
     route: "/api/agents/ocr",
     triggerPage: "/purchase/bills",
-  }
+  },
+  channelMapping: {
+    id: "channelMapping",
+    name: "Channel Product Mapper",
+    description: "Automatically matches your SeplorX products to WooCommerce products by name and SKU. Only proposes new links — skips already-mapped products.",
+    enabled: true,
+    route: "/api/agents/channel-mapping",
+    triggerPage: "/channels",
+  },
 } as const;

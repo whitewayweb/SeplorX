@@ -3,6 +3,7 @@
 import { db } from "@/db";
 import {
   agentActions,
+  channelProductMappings,
   purchaseInvoices,
   purchaseInvoiceItems,
   products,
@@ -12,6 +13,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import type { ReorderPlan } from "@/lib/agents/tools/inventory-tools";
+import type { ChannelMappingPlan } from "@/lib/agents/tools/channel-mapping-tools";
 
 // TODO: replace with auth() when auth is re-added
 const CURRENT_USER_ID = 1;
@@ -473,4 +475,72 @@ export async function dismissAgentTask(_prevState: unknown, formData: FormData) 
   revalidatePath("/inventory");
   revalidatePath("/purchase/bills");
   return { success: true };
+}
+
+// ─── Approve Channel Mapping Plan ─────────────────────────────────────────────
+// Atomically claims the task and bulk-inserts proposed mappings.
+// ON CONFLICT DO NOTHING: safe to re-run; already-mapped WC products are silently skipped.
+
+export async function approveChannelMappings(_prevState: unknown, formData: FormData) {
+  const parsed = AgentTaskIdSchema.safeParse({ taskId: formData.get("taskId") });
+
+  if (!parsed.success) {
+    return { error: "Invalid task ID." };
+  }
+
+  const { taskId } = parsed.data;
+
+  try {
+    let mapped = 0;
+    let skipped = 0;
+
+    await db.transaction(async (tx) => {
+      // 1. Atomically claim the task
+      const [claimed] = await tx
+        .update(agentActions)
+        .set({ status: "executed", resolvedBy: CURRENT_USER_ID, resolvedAt: new Date() })
+        .where(and(eq(agentActions.id, taskId), eq(agentActions.status, "pending_approval")))
+        .returning({ id: agentActions.id, plan: agentActions.plan });
+
+      if (!claimed) {
+        throw Object.assign(new Error("This recommendation has already been resolved."), { userError: true });
+      }
+
+      const plan = claimed.plan as unknown as ChannelMappingPlan;
+
+      if (!plan.channelId || !Array.isArray(plan.proposals) || plan.proposals.length === 0) {
+        throw Object.assign(new Error("Invalid plan data."), { userError: true });
+      }
+
+      // 2. Bulk insert proposals — ON CONFLICT DO NOTHING for same (channel, externalProductId)
+      for (const proposal of plan.proposals) {
+        const result = await tx
+          .insert(channelProductMappings)
+          .values({
+            channelId: plan.channelId,
+            productId: proposal.seplorxProductId,
+            externalProductId: proposal.externalProductId,
+            label: proposal.externalProductName,
+          })
+          .onConflictDoNothing()
+          .returning({ id: channelProductMappings.id });
+
+        if (result.length > 0) {
+          mapped++;
+        } else {
+          skipped++;
+        }
+      }
+    });
+
+    revalidatePath("/channels");
+    revalidatePath("/products");
+    return { success: true, mapped, skipped };
+  } catch (err) {
+    if (err instanceof Error && "userError" in err) {
+      return { error: err.message };
+    }
+    console.error("[approveChannelMappings]", { taskId, error: String(err) });
+    return { error: "Failed to apply mappings. Please try again." };
+  }
 }

@@ -6,14 +6,12 @@ import { Plug, ArrowUpFromLine, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
-  saveChannelMapping,
   deleteChannelMapping,
   pushProductStockToChannels,
 } from "@/app/products/actions";
 import { getChannelById } from "@/lib/channels/registry";
+import { AddMappingDialog } from "./add-mapping-dialog";
 
 interface ConnectedChannel {
   id: number;
@@ -26,52 +24,6 @@ interface MappingRow {
   channelId: number;
   externalProductId: string;
   label: string | null;
-}
-
-// ─── Add Mapping Form (one instance per channel) ──────────────────────────────
-
-function AddMappingForm({
-  productId,
-  channelId,
-}: {
-  productId: number;
-  channelId: number;
-}) {
-  const [state, action, pending] = useActionState(saveChannelMapping, null);
-
-  return (
-    <div className="space-y-1.5">
-      <form action={action} className="flex gap-2 items-end">
-        <input type="hidden" name="productId" value={productId} />
-        <input type="hidden" name="channelId" value={channelId} />
-        <div className="flex-1 space-y-1">
-          <Label className="text-xs text-muted-foreground">WC Product ID</Label>
-          <Input
-            name="externalProductId"
-            placeholder="e.g. 123"
-            className="h-8 text-sm"
-          />
-        </div>
-        <div className="flex-1 space-y-1">
-          <Label className="text-xs text-muted-foreground">
-            Label{" "}
-            <span className="text-muted-foreground/60">(optional)</span>
-          </Label>
-          <Input
-            name="label"
-            placeholder="e.g. Series A"
-            className="h-8 text-sm"
-          />
-        </div>
-        <Button type="submit" size="sm" disabled={pending} className="h-8">
-          {pending ? "Saving…" : "Add"}
-        </Button>
-      </form>
-      {state?.error && (
-        <p className="text-destructive text-xs">{state.error}</p>
-      )}
-    </div>
-  );
 }
 
 // ─── Remove Mapping Button ────────────────────────────────────────────────────
@@ -258,8 +210,12 @@ export function ChannelSyncCard({
                 </div>
               )}
 
-              {/* Add mapping form */}
-              <AddMappingForm productId={productId} channelId={channel.id} />
+              {/* Add mapping dialog */}
+              <AddMappingDialog
+                productId={productId}
+                channelId={channel.id}
+                channelName={channel.name}
+              />
             </div>
           );
         })}

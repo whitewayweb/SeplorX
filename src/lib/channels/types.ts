@@ -47,6 +47,13 @@ export interface WebhookStockChange {
   referenceType: string;
 }
 
+export interface ExternalProduct {
+  id: string;
+  name: string;
+  sku?: string;
+  stockQuantity?: number;
+}
+
 export interface ChannelHandler {
   readonly id: ChannelType;
   /** Config fields shown in the connect wizard (step 4) */
@@ -60,6 +67,17 @@ export interface ChannelHandler {
 
   /** Return an error message string, or null if valid */
   validateConfig(config: Partial<Record<string, string>>): string | null;
+
+  /**
+   * Fetch a list of products from the remote store.
+   * Optional — channels without a product-list API simply omit this method.
+   * @param search - Optional search term to filter products
+   */
+  fetchProducts?(
+    storeUrl: string,
+    credentials: Record<string, string>,
+    search?: string,
+  ): Promise<ExternalProduct[]>;
 
   /** Build the OAuth/connect URL to redirect the user to */
   buildConnectUrl(
