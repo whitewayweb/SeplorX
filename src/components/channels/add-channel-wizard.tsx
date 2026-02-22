@@ -162,7 +162,7 @@ function WooCommerceConnectStep({
     if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
       return; // reject non-http(s) protocols
     }
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin;
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin).replace(/\/$/, "");
     const callbackUrl = `${appUrl}/api/channels/woocommerce/callback`;
     const returnUrl = `${appUrl}/channels?connected=1`;
     const params = new URLSearchParams({

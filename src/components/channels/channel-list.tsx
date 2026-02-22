@@ -47,8 +47,9 @@ function ReconnectButton({ channelId, storeUrl, label }: ReconnectButtonProps) {
         setError(result.error ?? "Something went wrong.");
         return;
       }
-      const appUrl =
-        process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin;
+      const appUrl = (
+        process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin
+      ).replace(/\/$/, "");
       const params = new URLSearchParams({
         app_name: "SeplorX",
         scope: "read_write",
