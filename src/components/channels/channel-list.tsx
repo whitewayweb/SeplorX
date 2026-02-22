@@ -3,7 +3,7 @@
 import { useActionState, useTransition, useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Store } from "lucide-react";
+import { Store, Webhook } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,19 +19,21 @@ import {
   disconnectChannel,
   deleteChannel,
   resetChannelStatus,
+  registerChannelWebhooks,
 } from "@/app/channels/actions";
-import { getChannelById } from "@/lib/channels/registry";
+import { getChannelById, getChannelHandler } from "@/lib/channels/registry";
 import type { ChannelInstance } from "@/lib/channels/types";
 
-// ─── Reconnect button (for pending / disconnected OAuth channels) ─────────────
+// ─── Reconnect button (pending / disconnected OAuth channels) ─────────────────
 
 interface ReconnectButtonProps {
   channelId: number;
+  channelType: string;
   storeUrl: string | null;
   label: string;
 }
 
-function ReconnectButton({ channelId, storeUrl, label }: ReconnectButtonProps) {
+function ReconnectButton({ channelId, channelType, storeUrl, label }: ReconnectButtonProps) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -47,17 +49,14 @@ function ReconnectButton({ channelId, storeUrl, label }: ReconnectButtonProps) {
         setError(result.error ?? "Something went wrong.");
         return;
       }
-      const appUrl = (
-        process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin
-      ).replace(/\/$/, "");
-      const params = new URLSearchParams({
-        app_name: "SeplorX",
-        scope: "read_write",
-        user_id: String(channelId),
-        return_url: `${appUrl}/channels?connected=1`,
-        callback_url: `${appUrl}/api/channels/woocommerce/callback`,
-      });
-      window.location.assign(`${storeUrl.replace(/\/$/, "")}/wc-auth/v1/authorize?${params}`);
+      const handler = getChannelHandler(channelType);
+      if (!handler) {
+        setError("This channel type is not supported.");
+        return;
+      }
+      const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin).replace(/\/$/, "");
+      const connectUrl = handler.buildConnectUrl(channelId, { storeUrl }, appUrl);
+      window.location.assign(connectUrl);
     });
   }
 
@@ -76,13 +75,46 @@ function ReconnectButton({ channelId, storeUrl, label }: ReconnectButtonProps) {
   );
 }
 
-// ─── Row actions ──────────────────────────────────────────────────────────────
+// ─── Register Webhooks button ─────────────────────────────────────────────────
 
-interface ChannelRowActionsProps {
-  channel: ChannelInstance;
+function RegisterWebhooksButton({ channelId }: { channelId: number }) {
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function handleRegister() {
+    setError(null);
+    startTransition(async () => {
+      const result = await registerChannelWebhooks(channelId);
+      if (!result.success) {
+        setError(result.error ?? "Failed to register webhooks.");
+      } else {
+        toast.success("Webhooks registered", {
+          description: "WooCommerce will now send order events to SeplorX.",
+        });
+      }
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      {error && <span className="text-destructive text-xs">{error}</span>}
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={handleRegister}
+        disabled={pending}
+        title="Register order webhooks on this WooCommerce store"
+      >
+        <Webhook className="h-3 w-3 mr-1" />
+        {pending ? "Registering…" : "Register Webhooks"}
+      </Button>
+    </div>
+  );
 }
 
-function ChannelRowActions({ channel }: ChannelRowActionsProps) {
+// ─── Row actions ──────────────────────────────────────────────────────────────
+
+function ChannelRowActions({ channel }: { channel: ChannelInstance }) {
   const [disconnectState, disconnectAction, disconnecting] = useActionState(
     disconnectChannel,
     null,
@@ -98,7 +130,7 @@ function ChannelRowActions({ channel }: ChannelRowActionsProps) {
   const isOAuth = definition?.authType === "oauth";
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 flex-wrap">
       {disconnectState?.error && (
         <span className="text-destructive text-xs">{disconnectState.error}</span>
       )}
@@ -110,6 +142,7 @@ function ChannelRowActions({ channel }: ChannelRowActionsProps) {
       {isOAuth && channel.status === "pending" && (
         <ReconnectButton
           channelId={channel.id}
+          channelType={channel.channelType}
           storeUrl={channel.storeUrl}
           label="Complete Setup"
         />
@@ -117,9 +150,15 @@ function ChannelRowActions({ channel }: ChannelRowActionsProps) {
       {isOAuth && channel.status === "disconnected" && (
         <ReconnectButton
           channelId={channel.id}
+          channelType={channel.channelType}
           storeUrl={channel.storeUrl}
           label="Reconnect"
         />
+      )}
+
+      {/* Register Webhooks: connected channels that haven't registered yet */}
+      {channel.status === "connected" && !channel.hasWebhooks && (
+        <RegisterWebhooksButton channelId={channel.id} />
       )}
 
       {/* Disconnect: only when connected */}
@@ -184,7 +223,7 @@ export function ChannelList({ channels, connected }: ChannelListProps) {
             <TableHead>Type</TableHead>
             <TableHead>Store URL</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead className="w-[220px]">Actions</TableHead>
+            <TableHead className="w-[280px]">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

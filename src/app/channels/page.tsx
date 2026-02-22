@@ -16,6 +16,7 @@ export default async function ChannelsPage({
 }) {
   const { connected } = await searchParams;
 
+  // Fetch credentials only to derive hasWebhooks — never sent to the client
   const rows = await db
     .select({
       id: channels.id,
@@ -25,10 +26,16 @@ export default async function ChannelsPage({
       storeUrl: channels.storeUrl,
       defaultPickupLocation: channels.defaultPickupLocation,
       createdAt: channels.createdAt,
+      credentials: channels.credentials,
     })
     .from(channels)
     .where(eq(channels.userId, CURRENT_USER_ID))
     .orderBy(channels.createdAt);
+
+  const channelInstances: ChannelInstance[] = rows.map(({ credentials, ...row }) => ({
+    ...row,
+    hasWebhooks: typeof credentials?.webhookSecret === "string" && credentials.webhookSecret.length > 0,
+  }));
 
   return (
     <div className="p-6 space-y-6">
@@ -41,7 +48,7 @@ export default async function ChannelsPage({
         </div>
         <AddChannelWizard />
       </div>
-      <ChannelList channels={rows as ChannelInstance[]} connected={connected === "1"} />
+      <ChannelList channels={channelInstances} connected={connected === "1"} />
     </div>
   );
 }

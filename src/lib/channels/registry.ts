@@ -1,4 +1,5 @@
-import type { ChannelDefinition, ChannelType } from "./types";
+import type { ChannelDefinition, ChannelHandler, ChannelType } from "./types";
+import { woocommerceHandler } from "./woocommerce";
 
 export const channelRegistry: ChannelDefinition[] = [
   {
@@ -43,6 +44,15 @@ export function getChannelById(id: ChannelType): ChannelDefinition | undefined {
   return channelRegistry.find((c) => c.id === id);
 }
 
-function getPopularChannels(): ChannelDefinition[] {
-  return channelRegistry.filter((c) => c.popular);
+/**
+ * Returns the runtime handler for a channel type, or null if the channel
+ * is not yet implemented. Add new channels here as they are built.
+ */
+export function getChannelHandler(type: string): ChannelHandler | null {
+  switch (type) {
+    case "woocommerce":
+      return woocommerceHandler;
+    default:
+      return null;
+  }
 }

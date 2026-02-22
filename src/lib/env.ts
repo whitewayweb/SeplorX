@@ -17,6 +17,9 @@ function getEnv() {
   // GOOGLE_GENERATIVE_AI_API_KEY: Google Gemini API key for AI agents (optional — agents won't run without it)
   const googleAiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 
+  // NEXT_PUBLIC_APP_URL: public base URL for building webhook callback URLs (optional)
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+
   const optionalEnvVars = {
     NODE_ENV: process.env.NODE_ENV || 'development',
   } as const;
@@ -45,6 +48,7 @@ function getEnv() {
     DATABASE_URL: databaseUrl as string,
     ENCRYPTION_KEY: encryptionKey as string,
     GOOGLE_GENERATIVE_AI_API_KEY: googleAiKey,
+    NEXT_PUBLIC_APP_URL: appUrl,
     ...optionalEnvVars,
     isDevelopment: process.env.NODE_ENV === 'development',
     isProduction: process.env.NODE_ENV === 'production',

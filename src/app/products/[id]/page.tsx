@@ -1,6 +1,6 @@
 import { db } from "@/db";
-import { products, inventoryTransactions } from "@/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { products, inventoryTransactions, channels, channelProductMappings } from "@/db/schema";
+import { eq, desc, and } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Package, Tag } from "lucide-react";
@@ -17,8 +17,12 @@ import {
 } from "@/components/ui/table";
 import { ProductDialog } from "@/components/products/product-dialog";
 import { StockAdjustmentDialog } from "@/components/products/stock-adjustment-dialog";
+import { ChannelSyncCard } from "@/components/products/channel-sync-card";
 
 export const dynamic = "force-dynamic";
+
+// TODO: replace with auth() when auth is re-added
+const CURRENT_USER_ID = 1;
 
 interface ProductDetailPageProps {
   params: Promise<{ id: string }>;
@@ -50,6 +54,29 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
   }
 
   const product = result[0];
+
+  // Fetch connected channels for this user
+  const connectedChannels = await db
+    .select({
+      id: channels.id,
+      channelType: channels.channelType,
+      name: channels.name,
+    })
+    .from(channels)
+    .where(
+      and(eq(channels.userId, CURRENT_USER_ID), eq(channels.status, "connected")),
+    );
+
+  // Fetch existing channel product mappings for this product
+  const mappings = await db
+    .select({
+      id: channelProductMappings.id,
+      channelId: channelProductMappings.channelId,
+      externalProductId: channelProductMappings.externalProductId,
+      label: channelProductMappings.label,
+    })
+    .from(channelProductMappings)
+    .where(eq(channelProductMappings.productId, productId));
 
   // Fetch recent inventory transactions
   const transactions = await db
@@ -194,6 +221,13 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
           </CardContent>
         </Card>
       </div>
+
+      {/* Channel Sync */}
+      <ChannelSyncCard
+        productId={productId}
+        connectedChannels={connectedChannels}
+        mappings={mappings}
+      />
 
       {/* Transaction History */}
       <Card>

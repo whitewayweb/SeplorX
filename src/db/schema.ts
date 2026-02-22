@@ -239,6 +239,26 @@ export const channels = pgTable("channels", {
   index("channels_user_idx").on(table.userId),
 ]);
 
+// ─── Channel Product Mappings ─────────────────────────────────────────────────
+// Links a SeplorX product to one or more external product IDs on a channel.
+// Unique constraint: (channel_id, external_product_id) — one WC product maps
+// to at most one SeplorX product per channel (prevents webhook ambiguity).
+// One SeplorX product CAN have multiple rows per channel (e.g. "Yellow Buffer"
+// → WC products 55 "Series A", 56 "Series B", 57 "4pc pack").
+
+export const channelProductMappings = pgTable("channel_product_mappings", {
+  id: serial("id").primaryKey(),
+  channelId: integer("channel_id").notNull().references(() => channels.id, { onDelete: "cascade" }),
+  productId: integer("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  externalProductId: varchar("external_product_id", { length: 100 }).notNull(),
+  label: varchar("label", { length: 255 }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("channel_product_mappings_ext_unique").on(table.channelId, table.externalProductId),
+  index("channel_product_mappings_channel_idx").on(table.channelId),
+  index("channel_product_mappings_product_idx").on(table.productId),
+]);
+
 // ─── Settings ────────────────────────────────────────────────────────────────
 // Scalable key-value store for all platform-wide configuration (agent toggles,
 // theme, notifications, etc.). Keys are namespaced by convention:

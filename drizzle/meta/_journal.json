@@ -64,6 +64,13 @@
       "when": 1771629769851,
       "tag": "0008_little_scarecrow",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1771763475591,
+      "tag": "0009_lean_sally_floyd",
+      "breakpoints": true
     }
   ]
 }
