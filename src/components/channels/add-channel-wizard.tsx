@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { createChannel } from "@/app/channels/actions";
-import { channelRegistry } from "@/lib/channels/registry";
+import { channelRegistry, getChannelHandler } from "@/lib/channels/registry";
 import type { ChannelType, ChannelDefinition } from "@/lib/channels/types";
 
 type Step = 1 | 2 | 3 | 4;
@@ -116,98 +116,96 @@ function ChannelCard({
   );
 }
 
-interface WooCommerceStepProps {
+// ─── Generic Connect Step (Step 4) ────────────────────────────────────────────
+// Renders handler.configFields and redirects to the channel's OAuth/connect URL.
+
+interface ConnectStepProps {
+  channelType: ChannelType;
   name: string;
   pickupLocation: string;
-  storeUrl: string;
-  onStoreUrlChange: (v: string) => void;
+  config: Record<string, string>;
+  onConfigChange: (key: string, value: string) => void;
   onBack: () => void;
 }
 
-function WooCommerceConnectStep({
+function ConnectStep({
+  channelType,
   name,
   pickupLocation,
-  storeUrl,
-  onStoreUrlChange,
+  config,
+  onConfigChange,
   onBack,
-}: WooCommerceStepProps) {
+}: ConnectStepProps) {
   const [state, action, pending] = useActionState(createChannel, null);
-  const [urlError, setUrlError] = useState("");
+  const [configError, setConfigError] = useState("");
+
+  const handler = getChannelHandler(channelType);
 
   async function handleConnect() {
-    if (!storeUrl) {
-      setUrlError("Store URL is required");
+    if (!handler) return;
+
+    const validationError = handler.validateConfig(config);
+    if (validationError) {
+      setConfigError(validationError);
       return;
     }
-    setUrlError("");
+    setConfigError("");
 
     const formData = new FormData();
-    formData.set("channelType", "woocommerce");
+    formData.set("channelType", channelType);
     formData.set("name", name);
-    formData.set("storeUrl", storeUrl);
     formData.set("defaultPickupLocation", pickupLocation);
+    // Pass all config fields (e.g. storeUrl) as form fields
+    for (const [key, value] of Object.entries(config)) {
+      formData.set(key, value);
+    }
 
-    // We use startTransition via useActionState — call the action directly
     action(formData);
   }
 
-  // Once action succeeds we have channelId — redirect to WooCommerce authorize URL
-  if (state?.success && state.channelId) {
-    let parsedUrl: URL;
-    try {
-      parsedUrl = new URL(storeUrl);
-    } catch {
-      return; // invalid URL — shouldn't reach here post-validation
-    }
-    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-      return; // reject non-http(s) protocols
-    }
+  // Once createChannel succeeds we have channelId → build the connect URL
+  if (state?.success && state.channelId && handler) {
     const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin).replace(/\/$/, "");
-    const callbackUrl = `${appUrl}/api/channels/woocommerce/callback`;
-    const returnUrl = `${appUrl}/channels?connected=1`;
-    const params = new URLSearchParams({
-      app_name: "SeplorX",
-      scope: "read_write",
-      user_id: String(state.channelId),
-      return_url: returnUrl,
-      callback_url: callbackUrl,
-    });
-    const authorizeUrl = `${parsedUrl.origin}/wc-auth/v1/authorize?${params}`;
-    window.location.assign(authorizeUrl);
+    const connectUrl = handler.buildConnectUrl(state.channelId, config, appUrl);
+    window.location.assign(connectUrl);
   }
 
   const fieldErrors = state?.fieldErrors;
 
   return (
     <div className="space-y-4">
-      <div>
-        <p className="text-muted-foreground text-sm">
-          Enter your WooCommerce store URL. You&apos;ll be redirected to your
-          WordPress admin to approve the connection.
-        </p>
-      </div>
+      <p className="text-muted-foreground text-sm">
+        {channelType === "woocommerce"
+          ? "Enter your WooCommerce store URL. You'll be redirected to your WordPress admin to approve the connection."
+          : "Enter your store details to connect."}
+      </p>
 
-      <div className="space-y-2">
-        <Label htmlFor="storeUrl">Store URL</Label>
-        <Input
-          id="storeUrl"
-          type="url"
-          placeholder="https://yourstore.com"
-          value={storeUrl}
-          onChange={(e) => {
-            onStoreUrlChange(e.target.value);
-            setUrlError("");
-          }}
-        />
-        {(urlError || fieldErrors?.storeUrl?.[0]) && (
-          <p className="text-destructive text-xs">
-            {urlError || fieldErrors?.storeUrl?.[0]}
-          </p>
-        )}
-      </div>
+      {handler?.configFields.map((field) => (
+        <div key={field.key} className="space-y-2">
+          <Label htmlFor={`config-${field.key}`}>
+            {field.label}
+            {field.required && <span className="text-destructive ml-1">*</span>}
+          </Label>
+          <Input
+            id={`config-${field.key}`}
+            type={field.type === "password" ? "password" : field.type === "url" ? "url" : "text"}
+            placeholder={field.placeholder}
+            value={config[field.key] ?? ""}
+            onChange={(e) => {
+              onConfigChange(field.key, e.target.value);
+              setConfigError("");
+            }}
+          />
+          {fieldErrors?.[field.key as keyof typeof fieldErrors]?.[0] && (
+            <p className="text-destructive text-xs">
+              {fieldErrors[field.key as keyof typeof fieldErrors]![0]}
+            </p>
+          )}
+        </div>
+      ))}
 
-      {state?.error && (
-        <p className="text-destructive text-sm">{state.error}</p>
+      {(configError || state?.error) && (
+        <p className="text-destructive text-sm">{configError || state?.error}</p>
       )}
 
       <div className="flex justify-between pt-2">
@@ -222,13 +220,15 @@ function WooCommerceConnectStep({
   );
 }
 
+// ─── Wizard ───────────────────────────────────────────────────────────────────
+
 export function AddChannelWizard() {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>(1);
   const [selectedType, setSelectedType] = useState<ChannelType | null>(null);
   const [channelName, setChannelName] = useState("");
   const [pickupLocation, setPickupLocation] = useState("");
-  const [storeUrl, setStoreUrl] = useState("");
+  const [config, setConfig] = useState<Record<string, string>>({});
   const [nameError, setNameError] = useState("");
 
   function reset() {
@@ -236,7 +236,7 @@ export function AddChannelWizard() {
     setSelectedType(null);
     setChannelName("");
     setPickupLocation("");
-    setStoreUrl("");
+    setConfig({});
     setNameError("");
   }
 
@@ -259,8 +259,15 @@ export function AddChannelWizard() {
     setStep(3);
   }
 
+  function handleConfigChange(key: string, value: string) {
+    setConfig((prev) => ({ ...prev, [key]: value }));
+  }
+
   const popularChannels = channelRegistry.filter((c) => c.popular);
   const otherChannels = channelRegistry.filter((c) => !c.popular);
+  const selectedDefinition = selectedType
+    ? channelRegistry.find((c) => c.id === selectedType)
+    : null;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -283,19 +290,23 @@ export function AddChannelWizard() {
               ))}
             </div>
 
-            {selectedType === "woocommerce" && step >= 2 && (
+            {selectedDefinition && step >= 2 && (
               <div className="mt-6 rounded-md border bg-white p-3">
                 <div className="mb-2 flex items-center gap-2">
-                  <Image
-                    src="/channels/woocommerce.svg"
-                    alt="WooCommerce"
-                    width={20}
-                    height={20}
-                  />
-                  <span className="text-xs font-semibold">WooCommerce</span>
+                  {selectedDefinition.icon ? (
+                    <Image
+                      src={selectedDefinition.icon}
+                      alt={selectedDefinition.name}
+                      width={20}
+                      height={20}
+                    />
+                  ) : (
+                    <Store className="h-4 w-4 text-muted-foreground" />
+                  )}
+                  <span className="text-xs font-semibold">{selectedDefinition.name}</span>
                 </div>
                 <p className="text-muted-foreground text-xs">
-                  Sync your orders with WooCommerce
+                  {selectedDefinition.description}
                 </p>
               </div>
             )}
@@ -308,7 +319,7 @@ export function AddChannelWizard() {
                 {step === 1 && "Add Channel"}
                 {step === 2 && "Channel Name"}
                 {step === 3 && "Default Preference"}
-                {step === 4 && "Connect WooCommerce"}
+                {step === 4 && `Connect ${selectedDefinition?.name ?? ""}`}
               </DialogTitle>
             </DialogHeader>
 
@@ -426,13 +437,14 @@ export function AddChannelWizard() {
               </div>
             )}
 
-            {/* Step 4: Connect (WooCommerce only for now) */}
-            {step === 4 && selectedType === "woocommerce" && (
-              <WooCommerceConnectStep
+            {/* Step 4: Connect — generic, driven by handler.configFields */}
+            {step === 4 && selectedType && (
+              <ConnectStep
+                channelType={selectedType}
                 name={channelName}
                 pickupLocation={pickupLocation}
-                storeUrl={storeUrl}
-                onStoreUrlChange={setStoreUrl}
+                config={config}
+                onConfigChange={handleConfigChange}
                 onBack={() => setStep(3)}
               />
             )}

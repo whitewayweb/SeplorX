@@ -155,12 +155,18 @@ export function InvoiceDialog({ companies, products }: InvoiceDialogProps) {
                   ))}
                 </SelectContent>
               </Select>
+              {state?.fieldErrors?.companyId && (
+                <p className="text-xs text-destructive">{state.fieldErrors.companyId[0]}</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="invoiceNumber">
                 Invoice Number <span className="text-destructive">*</span>
               </Label>
               <Input id="invoiceNumber" name="invoiceNumber" required />
+              {state?.fieldErrors?.invoiceNumber && (
+                <p className="text-xs text-destructive">{state.fieldErrors.invoiceNumber[0]}</p>
+              )}
             </div>
           </div>
 

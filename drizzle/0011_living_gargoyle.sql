@@ -1,0 +1,1 @@
+DROP INDEX "channel_product_mappings_channel_idx";

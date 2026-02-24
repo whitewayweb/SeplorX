@@ -70,6 +70,15 @@ interface ChannelInstance {
   storeUrl: string | null;
   defaultPickupLocation: string | null;
   createdAt: Date | null;
+  hasWebhooks: boolean;      // derived server-side from credentials.webhookSecret
+}
+
+// Returned by handler.fetchProducts() and stored in ChannelMappingPlan proposals
+interface ExternalProduct {
+  id: string;       // WooCommerce product ID as string
+  name: string;
+  sku?: string;
+  stockQuantity?: number;
 }
 ```
 
@@ -107,7 +116,7 @@ WooCommerce has a built-in REST API key creation endpoint that drives the 1-clic
 
 ### Callback route
 
-`src/app/api/channels/woocommerce/callback/route.ts` — public `POST` handler.
+`src/app/api/channels/[type]/callback/route.ts` — generic public `POST` handler (routes to the correct `ChannelHandler` based on `[type]`).
 
 WooCommerce sends `application/x-www-form-urlencoded` (not JSON). The handler reads `request.formData()`. Credentials are encrypted with `encrypt()` from `src/lib/crypto.ts` before being written to the `credentials` JSONB column.
 
@@ -168,3 +177,133 @@ Step 4 calls `createChannel` server action, receives the new `channelId`, then r
 | shopify | Shopify | OAuth | 🚧 Coming soon |
 | amazon | Amazon | API key | 🚧 Coming soon |
 | custom | Custom | API key | 🚧 Coming soon |
+
+---
+
+## ChannelHandler Interface
+
+All channel-specific logic lives in a `ChannelHandler` implementation per channel type (e.g. `src/lib/channels/woocommerce/index.ts`). The generic routes and registry only call through the interface — adding Shopify means creating one new file and registering it.
+
+```typescript
+interface ChannelHandler {
+  readonly id: ChannelType;
+  readonly configFields: ChannelConfigField[];   // wizard step 4 inputs
+  readonly webhookTopics: readonly string[];      // e.g. ["order.created", "order.cancelled"]
+  validateConfig(config): string | null;          // returns error message or null
+  buildConnectUrl(channelId, config, appUrl): string;
+  parseCallback(body: string): { channelId, credentials } | null;
+  pushStock(storeUrl, credentials, externalProductId, quantity): Promise<void>;
+  registerWebhooks(storeUrl, credentials, baseUrl): Promise<{ secret: string }>;
+  processWebhook(body, signature, topic, secret): WebhookStockChange[];
+  fetchProducts?(storeUrl, credentials, search?): Promise<ExternalProduct[]>;  // optional
+}
+```
+
+**Retrieve a handler:**
+```typescript
+import { getChannelHandler } from "@/lib/channels/registry";
+const handler = getChannelHandler("woocommerce");  // returns null for unknown types
+```
+
+**Adding a new topic to WooCommerce webhooks** (e.g. `order.completed`): add the topic to `webhookTopics` and handle it in `processWebhook` inside `woocommerce/index.ts`. No changes to the generic webhook route.
+
+**`fetchProducts` is optional** — channels that don't support product listing (e.g. Amazon) simply don't implement it. The product mapping dialog shows "Channel does not support product listing" for those.
+
+---
+
+## Channel Product Mappings
+
+The `channel_product_mappings` table links SeplorX products to external (WooCommerce) products. This is the bridge for both stock push (SeplorX → WooCommerce) and order pull (WooCommerce → SeplorX).
+
+### Key design: many-to-one
+
+```
+SeplorX product "Yellow Buffer"
+  └── WooCommerce product 55 "Series A"     ← same channel
+  └── WooCommerce product 56 "Series B"     ← same channel
+  └── WooCommerce product 57 "4pc Pack"     ← same channel
+```
+
+The unique constraint is on `(channel_id, external_product_id)` — one WC product maps to at most one SeplorX product per channel. One SeplorX product can have multiple WC mappings.
+
+**Push direction (SeplorX → WooCommerce):** After stock changes (invoice received, manual adjustment), query all `channel_product_mappings WHERE product_id = X` → call `handler.pushStock()` for each row.
+
+**Pull direction (WooCommerce → SeplorX):** Webhook fires for WC product ID 56 → query `WHERE channel_id = Y AND external_product_id = '56'` → single SeplorX product → decrement stock.
+
+### Schema
+
+```sql
+channel_product_mappings (
+  id                  SERIAL PRIMARY KEY,
+  channel_id          INTEGER → channels.id (CASCADE),
+  product_id          INTEGER → products.id (CASCADE),
+  external_product_id VARCHAR(100),
+  label               VARCHAR(255),   -- optional annotation, auto-filled from WC product name
+  created_at          TIMESTAMP,
+  UNIQUE(channel_id, external_product_id)
+)
+```
+
+### Webhooks
+
+After a channel is connected, register webhooks via the "Register Webhooks" button on `/channels`. This:
+1. Calls `handler.registerWebhooks()` → creates `order.created` + `order.cancelled` webhooks in WooCommerce
+2. Stores the HMAC secret (encrypted) in `channels.credentials.webhookSecret`
+3. Stores WooCommerce webhook IDs in credentials for future cleanup
+
+Webhook URL: `POST /api/channels/{type}/webhook/{channelId}` — one URL per channel instance.
+
+**Loop prevention:** Webhook-triggered transactions use `referenceType: "woocommerce_order"`. The stock push logic only runs for `referenceType: "purchase_invoice"` and manual adjustments — never for WooCommerce orders.
+
+**Idempotency:** Before inserting an inventory transaction, the webhook route checks if a transaction already exists with the same `referenceType + referenceId`. Duplicate webhooks are silently skipped.
+
+---
+
+## Product Mapping UI & Agent Flow
+
+### Manual mapping (`/products/[id]` → Channel Sync card)
+
+Each product detail page shows a "Channel Sync" card with one section per connected channel:
+- List of existing mappings (WC product name, Remove button)
+- "Add Products" button → opens `AddMappingDialog`
+
+**`AddMappingDialog`** fetches live WC products via `fetchChannelProducts(channelId, productId)` (server action) and shows each WC product in one of three states:
+
+| State | UI |
+|-------|-----|
+| `unmapped` | Checkbox (selectable) + product name + SKU badge |
+| `mapped_here` | Checked checkbox (disabled) + green "Already mapped" badge |
+| `mapped_other` | Unchecked (disabled) + amber "Mapped to [Other Product]" badge |
+
+Select one or more unmapped products → "Add X Products" → `saveChannelMappings` server action → `ON CONFLICT DO NOTHING` insert.
+
+### AI auto-mapping (`/channels` → "Auto-Map (AI)" button)
+
+```
+1. User clicks "Auto-Map (AI)" on a connected channel
+   → POST /api/agents/channel-mapping { channelId }
+
+2. channel-mapping-agent.ts (Gemini 2.0 Flash):
+   a. getSeplorxProducts()       → all active SeplorX products
+   b. getChannelProducts({ channelId })  → unmapped WC products only
+   c. Match by name + SKU (high/medium/low confidence)
+   d. proposeChannelMappings()   → writes agent_actions row (status: pending_approval)
+   → Returns { taskId }
+
+3. /channels page shows ChannelMappingApprovalCard:
+   - Table: SeplorX product ↔ WC product, confidence badge, rationale
+   - Collapsible agent reasoning
+   - Unmatched WC products (informational — suggests creating SeplorX products)
+
+4. User clicks "Approve & Map N Products"
+   → approveChannelMappings(taskId) server action
+   → Bulk INSERT into channel_product_mappings ON CONFLICT DO NOTHING
+   → agent_actions.status = 'executed'
+   → revalidatePath("/channels") + revalidatePath("/products")
+```
+
+**Confidence levels:** exact SKU match = high, name contains/starts-with = medium, fuzzy = low.
+
+**All-already-mapped guard:** If `getChannelProducts` returns 0 unmapped products, the agent returns `{ message: "All products are already mapped." }` and no `agent_actions` row is created.
+
+**One SeplorX product → many WC products** is intentional — variants (4pc pack, Series A/B) all map to the same SeplorX product for unified stock management.

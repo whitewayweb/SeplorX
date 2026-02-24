@@ -66,9 +66,28 @@ E-commerce order channel instances. Each row is one connected store. Multiple ro
 
 **Status lifecycle**: `pending` (OAuth initiated, row created before redirect) → `connected` (OAuth callback received, credentials stored) → `disconnected` (manually disconnected, credentials cleared).
 
-**credentials JSONB**: Stores `consumerKey` and `consumerSecret` encrypted with AES-256-GCM (same `encrypt()` helper as app config). Keys are written by the WooCommerce OAuth callback route (`/api/channels/woocommerce/callback`) and never read back to the client — only used server-side for API calls. Credentials are wiped on disconnect.
+**credentials JSONB**: Stores `consumerKey` and `consumerSecret` encrypted with AES-256-GCM (same `encrypt()` helper as app config). After webhook registration, also stores `webhookSecret`, `webhookOrderCreatedId`, `webhookOrderCancelledId`. Keys are written by the OAuth callback route and never read back to the client — only used server-side for API calls. Credentials are wiped on disconnect.
 
 **channel_type** references the TypeScript channel registry (`src/lib/channels/registry.ts`), not another DB table.
+
+### channel_product_mappings
+
+Links SeplorX products to external product IDs on a channel. Supports the one-to-many design: one SeplorX product can map to multiple WooCommerce products per channel (e.g. "Yellow Buffer" → WC IDs 55 "Series A", 56 "Series B", 57 "4pc pack").
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | serial | PK |
+| channel_id | integer | NOT NULL, FK → channels.id (CASCADE) |
+| product_id | integer | NOT NULL, FK → products.id (CASCADE) |
+| external_product_id | varchar(100) | NOT NULL |
+| label | varchar(255) | nullable (e.g. "Series A") |
+| created_at | timestamp | default now() |
+
+**Unique index**: `(channel_id, external_product_id)` — one WC product maps to at most one SeplorX product per channel, preventing webhook ambiguity when an order comes in.
+
+**Push direction**: After a stock change, query `WHERE product_id = X` → push new `quantity_on_hand` to all mapped external product IDs.
+
+**Pull direction**: Webhook fires for external product ID → query `WHERE channel_id = X AND external_product_id = Y` → decrement the matched SeplorX product.
 
 ## JSONB Config Column
 
@@ -228,7 +247,12 @@ Approval queue and audit log for all AI agent recommendations. Agents write here
 
 **Status lifecycle**: `pending_approval` → `executed` (user approved) or `dismissed` (user dismissed). `failed` if the agent threw before producing a plan.
 
-**Note**: The `plan` JSONB shape is agent-specific. For `agent_type = "reorder"`, it matches the `ReorderPlan` type in `src/lib/agents/tools/inventory-tools.ts`. For `agent_type = "invoice_ocr"`, it matches the `ExtractedInvoice` type in `src/lib/agents/ocr-agent.ts`. Core tables are never written by agents directly — only via Server Actions after human approval.
+**Note**: The `plan` JSONB shape is agent-specific:
+- `agent_type = "reorder"` → `ReorderPlan` type (`src/lib/agents/tools/inventory-tools.ts`)
+- `agent_type = "invoice_ocr"` → `ExtractedInvoice` type (`src/lib/agents/ocr-agent.ts`)
+- `agent_type = "channel_mapping"` → `{ channelId, channelName, proposals: Proposal[], unmatched: string[], reasoning: string }` (`src/lib/agents/tools/channel-mapping-tools.ts`)
+
+Core tables are never written by agents directly — only via Server Actions after human approval.
 
 ### settings
 
@@ -269,6 +293,16 @@ await db.insert(settings)
 | inventory_transaction_type | purchase_in, sale_out, adjustment, return | inventory_transactions.type |
 | agent_status | pending_approval, approved, dismissed, executed, failed | agent_actions.status |
 
+## Row Level Security (RLS)
+
+All 12 tables have RLS enabled (`ENABLE ROW LEVEL SECURITY`). No permissive policies are added — this is intentional:
+
+- The app connects via the **service role** in the Postgres connection string (Drizzle + postgres-js). The service role bypasses RLS entirely, so the app is unaffected.
+- Supabase's PostgREST exposes the `public` schema via a REST API using the `anon` / `authenticated` roles. Without RLS, these roles could read or write any row. Enabling RLS with no policies means those roles have zero access — locking out the unauthenticated Supabase REST API completely.
+- Satisfies the Supabase security advisor "RLS Disabled in Public" warnings.
+
+If you add a new table, always chain `.enableRLS()` on the `pgTable(...)` call in `schema.ts`. No policies are needed.
+
 ## Conventions
 
 - Use Drizzle ORM for all queries (`db` export from `@/db`)
@@ -276,6 +310,7 @@ await db.insert(settings)
 - Run `yarn db` (generate + migrate) after schema changes
 - Always use the transaction pooler URL (port 6543) in the app
 - Direct connection (port 5432) only for `yarn db:migrate`
+- All new tables must call `.enableRLS()` on `pgTable(...)`
 
 ## Migrations
 

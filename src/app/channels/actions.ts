@@ -5,6 +5,9 @@ import { channels } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { CreateChannelSchema, ChannelIdSchema } from "@/lib/validations/channels";
+import { getChannelHandler } from "@/lib/channels/registry";
+import { decrypt, encrypt } from "@/lib/crypto";
+import { env } from "@/lib/env";
 
 const CURRENT_USER_ID = 1;
 
@@ -104,6 +107,61 @@ export async function disconnectChannel(_prevState: unknown, formData: FormData)
 
   revalidatePath("/channels");
   return { success: true };
+}
+
+// Called directly from channel list "Register Webhooks" button.
+// Registers order webhooks on the remote store and stores the secret.
+export async function registerChannelWebhooks(channelId: number) {
+  try {
+    const rows = await db
+      .select({
+        id: channels.id,
+        channelType: channels.channelType,
+        storeUrl: channels.storeUrl,
+        status: channels.status,
+        credentials: channels.credentials,
+      })
+      .from(channels)
+      .where(and(eq(channels.id, channelId), eq(channels.userId, CURRENT_USER_ID)))
+      .limit(1);
+
+    if (rows.length === 0) return { error: "Channel not found." };
+
+    const channel = rows[0];
+    if (channel.status !== "connected") return { error: "Channel is not connected." };
+    if (!channel.storeUrl) return { error: "Channel has no store URL." };
+
+    const handler = getChannelHandler(channel.channelType);
+    if (!handler) return { error: "This channel type does not support webhooks." };
+
+    const creds = channel.credentials ?? {};
+    const consumerKey = creds.consumerKey ? decrypt(creds.consumerKey) : "";
+    const consumerSecret = creds.consumerSecret ? decrypt(creds.consumerSecret) : "";
+    if (!consumerKey || !consumerSecret) return { error: "Channel credentials are missing." };
+
+    const appUrl = (env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
+    const webhookBaseUrl = `${appUrl}/api/channels/${channel.channelType}/webhook/${channelId}`;
+
+    const { secret } = await handler.registerWebhooks(
+      channel.storeUrl,
+      { consumerKey, consumerSecret },
+      webhookBaseUrl,
+    );
+
+    await db
+      .update(channels)
+      .set({
+        credentials: { ...creds, webhookSecret: encrypt(secret) },
+        updatedAt: new Date(),
+      })
+      .where(eq(channels.id, channelId));
+
+    revalidatePath("/channels");
+    return { success: true };
+  } catch (err) {
+    console.error("[registerChannelWebhooks]", { channelId, error: String(err) });
+    return { error: String(err).replace(/^Error:\s*/, "").substring(0, 200) };
+  }
 }
 
 export async function deleteChannel(_prevState: unknown, formData: FormData) {
