@@ -78,6 +78,13 @@
       "when": 1771966252083,
       "tag": "0010_curved_prodigy",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1771967598271,
+      "tag": "0011_living_gargoyle",
+      "breakpoints": true
     }
   ]
 }

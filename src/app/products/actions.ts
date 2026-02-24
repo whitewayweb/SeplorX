@@ -10,7 +10,7 @@ import {
   ProductIdSchema,
   StockAdjustmentSchema,
 } from "@/lib/validations/products";
-import { ChannelMappingSchema, ChannelMappingIdSchema } from "@/lib/validations/channels";
+import { ChannelMappingIdSchema } from "@/lib/validations/channels";
 import { getChannelHandler } from "@/lib/channels/registry";
 import { decrypt } from "@/lib/crypto";
 import type { ExternalProduct } from "@/lib/channels/types";
@@ -280,72 +280,6 @@ export async function adjustStock(_prevState: unknown, formData: FormData) {
 }
 
 // ─── Channel Product Mappings ─────────────────────────────────────────────────
-
-async function saveChannelMapping(_prevState: unknown, formData: FormData) {
-  const parsed = ChannelMappingSchema.safeParse({
-    channelId: formData.get("channelId"),
-    productId: formData.get("productId"),
-    externalProductId: formData.get("externalProductId"),
-    label: formData.get("label"),
-  });
-
-  if (!parsed.success) {
-    return {
-      error: "Validation failed.",
-      fieldErrors: parsed.error.flatten().fieldErrors,
-    };
-  }
-
-  const { channelId, productId, externalProductId, label } = parsed.data;
-
-  try {
-    // Verify channel belongs to current user
-    const channelRow = await db
-      .select({ id: channels.id })
-      .from(channels)
-      .where(and(eq(channels.id, channelId), eq(channels.userId, CURRENT_USER_ID)))
-      .limit(1);
-
-    if (channelRow.length === 0) return { error: "Channel not found." };
-
-    // Upsert — update label if mapping already exists, otherwise insert
-    const existing = await db
-      .select({ id: channelProductMappings.id })
-      .from(channelProductMappings)
-      .where(
-        and(
-          eq(channelProductMappings.channelId, channelId),
-          eq(channelProductMappings.externalProductId, externalProductId),
-        ),
-      )
-      .limit(1);
-
-    if (existing.length > 0) {
-      await db
-        .update(channelProductMappings)
-        .set({ productId, label: label || null })
-        .where(eq(channelProductMappings.id, existing[0].id));
-    } else {
-      await db.insert(channelProductMappings).values({
-        channelId,
-        productId,
-        externalProductId,
-        label: label || null,
-      });
-    }
-  } catch (err) {
-    const msg = String(err);
-    // 23505 = unique_violation (another SeplorX product already maps this WC ID on this channel)
-    if (msg.includes("23505") || msg.includes("channel_product_mappings_ext_unique")) {
-      return { error: "This WooCommerce product ID is already mapped to another SeplorX product on this channel." };
-    }
-    console.error("[saveChannelMapping]", { channelId, productId, error: msg });
-    return { error: "Failed to save mapping. Please try again." };
-  }
-
-  revalidatePath(`/products/${productId}`);
-  return { success: true };
-}
 
 export async function deleteChannelMapping(_prevState: unknown, formData: FormData) {
   const parsed = ChannelMappingIdSchema.safeParse({ id: formData.get("id") });

@@ -20,17 +20,6 @@ export const ChannelIdSchema = z.object({
   id: z.coerce.number().int().positive("Invalid channel ID"),
 });
 
-export const ChannelMappingSchema = z.object({
-  channelId: z.coerce.number().int().positive("Invalid channel ID"),
-  productId: z.coerce.number().int().positive("Invalid product ID"),
-  externalProductId: z
-    .string()
-    .trim()
-    .min(1, "WooCommerce product ID is required")
-    .max(100),
-  label: z.string().trim().max(255).optional().or(z.literal("")),
-});
-
 export const ChannelMappingIdSchema = z.object({
   id: z.coerce.number().int().positive("Invalid mapping ID"),
 });

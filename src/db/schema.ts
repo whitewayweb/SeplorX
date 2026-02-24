@@ -255,7 +255,8 @@ export const channelProductMappings = pgTable("channel_product_mappings", {
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   uniqueIndex("channel_product_mappings_ext_unique").on(table.channelId, table.externalProductId),
-  index("channel_product_mappings_channel_idx").on(table.channelId),
+  // channel_product_mappings_channel_idx removed — the composite unique index above
+  // already covers queries on channel_id alone (Postgres uses composite index prefix).
   index("channel_product_mappings_product_idx").on(table.productId),
 ]).enableRLS();
 

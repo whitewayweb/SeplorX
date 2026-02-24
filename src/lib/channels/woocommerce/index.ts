@@ -1,17 +1,9 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import type { ChannelHandler, ChannelConfigField, WebhookStockChange, ExternalProduct } from "../types";
 
-// ─── WooCommerce credential shape stored in channels.credentials ─────────────
-
-interface WooCommerceCredentials {
-  consumerKey: string;       // encrypted
-  consumerSecret: string;    // encrypted
-  webhookSecret?: string;    // encrypted — only present after registerWebhooks()
-  webhookOrderCreatedId?: string;   // WC webhook ID
-  webhookOrderCancelledId?: string; // WC webhook ID
-}
-
 // ─── WooCommerce REST API helpers ─────────────────────────────────────────────
+// credentials JSONB keys: consumerKey, consumerSecret (encrypted),
+// and after registerWebhooks(): webhookSecret, webhookOrderCreatedId, webhookOrderCancelledId
 
 function basicAuth(consumerKey: string, consumerSecret: string): string {
   return "Basic " + Buffer.from(`${consumerKey}:${consumerSecret}`).toString("base64");

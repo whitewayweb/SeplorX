@@ -129,33 +129,23 @@ export async function POST(
 
     try {
       await db.transaction(async (tx) => {
-        const productRows = await tx
-          .select({ quantityOnHand: products.quantityOnHand })
-          .from(products)
-          .where(eq(products.id, productId))
-          .limit(1);
-
-        if (productRows.length === 0) return;
-
-        const newQty = productRows[0].quantityOnHand + change.quantity;
-        // Allow stock to reach 0 but not negative
-        const safeQty = Math.max(0, newQty);
-        const actualDelta = safeQty - productRows[0].quantityOnHand;
-
-        if (actualDelta === 0) return;
-
-        await tx
+        // Atomic GREATEST(0, qty + change) — prevents stock going negative even
+        // if two webhooks land concurrently under READ COMMITTED isolation.
+        const [updated] = await tx
           .update(products)
           .set({
-            quantityOnHand: sql`${products.quantityOnHand} + ${actualDelta}`,
+            quantityOnHand: sql`GREATEST(0, ${products.quantityOnHand} + ${change.quantity})`,
             updatedAt: new Date(),
           })
-          .where(eq(products.id, productId));
+          .where(eq(products.id, productId))
+          .returning({ newQty: products.quantityOnHand });
+
+        if (!updated) return;
 
         await tx.insert(inventoryTransactions).values({
           productId,
           type: change.type,
-          quantity: actualDelta,
+          quantity: change.quantity,
           referenceType: change.referenceType,
           referenceId: change.referenceId,
           createdBy: CURRENT_USER_ID,
