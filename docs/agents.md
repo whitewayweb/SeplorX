@@ -33,6 +33,14 @@ export const AGENT_REGISTRY = {
     route: "/api/agents/reorder",
     triggerPage: "/inventory",
   },
+  channelMapping: {
+    id: "channelMapping",
+    name: "Channel Product Mapper",
+    description: "Automatically matches SeplorX products to WooCommerce products by name and SKU.",
+    enabled: true,
+    route: "/api/agents/channel-mapping",
+    triggerPage: "/channels",
+  },
 };
 ```
 
@@ -99,17 +107,22 @@ Query audit log: `yarn db:studio` → `agent_actions` table.
 src/
 ├── app/
 │   ├── agents/
-│   │   └── actions.ts              # approveReorderPlan, dismissAgentTask Server Actions
+│   │   └── actions.ts                       # approveReorderPlan, approveChannelMappings, dismissAgentTask
 │   └── api/agents/
-│       └── reorder/route.ts        # POST /api/agents/reorder
+│       ├── reorder/route.ts                 # POST /api/agents/reorder
+│       └── channel-mapping/route.ts         # POST /api/agents/channel-mapping
 ├── components/agents/
-│   ├── reorder-trigger.tsx         # "AI Reorder Check" button (client component)
-│   └── reorder-approval-card.tsx   # Pending recommendation card (client component)
+│   ├── reorder-trigger.tsx                  # "AI Reorder Check" button (client component)
+│   ├── reorder-approval-card.tsx            # Pending recommendation card (client component)
+│   ├── channel-mapping-trigger.tsx          # "Auto-Map (AI)" button per channel
+│   └── channel-mapping-approval-card.tsx    # Pending mapping proposals card
 └── lib/agents/
-    ├── registry.ts                 # Agent definitions (enable/disable here)
-    ├── reorder-agent.ts            # Agent composition (generateText + tools)
+    ├── registry.ts                          # Agent definitions (enable/disable here)
+    ├── reorder-agent.ts                     # Agent composition (generateText + tools)
+    ├── channel-mapping-agent.ts             # Gemini agent: product name+SKU matching
     └── tools/
-        └── inventory-tools.ts      # Read-only tools + proposeReorderPlan
+        ├── inventory-tools.ts               # Read-only tools + proposeReorderPlan
+        └── channel-mapping-tools.ts         # getSeplorxProducts, getChannelProducts, proposeChannelMappings
 ```
 
 ## How to Add a New Agent
@@ -153,6 +166,7 @@ src/
 | Agent | Status | Trigger | Value |
 |-------|--------|---------|-------|
 | Low-Stock Reorder | ✅ Enabled | `/inventory` → "AI Reorder Check" button | Drafts purchase order from supplier history |
+| Channel Product Mapper | ✅ Enabled | `/channels` → "Auto-Map (AI)" per connected channel | Bulk-matches SeplorX products to WooCommerce products by name + SKU similarity |
 
 ## Environment Variables
 

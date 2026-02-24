@@ -26,7 +26,17 @@ export const invoiceSchema = z.object({
   items: z.array(
     z.object({
       description: z.string().describe("The product name or description of the item."),
-      skuOrItemCode: z.string().nullable().describe("The supplier's part number, item code, or SKU, if available."),
+      hsnCode: z.string().nullable().describe(
+        "The HSN or SAC tax classification code for this item, if shown on the invoice (typically a 4–8 digit number like '87088000'). This is a government tax code — NOT a product SKU."
+      ),
+      skuOrItemCode: z.string().nullable().describe(
+        "The supplier's actual part number, item code, or catalog reference for this product. " +
+        "IMPORTANT: HSN/SAC codes are tax classification numbers — do NOT use them here (put them in hsnCode instead). " +
+        "If the invoice shows only an HSN code with no actual part number, generate a short descriptive SKU " +
+        "from the product name using 2–4 uppercase abbreviated keywords " +
+        "(e.g. 'CAR COIL SPRING BUFFER - A' → 'CCSB-A', 'BRAKE PAD SET REAR' → 'BPS-R'). " +
+        "Generated SKUs must be unique within this invoice."
+      ),
       quantity: z.number().describe("The quantity of the item purchased."),
       unitOfMeasure: z.string().nullable().describe("The unit (e.g., pcs, kg, boxes), if available."),
       unitPrice: z.number().describe("The price per single unit."),
@@ -55,7 +65,9 @@ export async function runOcrAgent(
     system: `You are an expert data entry assistant for a B2B wholesale distribution business.
 Your job is to extract billing information and physical product line items from supplier purchase invoices.
 Read the provided document carefully and map the data to the required JSON structure.
-Pay close attention to SKUs/Part Numbers and Units of Measure.
+Pay close attention to Part Numbers, HSN/SAC codes, and Units of Measure.
+HSN/SAC tax codes (typically 4–8 digit numbers) belong in hsnCode — never in skuOrItemCode.
+If no actual part number is present, generate a concise descriptive SKU from the product name.
 If a field is not present explicitly, output null.
 Be precise with numbers and do not invent any data.`,
     messages: [

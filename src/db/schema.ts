@@ -70,7 +70,7 @@ export const users = pgTable("users", {
   password: varchar("password", { length: 255 }),
   role: roleEnum("role").default("customer").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}).enableRLS();
 
 // ─── App Installations ───────────────────────────────────────────────────────
 
@@ -84,7 +84,7 @@ export const appInstallations = pgTable("app_installations", {
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   uniqueIndex("app_installations_user_app_idx").on(table.userId, table.appId),
-]);
+]).enableRLS();
 
 // ─── Companies ──────────────────────────────────────────────────────────────
 
@@ -105,7 +105,7 @@ export const companies = pgTable("companies", {
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}).enableRLS();
 
 // ─── Products ────────────────────────────────────────────────────────────────
 
@@ -123,7 +123,7 @@ export const products = pgTable("products", {
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}).enableRLS();
 
 // ─── Purchase Invoices ───────────────────────────────────────────────────────
 
@@ -148,7 +148,7 @@ export const purchaseInvoices = pgTable("purchase_invoices", {
   index("purchase_invoices_company_idx").on(table.companyId),
   index("purchase_invoices_status_idx").on(table.status),
   uniqueIndex("purchase_invoices_company_invoice_unique").on(table.companyId, table.invoiceNumber),
-]);
+]).enableRLS();
 
 // ─── Purchase Invoice Items ──────────────────────────────────────────────────
 
@@ -165,7 +165,7 @@ export const purchaseInvoiceItems = pgTable("purchase_invoice_items", {
   sortOrder: integer("sort_order").default(0).notNull(),
 }, (table) => [
   index("purchase_invoice_items_invoice_idx").on(table.invoiceId),
-]);
+]).enableRLS();
 
 // ─── Payments ────────────────────────────────────────────────────────────────
 
@@ -181,7 +181,7 @@ export const payments = pgTable("payments", {
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("payments_invoice_idx").on(table.invoiceId),
-]);
+]).enableRLS();
 
 // ─── Inventory Transactions ──────────────────────────────────────────────────
 
@@ -198,7 +198,7 @@ export const inventoryTransactions = pgTable("inventory_transactions", {
 }, (table) => [
   index("inventory_transactions_product_idx").on(table.productId),
   index("inventory_transactions_reference_idx").on(table.referenceType, table.referenceId),
-]);
+]).enableRLS();
 
 // ─── Agent Actions ────────────────────────────────────────────────────────────
 // Audit log and approval queue for all AI agent recommendations.
@@ -217,7 +217,7 @@ export const agentActions = pgTable("agent_actions", {
 }, (table) => [
   index("agent_actions_status_idx").on(table.status),
   index("agent_actions_agent_type_idx").on(table.agentType),
-]);
+]).enableRLS();
 
 // ─── Channels ────────────────────────────────────────────────────────────────
 // Each row = one user-defined e-commerce order channel instance.
@@ -237,7 +237,7 @@ export const channels = pgTable("channels", {
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("channels_user_idx").on(table.userId),
-]);
+]).enableRLS();
 
 // ─── Channel Product Mappings ─────────────────────────────────────────────────
 // Links a SeplorX product to one or more external product IDs on a channel.
@@ -257,7 +257,7 @@ export const channelProductMappings = pgTable("channel_product_mappings", {
   uniqueIndex("channel_product_mappings_ext_unique").on(table.channelId, table.externalProductId),
   index("channel_product_mappings_channel_idx").on(table.channelId),
   index("channel_product_mappings_product_idx").on(table.productId),
-]);
+]).enableRLS();
 
 // ─── Settings ────────────────────────────────────────────────────────────────
 // Scalable key-value store for all platform-wide configuration (agent toggles,
@@ -272,4 +272,4 @@ export const settings = pgTable("settings", {
   value: jsonb("value").notNull(),                         // boolean, string, number, or object
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}).enableRLS();

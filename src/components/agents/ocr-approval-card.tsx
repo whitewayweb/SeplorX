@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState, useEffect, useTransition, useRef } from "react";
+import { useActionState, useState, useEffect, useTransition, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -131,8 +131,12 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
   const [extraProducts, setExtraProducts] = useState<ProductOption[]>([]);
-  const allProducts = [...initialProducts, ...extraProducts].filter(
-    (v, i, a) => a.findIndex((t) => t.id === v.id) === i
+  const allProducts = useMemo(
+    () =>
+      [...initialProducts, ...extraProducts].filter(
+        (v, i, a) => a.findIndex((t) => t.id === v.id) === i,
+      ),
+    [initialProducts, extraProducts],
   );
 
   // ── Step 1 — Supplier ─────────────────────────────────────────────────────────
@@ -211,41 +215,34 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
   }, [initialSuppliers, pendingNewSupplierName]);
 
   // ── Auto-link newly created products after router.refresh() ──────────────────
-  // Uses state and checks if cleared to conditionally update Without loops
   useEffect(() => {
     const hasPending = pendingRefreshNames.some((n) => n !== null);
     if (!hasPending) return;
 
-    let clearedAny = false;
-    const nextPending = [...pendingRefreshNames];
+    // Single pass: resolve each pending name to a found product (or null)
+    const resolved = pendingRefreshNames.map((name) =>
+      name
+        ? (allProducts.find((p) => p.name.toLowerCase() === name.toLowerCase()) ?? null)
+        : null,
+    );
+
+    // Nothing found yet (router.refresh still in-flight) — skip all setState
+    if (!resolved.some(Boolean)) return;
 
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLinkedItems((prev) =>
       prev.map((item, idx) => {
-        const name = pendingRefreshNames[idx];
-        if (!name) return item;
-        const found = allProducts.find((p) => p.name.toLowerCase() === name.toLowerCase());
-        if (found) {
-          clearedAny = true;
-          nextPending[idx] = null;
-          return { ...item, productId: String(found.id) };
-        }
-        return item;
+        const match = resolved[idx];
+        return match ? { ...item, productId: String(match.id) } : item;
       }),
     );
     setItemModes((prev) =>
-      prev.map((mode, idx) => {
-        const name = pendingRefreshNames[idx];
-        if (!name) return mode;
-        const found = allProducts.find((p) => p.name.toLowerCase() === name.toLowerCase());
-        return found ? "existing" : mode;
-      }),
+      prev.map((mode, idx) => (resolved[idx] ? "existing" : mode)),
     );
-
-    if (clearedAny) {
-       
-      setPendingRefreshNames(nextPending);
-    }
+     
+    setPendingRefreshNames((prev) =>
+      prev.map((name, idx) => (resolved[idx] ? null : name)),
+    );
   }, [allProducts, pendingRefreshNames]);
   // ── Server action wiring ───────────────────────────────────────────────────────
   const approveWithItems = async (prev: unknown, formData: FormData) => {
@@ -774,6 +771,11 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
                             onChange={(e) => updateNewProduct(idx, { sku: e.target.value })}
                             placeholder="SKU-001"
                           />
+                          {plan.items[idx]?.hsnCode && (
+                            <p className="text-xs text-muted-foreground">
+                              HSN/SAC: <span className="font-mono">{plan.items[idx].hsnCode}</span>
+                            </p>
+                          )}
                         </div>
                         <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground">Unit</Label>
