@@ -2,10 +2,9 @@
 
 import { useActionState, useTransition } from "react";
 import Image from "next/image";
-import { Plug, ArrowUpFromLine, Trash2 } from "lucide-react";
+import { Plug, ArrowUpFromLine, Trash2, Link2Off } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   deleteChannelMapping,
   pushProductStockToChannels,
@@ -40,14 +39,14 @@ function RemoveMappingButton({ mappingId }: { mappingId: number }) {
           variant="ghost"
           size="icon"
           disabled={pending}
-          className="h-6 w-6 text-muted-foreground hover:text-destructive"
+          className="h-7 w-7 rounded-lg text-muted-foreground hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
           title="Remove mapping"
         >
-          <Trash2 className="h-3 w-3" />
+          <Trash2 className="h-3.5 w-3.5" />
         </Button>
       </form>
       {state?.error && (
-        <p className="text-destructive text-xs">{state.error}</p>
+        <p className="text-rose-600 text-xs mt-1">{state.error}</p>
       )}
     </div>
   );
@@ -70,26 +69,26 @@ export function ChannelSyncCard({
 
   if (connectedChannels.length === 0) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Plug className="h-4 w-4" />
-            Channel Sync
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground text-center py-4">
-            No connected channels.{" "}
+      <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
+        <div className="px-5 pt-4 pb-3 border-b border-border/40 flex items-center gap-2">
+          <Plug className="h-3.5 w-3.5 text-muted-foreground" />
+          <h2 className="text-sm font-semibold">Channel Sync</h2>
+        </div>
+        <div className="flex flex-col items-center justify-center py-12 gap-3">
+          <div className="h-12 w-12 rounded-xl bg-muted/50 flex items-center justify-center">
+            <Link2Off className="h-5 w-5 text-muted-foreground/50" />
+          </div>
+          <div className="text-center">
+            <p className="text-sm text-muted-foreground">No connected channels</p>
             <a
               href="/channels"
-              className="underline underline-offset-2 hover:text-foreground"
+              className="text-sm text-primary hover:underline underline-offset-2 mt-0.5 inline-block"
             >
-              Connect a channel
-            </a>{" "}
-            to sync stock.
-          </p>
-        </CardContent>
-      </Card>
+              Connect a channel →
+            </a>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -108,16 +107,11 @@ export function ChannelSyncCard({
       const ok = results.filter((r) => r.ok);
       const failed = results.filter((r) => !r.ok);
       if (failed.length === 0) {
-        toast.success(
-          `Stock pushed to ${ok.length} product${ok.length !== 1 ? "s" : ""}`,
-        );
+        toast.success(`Stock pushed to ${ok.length} product${ok.length !== 1 ? "s" : ""}`);
       } else {
         toast.warning(`${ok.length} succeeded, ${failed.length} failed`, {
           description: failed
-            .map(
-              (r) =>
-                `${r.channelName} / ${r.label ?? r.externalProductId}: ${r.error}`,
-            )
+            .map((r) => `${r.channelName} / ${r.label ?? r.externalProductId}: ${r.error}`)
             .join("; "),
         });
       }
@@ -125,81 +119,81 @@ export function ChannelSyncCard({
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-        <CardTitle className="text-lg flex items-center gap-2">
-          <Plug className="h-4 w-4" />
-          Channel Sync
-        </CardTitle>
+    <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
+      {/* Header */}
+      <div className="px-5 pt-4 pb-3 border-b border-border/40 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Plug className="h-3.5 w-3.5 text-muted-foreground" />
+          <h2 className="text-sm font-semibold">Channel Sync</h2>
+          <span className="text-xs text-muted-foreground">
+            · {mappings.length} mapping{mappings.length !== 1 ? "s" : ""}
+          </span>
+        </div>
         <Button
           variant="outline"
           size="sm"
           onClick={handlePushStock}
           disabled={pushing || mappings.length === 0}
-          title={
-            mappings.length === 0
-              ? "Add at least one channel mapping first"
-              : undefined
-          }
+          title={mappings.length === 0 ? "Add at least one channel mapping first" : undefined}
+          className="h-8 text-xs gap-1.5 rounded-lg"
         >
-          <ArrowUpFromLine className="h-3 w-3 mr-1.5" />
-          {pushing ? "Pushing…" : "Push Stock to All Channels"}
+          <ArrowUpFromLine className="h-3 w-3" />
+          {pushing ? "Pushing…" : "Push Stock"}
         </Button>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {connectedChannels.map((channel, idx) => {
-          const channelMappings = mappings.filter(
-            (m) => m.channelId === channel.id,
-          );
+      </div>
+
+      {/* Channel List */}
+      <div className="divide-y divide-border/40">
+        {connectedChannels.map((channel) => {
+          const channelMappings = mappings.filter((m) => m.channelId === channel.id);
           const definition = getChannelById(
             channel.channelType as Parameters<typeof getChannelById>[0],
           );
 
           return (
-            <div
-              key={channel.id}
-              className={
-                idx < connectedChannels.length - 1
-                  ? "pb-6 border-b space-y-3"
-                  : "space-y-3"
-              }
-            >
-              {/* Channel header */}
-              <div className="flex items-center gap-2">
-                {definition?.icon ? (
-                  <Image
-                    src={definition.icon}
-                    alt={definition.name}
-                    width={16}
-                    height={16}
-                    className="shrink-0"
-                  />
-                ) : (
-                  <Plug className="h-3.5 w-3.5 text-muted-foreground" />
-                )}
-                <p className="text-sm font-medium">{channel.name}</p>
-                {channelMappings.length > 0 && (
-                  <span className="text-xs text-muted-foreground ml-1">
-                    · {channelMappings.length} mapping
-                    {channelMappings.length !== 1 ? "s" : ""}
-                  </span>
-                )}
+            <div key={channel.id} className="px-5 py-4 space-y-3">
+              {/* Channel name row */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {definition?.icon ? (
+                    <Image
+                      src={definition.icon}
+                      alt={definition.name}
+                      width={16}
+                      height={16}
+                      className="shrink-0 rounded-sm"
+                    />
+                  ) : (
+                    <Plug className="h-3.5 w-3.5 text-muted-foreground" />
+                  )}
+                  <span className="text-sm font-medium">{channel.name}</span>
+                  {channelMappings.length > 0 && (
+                    <span className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-primary/10 text-primary">
+                      {channelMappings.length}
+                    </span>
+                  )}
+                </div>
+                <AddMappingDialog
+                  productId={productId}
+                  channelId={channel.id}
+                  channelName={channel.name}
+                />
               </div>
 
-              {/* Existing mappings */}
+              {/* Mappings */}
               {channelMappings.length > 0 && (
-                <div className="rounded-md border divide-y">
+                <div className="rounded-lg border border-border/50 bg-muted/20 divide-y divide-border/40 overflow-hidden">
                   {channelMappings.map((m) => (
                     <div
                       key={m.id}
-                      className="flex items-center justify-between px-3 py-2"
+                      className="flex items-center justify-between px-3 py-2.5 hover:bg-muted/30 transition-colors"
                     >
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono text-sm">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="font-mono text-xs bg-muted/60 rounded px-1.5 py-0.5 shrink-0">
                           {m.externalProductId}
                         </span>
                         {m.label && (
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-xs text-muted-foreground truncate">
                             {m.label}
                           </span>
                         )}
@@ -209,17 +203,10 @@ export function ChannelSyncCard({
                   ))}
                 </div>
               )}
-
-              {/* Add mapping dialog */}
-              <AddMappingDialog
-                productId={productId}
-                channelId={channel.id}
-                channelName={channel.name}
-              />
             </div>
           );
         })}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
