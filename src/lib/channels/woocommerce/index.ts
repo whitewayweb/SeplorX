@@ -145,32 +145,56 @@ export const woocommerceHandler: ChannelHandler = {
         stockQuantity: p.stock_quantity ?? undefined,
         type: productType,
       });
+    }
 
-      // For variable products, fetch all variations and append them
-      if (p.type === "variable") {
-        try {
-          const vRes = await wcFetch(storeUrl, `/products/${p.id}/variations?per_page=100&status=publish`, {
-            method: "GET",
-            headers: { Authorization: auth },
-          });
-          if (vRes.ok) {
-            const variations = (await vRes.json()) as WCVariation[];
-            for (const v of variations) {
-              // Build a readable label from attributes (e.g. "Size: L, Color: Red")
-              const attrLabel = v.attributes.map((a) => `${a.name}: ${a.option}`).join(", ");
-              results.push({
-                id: String(v.id),
-                name: attrLabel ? `${p.name} — ${attrLabel}` : `${p.name} #${v.id}`,
-                sku: v.sku || undefined,
-                stockQuantity: v.stock_quantity ?? undefined,
-                type: "variation",
-                parentId: String(p.id),
-              });
+    const variableProducts = data.filter((p) => p.type === "variable");
+
+    const variationPromises = variableProducts.map(async (p) => {
+      let page = 1;
+      let totalPages = 1;
+      const allVariationsForProduct: WCVariation[] = [];
+
+      try {
+        do {
+          const vRes = await wcFetch(
+            storeUrl,
+            `/products/${p.id}/variations?per_page=100&status=publish&page=${page}`,
+            {
+              method: "GET",
+              headers: { Authorization: auth },
             }
-          }
-        } catch {
-          // Non-fatal: skip variations for this product if fetch fails
-        }
+          );
+
+          if (!vRes.ok) break;
+
+          totalPages = parseInt(vRes.headers.get("x-wp-totalpages") || "1", 10);
+          const variations = (await vRes.json()) as WCVariation[];
+          allVariationsForProduct.push(...variations);
+
+          page++;
+        } while (page <= totalPages);
+      } catch {
+        // Non-fatal: skip variations for this product if fetch fails
+      }
+
+      return { parent: p, variations: allVariationsForProduct };
+    });
+
+    const variationsGroups = await Promise.all(variationPromises);
+
+    for (const group of variationsGroups) {
+      const { parent: p, variations } = group;
+      for (const v of variations) {
+        // Build a readable label from attributes (e.g. "Size: L, Color: Red")
+        const attrLabel = v.attributes.map((a) => `${a.name}: ${a.option}`).join(", ");
+        results.push({
+          id: String(v.id),
+          name: attrLabel ? `${p.name} — ${attrLabel}` : `${p.name} #${v.id}`,
+          sku: v.sku || undefined,
+          stockQuantity: v.stock_quantity ?? undefined,
+          type: "variation",
+          parentId: String(p.id),
+        });
       }
     }
 

@@ -10,6 +10,7 @@ import {
   pushProductStockToChannels,
 } from "@/app/products/actions";
 import { getChannelById } from "@/lib/channels/registry";
+import Link from "next/link";
 import { AddMappingDialog } from "./add-mapping-dialog";
 
 interface ConnectedChannel {
@@ -80,12 +81,12 @@ export function ChannelSyncCard({
           </div>
           <div className="text-center">
             <p className="text-sm text-muted-foreground">No connected channels</p>
-            <a
+            <Link
               href="/channels"
               className="text-sm text-primary hover:underline underline-offset-2 mt-0.5 inline-block"
             >
               Connect a channel →
-            </a>
+            </Link>
           </div>
         </div>
       </div>
