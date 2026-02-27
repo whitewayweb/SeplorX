@@ -32,6 +32,14 @@ interface WCProductListItem {
   name: string;
   sku: string;
   stock_quantity: number | null;
+  type: string; // "simple" | "variable" | "grouped" | "external"
+}
+
+interface WCVariation {
+  id: number;
+  sku: string;
+  stock_quantity: number | null;
+  attributes: Array<{ name: string; option: string }>;
 }
 
 // ─── WooCommerce order webhook payload (minimal shape we need) ────────────────
@@ -114,22 +122,59 @@ export const woocommerceHandler: ChannelHandler = {
   },
 
   async fetchProducts(storeUrl, credentials, search) {
+    const auth = basicAuth(credentials.consumerKey, credentials.consumerSecret);
     const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
     const res = await wcFetch(storeUrl, `/products?per_page=100&status=publish${searchParam}`, {
       method: "GET",
-      headers: { Authorization: basicAuth(credentials.consumerKey, credentials.consumerSecret) },
+      headers: { Authorization: auth },
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw new Error(`WooCommerce fetchProducts failed (${res.status}): ${text.substring(0, 200)}`);
     }
     const data = (await res.json()) as WCProductListItem[];
-    return data.map((p): ExternalProduct => ({
-      id: String(p.id),
-      name: p.name,
-      sku: p.sku || undefined,
-      stockQuantity: p.stock_quantity ?? undefined,
-    }));
+
+    const results: ExternalProduct[] = [];
+
+    for (const p of data) {
+      const productType = p.type === "variable" ? "variable" : "simple";
+      results.push({
+        id: String(p.id),
+        name: p.name,
+        sku: p.sku || undefined,
+        stockQuantity: p.stock_quantity ?? undefined,
+        type: productType,
+      });
+
+      // For variable products, fetch all variations and append them
+      if (p.type === "variable") {
+        try {
+          const vRes = await wcFetch(storeUrl, `/products/${p.id}/variations?per_page=100&status=publish`, {
+            method: "GET",
+            headers: { Authorization: auth },
+          });
+          if (vRes.ok) {
+            const variations = (await vRes.json()) as WCVariation[];
+            for (const v of variations) {
+              // Build a readable label from attributes (e.g. "Size: L, Color: Red")
+              const attrLabel = v.attributes.map((a) => `${a.name}: ${a.option}`).join(", ");
+              results.push({
+                id: String(v.id),
+                name: attrLabel ? `${p.name} — ${attrLabel}` : `${p.name} #${v.id}`,
+                sku: v.sku || undefined,
+                stockQuantity: v.stock_quantity ?? undefined,
+                type: "variation",
+                parentId: String(p.id),
+              });
+            }
+          }
+        } catch {
+          // Non-fatal: skip variations for this product if fetch fails
+        }
+      }
+    }
+
+    return results;
   },
 
   async pushStock(storeUrl, credentials, externalProductId, quantity) {
