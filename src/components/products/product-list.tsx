@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useOptimistic } from "react";
+import { toast } from "sonner";
 import Link from "next/link";
 import {
   Table,
@@ -44,11 +45,22 @@ function StockBadge({ quantity, reorderLevel }: { quantity: number; reorderLevel
   return <span className="font-mono text-sm">{quantity}</span>;
 }
 
-function ToggleButton({ product }: { product: Product }) {
-  const [, action, pending] = useActionState(toggleProductActive, null);
+function ToggleButton({ product, onToggleOptimistic }: { product: Product, onToggleOptimistic: () => void }) {
+  const [state, action, pending] = useActionState(toggleProductActive, null);
+
+  useEffect(() => {
+    if (state?.error) {
+      toast.error(state.error);
+    } else if (state?.success) {
+      toast.success("Product status updated");
+    }
+  }, [state]);
 
   return (
-    <form action={action}>
+    <form action={(formData) => {
+      onToggleOptimistic();
+      action(formData);
+    }}>
       <input type="hidden" name="id" value={product.id} />
       <Button
         variant="ghost"
@@ -63,11 +75,29 @@ function ToggleButton({ product }: { product: Product }) {
   );
 }
 
-function DeleteButton({ product }: { product: Product }) {
+function DeleteButton({ product, onDeleteOptimistic }: { product: Product, onDeleteOptimistic: () => void }) {
   const [state, action, pending] = useActionState(deleteProduct, null);
 
+  useEffect(() => {
+    if (state?.error) {
+      toast.error(state.error);
+    } else if (state?.success) {
+      toast.success("Product deleted successfully");
+    }
+  }, [state]);
+
   return (
-    <form action={action}>
+    <form
+      action={(formData) => {
+        onDeleteOptimistic();
+        action(formData);
+      }}
+      onSubmit={(e) => {
+        if (!window.confirm("Are you sure you want to delete this product?")) {
+          e.preventDefault();
+        }
+      }}
+    >
       <input type="hidden" name="id" value={product.id} />
       <Button
         variant="ghost"
@@ -78,9 +108,6 @@ function DeleteButton({ product }: { product: Product }) {
       >
         <Trash2 className="h-4 w-4 text-destructive" />
       </Button>
-      {state?.error && (
-        <span className="text-xs text-destructive">{state.error}</span>
-      )}
     </form>
   );
 }
@@ -92,7 +119,23 @@ function formatPrice(value: string | null): string {
 }
 
 export function ProductList({ products }: ProductListProps) {
-  if (products.length === 0) {
+  const [optimisticProducts, setOptimisticProducts] = useOptimistic(
+    products,
+    (state, info: { action: "toggle" | "delete"; id: number }) => {
+      switch (info.action) {
+        case "toggle":
+          return state.map((p) =>
+            p.id === info.id ? { ...p, isActive: !p.isActive } : p
+          );
+        case "delete":
+          return state.filter((p) => p.id !== info.id);
+        default:
+          return state;
+      }
+    }
+  );
+
+  if (optimisticProducts.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <p className="text-muted-foreground text-lg">No products yet</p>
@@ -120,7 +163,7 @@ export function ProductList({ products }: ProductListProps) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {products.map((product) => (
+          {optimisticProducts.map((product) => (
             <TableRow key={product.id}>
               <TableCell className="font-medium">{product.name}</TableCell>
               <TableCell className="font-mono text-sm">{product.sku ?? "—"}</TableCell>
@@ -132,7 +175,7 @@ export function ProductList({ products }: ProductListProps) {
                 <StockBadge quantity={product.quantityOnHand} reorderLevel={product.reorderLevel} />
               </TableCell>
               <TableCell>
-                <Badge variant={product.isActive ? "default" : "secondary"}>
+                <Badge variant={product.isActive ? "default" : "secondary"} className="transition-colors">
                   {product.isActive ? "Active" : "Inactive"}
                 </Badge>
               </TableCell>
@@ -145,8 +188,14 @@ export function ProductList({ products }: ProductListProps) {
                   </Button>
                   <StockAdjustmentDialog productId={product.id} productName={product.name} />
                   <ProductDialog product={product} />
-                  <ToggleButton product={product} />
-                  <DeleteButton product={product} />
+                  <ToggleButton
+                    product={product}
+                    onToggleOptimistic={() => setOptimisticProducts({ action: "toggle", id: product.id })}
+                  />
+                  <DeleteButton
+                    product={product}
+                    onDeleteOptimistic={() => setOptimisticProducts({ action: "delete", id: product.id })}
+                  />
                 </div>
               </TableCell>
             </TableRow>

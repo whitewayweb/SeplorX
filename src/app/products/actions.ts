@@ -189,17 +189,19 @@ export async function deleteProduct(_prevState: unknown, formData: FormData) {
       return { error: "Product not found." };
     }
 
+    const hasTransactions = await db
+      .select({ id: inventoryTransactions.id })
+      .from(inventoryTransactions)
+      .where(eq(inventoryTransactions.productId, id))
+      .limit(1);
+
+    if (hasTransactions.length > 0) {
+      return { error: "Cannot delete product with existing inventory records. Deactivate instead." };
+    }
+
     await db.delete(products).where(eq(products.id, id));
   } catch (err) {
     console.error("[deleteProduct]", { productId: id, error: String(err) });
-    if (
-      err &&
-      typeof err === "object" &&
-      "code" in err &&
-      err.code === "23503"
-    ) {
-      return { error: "Cannot delete product with existing invoices or inventory records. Deactivate instead." };
-    }
     return { error: "Failed to delete product. Please try again." };
   }
 
