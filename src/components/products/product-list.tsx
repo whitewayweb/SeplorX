@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { ProductDialog } from "@/components/products/product-dialog";
 import { StockAdjustmentDialog } from "@/components/products/stock-adjustment-dialog";
 import { toggleProductActive, deleteProduct } from "@/app/products/actions";
-import { Eye, Power, Trash2 } from "lucide-react";
+import { Power, Trash2 } from "lucide-react";
 
 type Product = {
   id: number;
@@ -165,7 +165,11 @@ export function ProductList({ products }: ProductListProps) {
         <TableBody>
           {optimisticProducts.map((product) => (
             <TableRow key={product.id}>
-              <TableCell className="font-medium">{product.name}</TableCell>
+              <TableCell className="font-medium">
+                <Link href={`/products/${product.id}`} className="hover:underline text-primary">
+                  {product.name}
+                </Link>
+              </TableCell>
               <TableCell className="font-mono text-sm">{product.sku ?? "—"}</TableCell>
               <TableCell>{product.category ?? "—"}</TableCell>
               <TableCell>{product.unit}</TableCell>
@@ -181,11 +185,6 @@ export function ProductList({ products }: ProductListProps) {
               </TableCell>
               <TableCell>
                 <div className="flex items-center justify-end gap-1">
-                  <Button variant="ghost" size="icon" asChild>
-                    <Link href={`/products/${product.id}`}>
-                      <Eye className="h-4 w-4" />
-                    </Link>
-                  </Button>
                   <StockAdjustmentDialog productId={product.id} productName={product.name} />
                   <ProductDialog product={product} />
                   <ToggleButton

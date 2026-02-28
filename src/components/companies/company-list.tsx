@@ -15,7 +15,7 @@ import { CompanyStatusBadge } from "@/components/companies/company-status-badge"
 import { CompanyTypeBadge } from "@/components/companies/company-type-badge";
 import { CompanyDialog } from "@/components/companies/company-dialog";
 import { toggleCompanyActive, deleteCompany } from "@/app/companies/actions";
-import { Eye, Power, Trash2 } from "lucide-react";
+import { Power, Trash2 } from "lucide-react";
 
 type Company = {
   id: number;
@@ -109,7 +109,11 @@ export function CompanyList({ companies }: CompanyListProps) {
         <TableBody>
           {companies.map((company) => (
             <TableRow key={company.id}>
-              <TableCell className="font-medium">{company.name}</TableCell>
+              <TableCell className="font-medium">
+                <Link href={`/companies/${company.id}`} className="hover:underline text-primary">
+                  {company.name}
+                </Link>
+              </TableCell>
               <TableCell>
                 <CompanyTypeBadge type={company.type} />
               </TableCell>
@@ -124,11 +128,6 @@ export function CompanyList({ companies }: CompanyListProps) {
               </TableCell>
               <TableCell>
                 <div className="flex items-center justify-end gap-1">
-                  <Button variant="ghost" size="icon" asChild>
-                    <Link href={`/companies/${company.id}`}>
-                      <Eye className="h-4 w-4" />
-                    </Link>
-                  </Button>
                   <CompanyDialog company={company} />
                   <ToggleButton company={company} />
                   <DeleteButton company={company} />

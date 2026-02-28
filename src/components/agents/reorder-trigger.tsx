@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Bot, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 type TriggerResult =
   | { taskId: number }
@@ -13,23 +14,24 @@ type TriggerResult =
 export function ReorderTrigger() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<TriggerResult | null>(null);
 
   async function handleClick() {
     setLoading(true);
-    setResult(null);
     try {
       const res = await fetch("/api/agents/reorder", { method: "POST" });
       const data = (await res.json()) as TriggerResult;
-      setResult(data);
       if (!res.ok || "error" in data) {
-        // keep error visible; no page refresh needed
+        toast.error("error" in data ? (data as { error: string }).error : "Failed to run reorder check");
+      } else if ("message" in data) {
+        toast.info((data as { message: string }).message);
+        router.refresh();
       } else {
+        toast.success("AI Reorder check completed successfully");
         // Re-fetch server data to show the new pending recommendation
         router.refresh();
       }
     } catch {
-      setResult({ error: "Network error. Please try again." });
+      toast.error("Network error. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -45,16 +47,6 @@ export function ReorderTrigger() {
         )}
         {loading ? "Checking inventory…" : "AI Reorder Check"}
       </Button>
-      {"error" in (result ?? {}) && (
-        <p className="text-sm text-destructive">
-          {"error" in result! ? result.error : ""}
-        </p>
-      )}
-      {"message" in (result ?? {}) && (
-        <p className="text-sm text-muted-foreground">
-          {"message" in result! ? result.message : ""}
-        </p>
-      )}
     </div>
   );
 }

@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { deleteInvoice } from "@/app/invoices/actions";
-import { Eye, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 
 type Invoice = {
   id: number;
@@ -103,7 +103,11 @@ export function InvoiceList({ invoices }: InvoiceListProps) {
             const statusConfig = STATUS_CONFIG[inv.status] ?? { label: inv.status, variant: "outline" as const };
             return (
               <TableRow key={inv.id}>
-                <TableCell className="font-mono font-medium">{inv.invoiceNumber}</TableCell>
+                <TableCell className="font-mono font-medium">
+                  <Link href={`/invoices/${inv.id}`} className="hover:underline text-primary">
+                    {inv.invoiceNumber}
+                  </Link>
+                </TableCell>
                 <TableCell>
                   <Link href={`/companies/${inv.companyId}`} className="hover:underline">
                     {inv.companyName}
@@ -118,11 +122,6 @@ export function InvoiceList({ invoices }: InvoiceListProps) {
                 <TableCell className="text-right text-green-600">{formatCurrency(inv.amountPaid)}</TableCell>
                 <TableCell>
                   <div className="flex items-center justify-end gap-1">
-                    <Button variant="ghost" size="icon" asChild>
-                      <Link href={`/invoices/${inv.id}`}>
-                        <Eye className="h-4 w-4" />
-                      </Link>
-                    </Button>
                     <DeleteButton invoice={inv} />
                   </div>
                 </TableCell>
