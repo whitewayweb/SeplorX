@@ -52,6 +52,10 @@ export interface ExternalProduct {
   name: string;
   sku?: string;
   stockQuantity?: number;
+  /** Product type returned by the channel (e.g. "simple", "variable", "variation") */
+  type?: "simple" | "variable" | "variation";
+  /** For variations: the parent variable product ID */
+  parentId?: string;
 }
 
 export interface ChannelHandler {
