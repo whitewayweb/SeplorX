@@ -5,7 +5,8 @@ import { channels } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { CreateChannelSchema, ChannelIdSchema } from "@/lib/validations/channels";
-import { getChannelHandler } from "@/lib/channels/registry";
+import { getChannelHandler, getChannelById } from "@/lib/channels/registry";
+import type { ChannelType } from "@/lib/channels/types";
 import { decrypt, encrypt } from "@/lib/crypto";
 import { env } from "@/lib/env";
 
@@ -27,16 +28,34 @@ export async function createChannel(_prevState: unknown, formData: FormData) {
   }
 
   try {
+    const channelDef = getChannelById(parsed.data.channelType as ChannelType);
+    const handler = getChannelHandler(parsed.data.channelType);
+    
+    const credentials: Record<string, string> = {};
+    let status: "pending" | "connected" | "disconnected" = "pending";
+
+    if (channelDef?.authType === "apikey" && handler) {
+      status = "connected";
+      for (const field of handler.configFields) {
+        if (field.key !== "storeUrl") {
+          const val = formData.get(field.key);
+          if (val && typeof val === "string") {
+            credentials[field.key] = encrypt(val);
+          }
+        }
+      }
+    }
+
     const [row] = await db
       .insert(channels)
       .values({
         userId: CURRENT_USER_ID,
         channelType: parsed.data.channelType,
         name: parsed.data.name,
-        status: "pending",
+        status,
         storeUrl: parsed.data.storeUrl || null,
         defaultPickupLocation: parsed.data.defaultPickupLocation || null,
-        credentials: {},
+        credentials,
       })
       .returning({ id: channels.id });
 

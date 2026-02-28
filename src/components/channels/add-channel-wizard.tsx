@@ -274,7 +274,7 @@ export function AddChannelWizard() {
       <DialogTrigger asChild>
         <Button>New Channel</Button>
       </DialogTrigger>
-      <DialogContent className="max-w-3xl p-0 gap-0">
+      <DialogContent className="sm:max-w-[750px] md:max-w-4xl p-0 gap-0">
         <div className="flex min-h-[480px]">
           {/* Left sidebar */}
           <div className="bg-muted/40 flex w-52 shrink-0 flex-col gap-1 rounded-l-lg border-r p-5">

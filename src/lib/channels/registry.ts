@@ -1,5 +1,6 @@
 import type { ChannelDefinition, ChannelHandler, ChannelType } from "./types";
 import { woocommerceHandler } from "./woocommerce";
+import { amazonHandler } from "./amazon";
 
 export const channelRegistry: ChannelDefinition[] = [
   {
@@ -27,7 +28,7 @@ export const channelRegistry: ChannelDefinition[] = [
     icon: null,
     authType: "apikey",
     popular: true,
-    available: false,
+    available: true,
   },
   {
     id: "custom",
@@ -52,6 +53,8 @@ export function getChannelHandler(type: string): ChannelHandler | null {
   switch (type) {
     case "woocommerce":
       return woocommerceHandler;
+    case "amazon":
+      return amazonHandler;
     default:
       return null;
   }
