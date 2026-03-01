@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { channelProducts, channels } from "@/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, and, or, ilike, sql } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import {
   Table,
@@ -11,16 +11,26 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { TableSearch } from "@/components/ui/table-search";
+import { TablePagination } from "@/components/ui/table-pagination";
 
 export const dynamic = "force-dynamic";
 
 export default async function ChannelProductsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const resolvedParams = await params;
   const channelId = parseInt(resolvedParams.id, 10);
+
+  const resolvedSearchParams = await searchParams;
+  const query = typeof resolvedSearchParams?.q === "string" ? resolvedSearchParams.q : "";
+  const page = parseInt((resolvedSearchParams?.page as string) || "1", 10);
+  const limit = parseInt((resolvedSearchParams?.limit as string) || "20", 10);
+  const offset = (page - 1) * limit;
 
   if (isNaN(channelId)) {
     notFound();
@@ -36,6 +46,22 @@ export default async function ChannelProductsPage({
     notFound();
   }
 
+  const whereCondition = and(
+    eq(channelProducts.channelId, channelId),
+    query
+      ? or(
+        ilike(channelProducts.name, `%${query}%`),
+        ilike(channelProducts.sku, `%${query}%`),
+        ilike(channelProducts.externalId, `%${query}%`)
+      )
+      : undefined
+  );
+
+  const [{ count }] = await db
+    .select({ count: sql`count(*)`.mapWith(Number) })
+    .from(channelProducts)
+    .where(whereCondition);
+
   const productsList = await db
     .select({
       id: channelProducts.id,
@@ -47,8 +73,10 @@ export default async function ChannelProductsPage({
       lastSyncedAt: channelProducts.lastSyncedAt,
     })
     .from(channelProducts)
-    .where(eq(channelProducts.channelId, channelId))
-    .orderBy(desc(channelProducts.lastSyncedAt));
+    .where(whereCondition)
+    .orderBy(desc(channelProducts.lastSyncedAt))
+    .limit(limit)
+    .offset(offset);
 
   return (
     <div className="p-6 space-y-6">
@@ -56,9 +84,10 @@ export default async function ChannelProductsPage({
         <div>
           <h1 className="text-3xl font-bold tracking-tight">{channel.name} Products</h1>
           <p className="text-muted-foreground mt-1">
-            Browse all products fetched from {channel.name}. Total: {productsList.length}
+            Browse all products fetched from {channel.name}. Total: {count}
           </p>
         </div>
+        <TableSearch placeholder="Search by name, SKU, or ID..." />
       </div>
 
       <div className="rounded-md border bg-white shadow-sm overflow-hidden">
@@ -66,7 +95,7 @@ export default async function ChannelProductsPage({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>External ID / SKU</TableHead>
+                <TableHead>External ID</TableHead>
                 <TableHead>Product Name</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead className="text-right">Stock</TableHead>
@@ -87,12 +116,12 @@ export default async function ChannelProductsPage({
                       <div className="font-mono text-sm">
                         {product.externalId}
                       </div>
-                      <div className="font-mono text-xs text-muted-foreground/70 mt-0.5">
-                        {product.sku || "-"}
-                      </div>
                     </TableCell>
                     <TableCell className="font-medium whitespace-normal min-w-[250px] max-w-xl">
                       {product.name}
+                      <div className="font-mono text-xs text-muted-foreground/70 mt-0.5">
+                        {product.sku || "-"}
+                      </div>
                     </TableCell>
                     <TableCell>
                       {product.type ? (
@@ -129,6 +158,8 @@ export default async function ChannelProductsPage({
           </Table>
         </div>
       </div>
+
+      <TablePagination totalItems={count} itemsPerPage={limit} currentPage={page} />
     </div>
   );
 }
