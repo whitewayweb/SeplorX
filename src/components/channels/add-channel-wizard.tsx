@@ -189,50 +189,52 @@ function ConnectStep({
           : "Enter your store details to connect."}
       </p>
 
-      {definition?.configFields?.map((field) => (
-        <div key={field.key} className="space-y-2">
-          <Label htmlFor={`config-${field.key}`}>
-            {field.label}
-            {field.required && <span className="text-destructive ml-1">*</span>}
-          </Label>
-          {field.type === "select" && field.options ? (
-            <Select
-              value={config[field.key] ?? ""}
-              onValueChange={(value) => {
-                onConfigChange(field.key, value);
-                setConfigError("");
-              }}
-            >
-              <SelectTrigger id={`config-${field.key}`}>
-                <SelectValue placeholder={field.placeholder ?? "Select..."} />
-              </SelectTrigger>
-              <SelectContent>
-                {field.options.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <Input
-              id={`config-${field.key}`}
-              type={field.type === "password" ? "password" : field.type === "url" ? "url" : "text"}
-              placeholder={field.placeholder}
-              value={config[field.key] ?? ""}
-              onChange={(e) => {
-                onConfigChange(field.key, e.target.value);
-                setConfigError("");
-              }}
-            />
-          )}
-          {fieldErrors?.[field.key as keyof typeof fieldErrors]?.[0] && (
-            <p className="text-destructive text-xs">
-              {fieldErrors[field.key as keyof typeof fieldErrors]![0]}
-            </p>
-          )}
-        </div>
-      ))}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {definition?.configFields?.map((field) => (
+          <div key={field.key} className={cn("space-y-2", !field.halfWidth && "md:col-span-2")}>
+            <Label htmlFor={`config-${field.key}`}>
+              {field.label}
+              {field.required && <span className="text-destructive ml-1">*</span>}
+            </Label>
+            {field.type === "select" && field.options ? (
+              <Select
+                value={config[field.key] ?? ""}
+                onValueChange={(value) => {
+                  onConfigChange(field.key, value);
+                  setConfigError("");
+                }}
+              >
+                <SelectTrigger id={`config-${field.key}`}>
+                  <SelectValue placeholder={field.placeholder ?? "Select..."} />
+                </SelectTrigger>
+                <SelectContent>
+                  {field.options.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                id={`config-${field.key}`}
+                type={field.type === "password" ? "password" : field.type === "url" ? "url" : "text"}
+                placeholder={field.placeholder}
+                value={config[field.key] ?? ""}
+                onChange={(e) => {
+                  onConfigChange(field.key, e.target.value);
+                  setConfigError("");
+                }}
+              />
+            )}
+            {fieldErrors?.[field.key as keyof typeof fieldErrors]?.[0] && (
+              <p className="text-destructive text-xs">
+                {fieldErrors[field.key as keyof typeof fieldErrors]![0]}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
 
       {(configError || state?.error) && (
         <p className="text-destructive text-sm">{configError || state?.error}</p>

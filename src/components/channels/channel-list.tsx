@@ -195,7 +195,7 @@ function ChannelRowActions({ channel }: { channel: ChannelInstance }) {
 
 interface ChannelListProps {
   channels: ChannelInstance[];
-  connected?: boolean;
+  connected?: string;
   mappedProductCounts?: Map<number, number>;
 }
 
@@ -206,8 +206,11 @@ export function ChannelList({ channels, connected, mappedProductCounts }: Channe
   useEffect(() => {
     if (connected && !shown.current) {
       shown.current = true;
-      toast.success("Store connected successfully.", {
-        description: "Your WooCommerce store is now syncing orders.",
+      const connectedType = connected === "1" ? "woocommerce" : connected;
+      const def = getChannelById(connectedType as any);
+      const name = def?.name ?? "Store";
+      toast.success(`${name} connected successfully.`, {
+        description: `Your ${name} store is now syncing orders.`,
       });
       router.replace("/channels");
     }

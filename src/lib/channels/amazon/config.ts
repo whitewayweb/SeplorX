@@ -6,6 +6,7 @@ export const configFields: ChannelConfigField[] = [
     label: "SP-API Endpoint Region",
     type: "select",
     required: true,
+    halfWidth: true,
     options: [
       { label: "India / Europe (EU)", value: "https://sellingpartnerapi-eu.amazon.com" },
       { label: "North America (US, CA, MX)", value: "https://sellingpartnerapi-na.amazon.com" },
@@ -17,6 +18,7 @@ export const configFields: ChannelConfigField[] = [
     label: "Marketplace",
     type: "select",
     required: true,
+    halfWidth: true,
     options: [
       { label: "India (IN)", value: "A21TJRUUN4KGV" },
       { label: "United States (US)", value: "ATVPDKIKX0DER" },
@@ -70,5 +72,5 @@ export function buildConnectUrl(channelId: number, config: Record<string, string
   void channelId;
   void config;
   const base = appUrl.replace(/\/$/, "");
-  return `${base}/channels?connected=1`;
+  return `${base}/channels?connected=amazon`;
 }
