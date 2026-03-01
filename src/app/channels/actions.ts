@@ -259,7 +259,7 @@ export async function syncChannelProducts(channelId: number) {
           sku: p.sku || null,
           stockQuantity: p.stockQuantity ?? null,
           type: p.type || null,
-          rawData: p.rawPayload,
+          rawData: { ...p.rawPayload, parentId: p.parentId },
           lastSyncedAt: new Date(),
         }));
 
