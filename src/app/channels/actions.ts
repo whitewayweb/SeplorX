@@ -6,8 +6,9 @@ import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { CreateChannelSchema, ChannelIdSchema } from "@/lib/validations/channels";
 import { getChannelHandler, getChannelById } from "@/lib/channels/registry";
+import { decryptChannelCredentials } from "@/lib/channels/utils";
 import type { ChannelType } from "@/lib/channels/types";
-import { decrypt, encrypt } from "@/lib/crypto";
+import { encrypt } from "@/lib/crypto";
 import { env } from "@/lib/env";
 
 const CURRENT_USER_ID = 1;
@@ -154,16 +155,15 @@ export async function registerChannelWebhooks(channelId: number) {
     if (!handler) return { error: "This channel type does not support webhooks." };
 
     const creds = channel.credentials ?? {};
-    const consumerKey = creds.consumerKey ? decrypt(creds.consumerKey) : "";
-    const consumerSecret = creds.consumerSecret ? decrypt(creds.consumerSecret) : "";
-    if (!consumerKey || !consumerSecret) return { error: "Channel credentials are missing." };
+    const decryptedCreds = decryptChannelCredentials(creds);
+    if (Object.keys(decryptedCreds).length === 0) return { error: "Channel credentials are missing." };
 
     const appUrl = (env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
     const webhookBaseUrl = `${appUrl}/api/channels/${channel.channelType}/webhook/${channelId}`;
 
     const { secret } = await handler.registerWebhooks(
       channel.storeUrl,
-      { consumerKey, consumerSecret },
+      decryptedCreds,
       webhookBaseUrl,
     );
 
