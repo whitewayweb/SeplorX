@@ -52,6 +52,7 @@ export const amazonHandler: ChannelHandler = {
         client_id: clientId,
         client_secret: clientSecret,
       }).toString(),
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!tokenRes.ok) {
@@ -101,6 +102,7 @@ export const amazonHandler: ChannelHandler = {
           Accept: "application/json",
           "x-amz-access-token": accessToken,
         },
+        signal: AbortSignal.timeout(15_000),
       });
 
       if (!itemsRes.ok) {

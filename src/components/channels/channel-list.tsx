@@ -3,7 +3,7 @@
 import { useActionState, useTransition, useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Store, Webhook, PackageSearch } from "lucide-react";
+import { Store, Webhook, PackageSearch, PlugZap } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -114,6 +114,49 @@ function RegisterWebhooksButton({ channelId }: { channelId: number }) {
   );
 }
 
+// ─── Reconnect button for API-key channels ────────────────────────────────────
+
+function ReconnectApiKeyButton({
+  channelId,
+  channelType,
+}: {
+  channelId: number;
+  channelType: string;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function handleReconnect() {
+    setError(null);
+    startTransition(async () => {
+      const result = await resetChannelStatus(channelId);
+      if (!result.success) {
+        setError(result.error ?? "Something went wrong.");
+        return;
+      }
+      // Redirect to the new-channel dialog pre-filtered to this type so the
+      // user can re-enter their API credentials.
+      router.push(`/channels?reconnect=${channelId}&type=${channelType}`);
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      {error && <span className="text-destructive text-xs">{error}</span>}
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={handleReconnect}
+        disabled={pending}
+      >
+        <PlugZap className="h-3 w-3 mr-1" />
+        {pending ? "Reconnecting…" : "Reconnect"}
+      </Button>
+    </div>
+  );
+}
+
 // ─── Fetch Products button ────────────────────────────────────────────────────
 
 function FetchProductsButton({ channelId }: { channelId: number }) {
@@ -183,6 +226,12 @@ function ChannelRowActions({ channel }: { channel: ChannelInstance }) {
           channelType={channel.channelType}
           storeUrl={channel.storeUrl}
           label="Reconnect"
+        />
+      )}
+      {!isOAuth && channel.status === "disconnected" && (
+        <ReconnectApiKeyButton
+          channelId={channel.id}
+          channelType={channel.channelType}
         />
       )}
 

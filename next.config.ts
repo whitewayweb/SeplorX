@@ -1,10 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // The Amazon SP-API SDK uses node:fs and other Node built-ins that
-  // Webpack/Turbopack cannot bundle. Mark it as a server-side external
-  // so it is required() at runtime instead of being bundled.
-  serverExternalPackages: ["@amazon-sp-api-release/amazon-sp-api-sdk-js"],
+  // Packages that use Node.js built-ins (node:fs, node:crypto, etc.) cannot be
+  // bundled by Webpack/Turbopack. Mark them as server-side externals so they
+  // are required() at runtime instead, avoiding cold-start compilation hangs.
+  serverExternalPackages: [
+    "@ai-sdk/google",
+    "ai",
+  ],
 };
 
 export default nextConfig;
