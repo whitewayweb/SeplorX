@@ -31,14 +31,13 @@ export async function createChannel(_prevState: unknown, formData: FormData) {
 
   try {
     const channelDef = getChannelById(parsed.data.channelType as ChannelType);
-    const handler = getChannelHandler(parsed.data.channelType);
     
     const credentials: Record<string, string> = {};
     let status: "pending" | "connected" | "disconnected" = "pending";
 
-    if (channelDef?.authType === "apikey" && handler) {
+    if (channelDef?.authType === "apikey" && channelDef.configFields) {
       status = "connected";
-      for (const field of handler.configFields) {
+      for (const field of channelDef.configFields) {
         if (field.key !== "storeUrl") {
           const val = formData.get(field.key);
           if (val && typeof val === "string") {

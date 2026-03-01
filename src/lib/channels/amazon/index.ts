@@ -40,15 +40,28 @@ export const amazonHandler: ChannelHandler = {
       throw new Error("Missing required Amazon credentials (marketplaceId, clientId, clientSecret, refreshToken)");
     }
 
-    // Dynamic import — safe because the SDK is in serverExternalPackages in next.config.ts
-    // and this function is only ever called from a Next.js Server Action.
-    const sdk = await import("@amazon-sp-api-release/amazon-sp-api-sdk-js");
-    const { ApiClient, CatalogApi } = sdk.CatalogitemsSpApi;
+    // 1. Get Access Token using standard fetch (avoids Turbopack node built-in errors from the Amazon SDK)
+    const tokenRes = await fetch("https://api.amazon.com/auth/o2/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: clientId,
+        client_secret: clientSecret,
+      }).toString(),
+    });
 
-    const apiClient = new ApiClient(endpoint);
-    apiClient.enableAutoRetrievalAccessToken(clientId, clientSecret, refreshToken, null);
+    if (!tokenRes.ok) {
+      const errText = await tokenRes.text();
+      console.error("[Amazon SP-API] Token Error:", errText);
+      throw new Error(`Failed to refresh Amazon token: ${tokenRes.status}`);
+    }
 
-    const catalogApi = new CatalogApi(apiClient);
+    const tokenData = await tokenRes.json();
+    const accessToken = tokenData.access_token;
 
     interface CatalogItem {
       asin?: string;
@@ -64,43 +77,49 @@ export const amazonHandler: ChannelHandler = {
           identifier?: string;
         }>;
       }>;
-      salesRanks?: unknown;
-    }
-
-    interface ItemSearchResults {
-      items?: CatalogItem[];
-      pagination?: { nextToken?: string };
     }
 
     const allItems: CatalogItem[] = [];
     let pageToken: string | undefined;
 
-    // Paginate through all results (max 20 per page for SP-API Catalog)
     do {
-      const opts: Record<string, unknown> = {
-        includedData: ["summaries", "identifiers"],
-        pageSize: 20,
-      };
+      const url = new URL(`${endpoint.replace(/\/$/, "")}/catalog/2022-04-01/items`);
+      url.searchParams.append("marketplaceIds", marketplaceId);
+      url.searchParams.append("includedData", "summaries,identifiers");
+      url.searchParams.append("pageSize", "20");
 
       if (search && search.trim()) {
-        opts.keywords = [search.trim()];
+        url.searchParams.append("keywords", search.trim());
       }
 
       if (pageToken) {
-        opts.pageToken = pageToken;
+        url.searchParams.append("pageToken", pageToken);
       }
 
-      const result = await catalogApi.searchCatalogItems([marketplaceId], opts) as ItemSearchResults;
-      const items = result?.items ?? [];
+      const itemsRes = await fetch(url.toString(), {
+        headers: {
+          Accept: "application/json",
+          "x-amz-access-token": accessToken,
+        },
+      });
+
+      if (!itemsRes.ok) {
+        const errText = await itemsRes.text();
+        console.error("[Amazon SP-API] Catalog Error:", errText);
+        throw new Error(`Failed to fetch Amazon catalog: ${itemsRes.status}`);
+      }
+
+      const result = await itemsRes.json();
+      const items = result.items || [];
       allItems.push(...items);
 
-      pageToken = result?.pagination?.nextToken;
+      pageToken = result.pagination?.nextToken;
 
       // Cap at 200 items to avoid excessive API calls
       if (allItems.length >= 200) break;
     } while (pageToken);
 
-    return allItems.map((item) => {
+    return allItems.map((item: CatalogItem) => {
       const asin = item.asin ?? "";
       const summary = item.summaries?.find((s) => s.marketplaceId === marketplaceId) ?? item.summaries?.[0];
       const identifierGroup = item.identifiers?.find((g) => g.marketplaceId === marketplaceId) ?? item.identifiers?.[0];

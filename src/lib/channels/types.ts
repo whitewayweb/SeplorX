@@ -38,9 +38,10 @@ export interface ChannelInstance {
 export interface ChannelConfigField {
   key: string;
   label: string;
-  type: "url" | "text" | "password";
+  type: "url" | "text" | "password" | "select";
   required: boolean;
   placeholder?: string;
+  options?: { label: string; value: string }[];
 }
 
 export interface WebhookStockChange {

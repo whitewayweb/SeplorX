@@ -13,6 +13,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { createChannel } from "@/app/channels/actions";
 import { channelRegistry } from "@/lib/channels/registry";
@@ -188,16 +195,37 @@ function ConnectStep({
             {field.label}
             {field.required && <span className="text-destructive ml-1">*</span>}
           </Label>
-          <Input
-            id={`config-${field.key}`}
-            type={field.type === "password" ? "password" : field.type === "url" ? "url" : "text"}
-            placeholder={field.placeholder}
-            value={config[field.key] ?? ""}
-            onChange={(e) => {
-              onConfigChange(field.key, e.target.value);
-              setConfigError("");
-            }}
-          />
+          {field.type === "select" && field.options ? (
+            <Select
+              value={config[field.key] ?? ""}
+              onValueChange={(value) => {
+                onConfigChange(field.key, value);
+                setConfigError("");
+              }}
+            >
+              <SelectTrigger id={`config-${field.key}`}>
+                <SelectValue placeholder={field.placeholder ?? "Select..."} />
+              </SelectTrigger>
+              <SelectContent>
+                {field.options.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              id={`config-${field.key}`}
+              type={field.type === "password" ? "password" : field.type === "url" ? "url" : "text"}
+              placeholder={field.placeholder}
+              value={config[field.key] ?? ""}
+              onChange={(e) => {
+                onConfigChange(field.key, e.target.value);
+                setConfigError("");
+              }}
+            />
+          )}
           {fieldErrors?.[field.key as keyof typeof fieldErrors]?.[0] && (
             <p className="text-destructive text-xs">
               {fieldErrors[field.key as keyof typeof fieldErrors]![0]}
