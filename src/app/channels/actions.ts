@@ -1,13 +1,14 @@
 "use server";
 
 import { db } from "@/db";
-import { channels, channelProducts } from "@/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { channels } from "@/db/schema";
+import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { CreateChannelSchema, ChannelIdSchema } from "@/lib/validations/channels";
 import { getChannelById } from "@/lib/channels/registry";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
+import { upsertChannelProducts } from "@/lib/channels/queries";
 import type { ChannelType } from "@/lib/channels/types";
 import { encrypt } from "@/lib/crypto";
 import { env } from "@/lib/env";
@@ -249,6 +250,7 @@ export async function syncChannelProducts(channelId: number) {
 
     const externalProducts = await handler.fetchProducts(channel.storeUrl, decryptedCreds);
 
+
     if (externalProducts.length > 0) {
       const BATCH_SIZE = 100;
       for (let i = 0; i < externalProducts.length; i += BATCH_SIZE) {
@@ -260,25 +262,12 @@ export async function syncChannelProducts(channelId: number) {
           stockQuantity: p.stockQuantity ?? null,
           type: p.type || null,
           rawData: { ...p.rawPayload, parentId: p.parentId },
-          lastSyncedAt: new Date(),
         }));
 
-        await db
-          .insert(channelProducts)
-          .values(batch)
-          .onConflictDoUpdate({
-            target: [channelProducts.channelId, channelProducts.externalId],
-            set: {
-              name: sql`EXCLUDED.name`,
-              sku: sql`EXCLUDED.sku`,
-              stockQuantity: sql`EXCLUDED.stock_quantity`,
-              type: sql`EXCLUDED.type`,
-              rawData: sql`EXCLUDED.raw_data`,
-              lastSyncedAt: sql`EXCLUDED.last_synced_at`,
-            },
-          });
+        await upsertChannelProducts(batch);
       }
     }
+
 
     revalidatePath("/channels");
     return { success: true, count: externalProducts.length };

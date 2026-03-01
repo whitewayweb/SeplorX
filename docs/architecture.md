@@ -103,14 +103,15 @@ Next.js App Router enforces a clear separation between server and client code. T
 
 **Data Access Layer (DAL)** (`src/lib/*/queries.ts`):
 - Pure TypeScript functions containing raw SQL/Drizzle queries
-- Extracts database logic away from UI components
+- Extracts database logic away from UI components (Server Components) and Server Actions
 - Ensures queries are reusable across pages, actions, and API routes
+- **CRITICAL**: Server Components and Actions must *never* import `db` or `pgTable` directly if a DAL function can be used instead.
 
 **Server Components** (the default):
-- Fetch data by importing functions from the DAL (e.g., `getUserChannels()`)
+- Fetch data by importing functions from the DAL (e.g., `getUserChannels()`, `getChannelProductsWithVariations()`)
 - Render HTML on the server
 - Cannot use hooks (`useState`, `useEffect`), browser APIs, or event handlers
-- Do **not** write raw ORM queries inline
+- Do **not** write raw ORM queries or raw SQL inline.
 
 **Client Components** (`"use client"` directive):
 - Handle user interactivity: forms, dialogs, click handlers, state
@@ -249,6 +250,7 @@ src/
     │   ├── types.ts            # ChannelDefinition, ChannelInstance, ChannelType
     │   ├── registry.ts         # channelRegistry[] (safe for clients)
     │   ├── handlers.ts         # getChannelHandler() (server-only logic)
+    │   ├── queries.ts          # DAL — getChannel, getChannelProductsWithVariations, etc.
     │   └── amazon/config.ts    # channel-specific configs
     ├── validations/            # Zod schemas
     │   ├── apps.ts             # App config validation

@@ -1,6 +1,3 @@
-import { db } from "@/db";
-import { channelProducts, channels } from "@/db/schema";
-import { desc, eq, and, or, ilike, sql, ne, isNull } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { CornerDownRight } from "lucide-react";
 import { Fragment } from "react";
@@ -15,6 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { TableSearch } from "@/components/ui/table-search";
 import { TablePagination } from "@/components/ui/table-pagination";
+import { getChannel, getChannelProductsWithVariations } from "@/lib/channels/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -38,90 +36,15 @@ export default async function ChannelProductsPage({
     notFound();
   }
 
-  const [channel] = await db
-    .select({ name: channels.name })
-    .from(channels)
-    .where(eq(channels.id, channelId))
-    .limit(1);
+  const channel = await getChannel(channelId);
 
   if (!channel) {
     notFound();
   }
 
-  const baseCondition = and(
-    eq(channelProducts.channelId, channelId),
-    or(ne(channelProducts.type, "variation"), isNull(channelProducts.type))
-  );
+  const { products: productsList, variations: variationsList, totalCount: count } =
+    await getChannelProductsWithVariations(channelId, { query, limit, offset });
 
-  const queryCondition = query
-    ? or(
-      ilike(channelProducts.name, `%${query}%`),
-      ilike(channelProducts.sku, `%${query}%`),
-      ilike(channelProducts.externalId, `%${query}%`),
-      // Also match if any of its child variations contain the search term
-      sql`EXISTS (
-          SELECT 1 FROM ${channelProducts} child
-          WHERE COALESCE(child.raw_data->>'parentId', CAST(child.raw_data->>'parent_id' AS TEXT)) = ${channelProducts.externalId}
-          AND child.channel_id = ${channelId}
-          AND (
-            child.name ILIKE ${`%${query}%`} OR
-            child.sku ILIKE ${`%${query}%`} OR
-            child.external_id ILIKE ${`%${query}%`}
-          )
-        )`
-    )
-    : undefined;
-
-  const whereCondition = and(baseCondition, queryCondition);
-
-  const [{ count }] = await db
-    .select({ count: sql`count(*)`.mapWith(Number) })
-    .from(channelProducts)
-    .where(whereCondition);
-
-  const productsList = await db
-    .select({
-      id: channelProducts.id,
-      externalId: channelProducts.externalId,
-      name: channelProducts.name,
-      sku: channelProducts.sku,
-      type: channelProducts.type,
-      stockQuantity: channelProducts.stockQuantity,
-      lastSyncedAt: channelProducts.lastSyncedAt,
-    })
-    .from(channelProducts)
-    .where(whereCondition)
-    .orderBy(desc(channelProducts.lastSyncedAt))
-    .limit(limit)
-    .offset(offset);
-
-  let variationsList: (typeof productsList[0] & { parentId?: string })[] = [];
-
-  if (productsList.length > 0) {
-    const parentIds = productsList.map((p) => p.externalId);
-    const parentIdsSql = sql.join(parentIds.map((id) => sql`${id}`), sql`, `);
-
-    variationsList = await db
-      .select({
-        id: channelProducts.id,
-        externalId: channelProducts.externalId,
-        name: channelProducts.name,
-        sku: channelProducts.sku,
-        type: channelProducts.type,
-        stockQuantity: channelProducts.stockQuantity,
-        lastSyncedAt: channelProducts.lastSyncedAt,
-        parentId: sql<string>`COALESCE(raw_data->>'parentId', CAST(raw_data->>'parent_id' AS TEXT))`,
-      })
-      .from(channelProducts)
-      .where(
-        and(
-          eq(channelProducts.channelId, channelId),
-          eq(channelProducts.type, "variation"),
-          sql`COALESCE(raw_data->>'parentId', CAST(raw_data->>'parent_id' AS TEXT)) IN (${parentIdsSql})`
-        )
-      )
-      .orderBy(desc(channelProducts.lastSyncedAt));
-  }
 
   return (
     <div className="p-6 space-y-6">

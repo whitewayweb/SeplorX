@@ -213,7 +213,28 @@ const handler = getChannelHandler("woocommerce");  // returns null for unknown t
 
 **Adding a new topic to WooCommerce webhooks** (e.g. `order.completed`): add the topic to `webhookTopics` and handle it in `processWebhook` inside `woocommerce/index.ts`. No changes to the generic webhook route.
 
-**`fetchProducts` caching** — declare `capabilities.canFetchProducts: true` and implement `fetchProducts()`. This method is called by the `syncChannelProducts` Server Action, which saves the results to the local `channel_products` cache table. All AI mapping and product browsing reads from this high-performance cache rather than hitting external APIs on the fly.
+**`fetchProducts` caching** — declare `capabilities.canFetchProducts: true` and implement `fetchProducts()`. This method is called by the `syncChannelProducts` Server Action, which saves the results to the local `channel_products` cache table via the `upsertChannelProducts` DAL function. All AI mapping and product browsing reads from this high-performance cache rather than hitting external APIs on the fly.
+
+### Product Cache Schema (`channel_products`)
+
+| Column | Type | Description |
+|---|---|---|
+| `external_id` | `varchar` | Primary identifier from the source (WC ID, Amazon ASIN, etc.) |
+| `name` | `varchar` | Display name |
+| `sku` | `varchar` | Product SKU (optional) |
+| `type` | `varchar` | `simple`, `variable`, or `variation` |
+| `stock_quantity`| `integer` | Local cached stock level |
+| `raw_data` | `jsonb` | Full payload + normalized `parentId` for variations |
+
+### Product Browsing & Pagination
+
+The Channel Products page (`/products/channels/[id]`) implements high-performance server-side browsing:
+
+1.  **Parent-Centric Pagination**: The primary query only selects top-level products (`type != 'variation'`).
+2.  **Recursive Search**: If a search query matches a child variation (e.g., by SKU), a SQL `EXISTS` subquery ensures the parent product is also returned in the results.
+3.  **Parent-Child Nesting**: Variations are fetched in a secondary query for the current page's parents and rendered as nested child rows (↳ indicator) for visual clarity.
+4.  **Interactive Pagination**: Supports custom page limits (20–100) and direct "Go to page" jumping.
+5.  **Data Access Layer**: All database interactions are encapsulated in `src/lib/channels/queries.ts`.
 
 ---
 
