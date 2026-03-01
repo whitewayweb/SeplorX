@@ -4,7 +4,7 @@ import { channels, channelProductMappings, products, inventoryTransactions } fro
 import { and, eq } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { decrypt } from "@/lib/crypto";
-import { getChannelHandler } from "@/lib/channels/registry";
+import { getChannelHandler } from "@/lib/channels/handlers";
 
 const CURRENT_USER_ID = 1;
 
@@ -67,6 +67,10 @@ export async function POST(
   } catch (err) {
     console.error("[channels/webhook] failed to decrypt webhookSecret", { type, channelId, error: String(err) });
     return new NextResponse("Internal Server Error", { status: 500 });
+  }
+
+  if (!handler.capabilities?.usesWebhooks || !handler.processWebhook) {
+    return new NextResponse("Webhook not supported", { status: 400 });
   }
 
   // Parse + verify webhook — handler verifies HMAC and returns stock changes

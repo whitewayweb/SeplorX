@@ -5,18 +5,21 @@ import { channels } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { CreateChannelSchema, ChannelIdSchema } from "@/lib/validations/channels";
-import { getChannelHandler } from "@/lib/channels/registry";
-import { decrypt, encrypt } from "@/lib/crypto";
+import { getChannelById } from "@/lib/channels/registry";
+import { getChannelHandler } from "@/lib/channels/handlers";
+import { decryptChannelCredentials } from "@/lib/channels/utils";
+import type { ChannelType } from "@/lib/channels/types";
+import { encrypt } from "@/lib/crypto";
 import { env } from "@/lib/env";
 
 const CURRENT_USER_ID = 1;
 
 export async function createChannel(_prevState: unknown, formData: FormData) {
   const parsed = CreateChannelSchema.safeParse({
-    channelType: formData.get("channelType"),
-    name: formData.get("name"),
-    storeUrl: formData.get("storeUrl"),
-    defaultPickupLocation: formData.get("defaultPickupLocation"),
+    channelType: String(formData.get("channelType") || ""),
+    name: String(formData.get("name") || ""),
+    storeUrl: (formData.get("storeUrl") as string) || undefined,
+    defaultPickupLocation: (formData.get("defaultPickupLocation") as string) || undefined,
   });
 
   if (!parsed.success) {
@@ -27,16 +30,71 @@ export async function createChannel(_prevState: unknown, formData: FormData) {
   }
 
   try {
+    const channelDef = getChannelById(parsed.data.channelType as ChannelType);
+
+    // Block channels that are not yet available (e.g. "Coming Soon") from being
+    // created via crafted requests that bypass the UI wizard.
+    if (!channelDef || !channelDef.available) {
+      return {
+        error: "This channel is not available.",
+        fieldErrors: { channelType: ["This channel type is not currently available."] },
+      };
+    }
+
+    const credentials: Record<string, string> = {};
+    let status: "pending" | "connected" | "disconnected" = "pending";
+
+    if (channelDef.authType === "apikey" && channelDef.configFields) {
+      // Collect raw (unencrypted) values for all config fields so we can
+      // validate them before committing anything to the database.
+      const rawConfig: Partial<Record<string, string>> = {};
+
+      // storeUrl comes from the top-level parsed field (it is stored in its
+      // own DB column), all other fields land in the credentials JSON blob.
+      rawConfig["storeUrl"] = parsed.data.storeUrl || undefined;
+
+      for (const field of channelDef.configFields) {
+        if (field.key !== "storeUrl") {
+          const val = formData.get(field.key);
+          if (val && typeof val === "string") {
+            rawConfig[field.key] = val;
+          }
+        }
+      }
+
+      // Run the channel-specific validation before touching the DB.
+      if (channelDef.validateConfig) {
+        const configError = channelDef.validateConfig(rawConfig);
+        if (configError) {
+          return {
+            error: configError,
+            fieldErrors: { config: [configError] },
+          };
+        }
+      }
+
+      // Validation passed – encrypt and store credentials.
+      status = "connected";
+      for (const field of channelDef.configFields) {
+        if (field.key !== "storeUrl") {
+          const val = rawConfig[field.key];
+          if (val) {
+            credentials[field.key] = encrypt(val);
+          }
+        }
+      }
+    }
+
     const [row] = await db
       .insert(channels)
       .values({
         userId: CURRENT_USER_ID,
         channelType: parsed.data.channelType,
         name: parsed.data.name,
-        status: "pending",
+        status,
         storeUrl: parsed.data.storeUrl || null,
         defaultPickupLocation: parsed.data.defaultPickupLocation || null,
-        credentials: {},
+        credentials,
       })
       .returning({ id: channels.id });
 
@@ -133,18 +191,20 @@ export async function registerChannelWebhooks(channelId: number) {
 
     const handler = getChannelHandler(channel.channelType);
     if (!handler) return { error: "This channel type does not support webhooks." };
+    if (!handler.capabilities.usesWebhooks || !handler.registerWebhooks) {
+      return { error: "This channel type does not use webhooks." };
+    }
 
     const creds = channel.credentials ?? {};
-    const consumerKey = creds.consumerKey ? decrypt(creds.consumerKey) : "";
-    const consumerSecret = creds.consumerSecret ? decrypt(creds.consumerSecret) : "";
-    if (!consumerKey || !consumerSecret) return { error: "Channel credentials are missing." };
+    const decryptedCreds = decryptChannelCredentials(creds);
+    if (Object.keys(decryptedCreds).length === 0) return { error: "Channel credentials are missing." };
 
     const appUrl = (env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
     const webhookBaseUrl = `${appUrl}/api/channels/${channel.channelType}/webhook/${channelId}`;
 
     const { secret } = await handler.registerWebhooks(
       channel.storeUrl,
-      { consumerKey, consumerSecret },
+      decryptedCreds,
       webhookBaseUrl,
     );
 

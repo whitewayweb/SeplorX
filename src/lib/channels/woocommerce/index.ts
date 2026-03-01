@@ -1,5 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
-import type { ChannelHandler, ChannelConfigField, WebhookStockChange, ExternalProduct } from "../types";
+import type { ChannelHandler, WebhookStockChange, ExternalProduct } from "../types";
 
 // ─── WooCommerce REST API helpers ─────────────────────────────────────────────
 // credentials JSONB keys: consumerKey, consumerSecret (encrypted),
@@ -55,48 +55,23 @@ interface WCOrderPayload {
 
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
-const configFields: ChannelConfigField[] = [
-  {
-    key: "storeUrl",
-    label: "Store URL",
-    type: "url",
-    required: true,
-    placeholder: "https://yourstore.com",
-  },
-];
+import {
+  configFields,
+  capabilities,
+  validateConfig,
+  buildConnectUrl,
+} from "./config";
 
 export const woocommerceHandler: ChannelHandler = {
   id: "woocommerce",
   configFields,
+  capabilities,
   // Topics registered as webhooks on the remote WooCommerce store.
   // To add new topics in future: add the string here + handle in processWebhook().
   webhookTopics: ["order.created", "order.cancelled"] as const,
 
-  validateConfig(config) {
-    if (!config.storeUrl) return "Store URL is required for WooCommerce";
-    try {
-      const url = new URL(config.storeUrl);
-      if (url.protocol !== "http:" && url.protocol !== "https:") {
-        return "Store URL must start with http:// or https://";
-      }
-    } catch {
-      return "Store URL must be a valid URL";
-    }
-    return null;
-  },
-
-  buildConnectUrl(channelId, config, appUrl) {
-    const base = appUrl.replace(/\/$/, "");
-    const storeBase = new URL(config.storeUrl!).origin;
-    const params = new URLSearchParams({
-      app_name: "SeplorX",
-      scope: "read_write",
-      user_id: String(channelId),
-      return_url: `${base}/channels?connected=1`,
-      callback_url: `${base}/api/channels/woocommerce/callback`,
-    });
-    return `${storeBase}/wc-auth/v1/authorize?${params}`;
-  },
+  validateConfig,
+  buildConnectUrl,
 
   parseCallback(body) {
     // Try URL-encoded first (WooCommerce default)

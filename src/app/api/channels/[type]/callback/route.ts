@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { channels } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { encrypt } from "@/lib/crypto";
-import { getChannelHandler } from "@/lib/channels/registry";
+import { getChannelHandler } from "@/lib/channels/handlers";
 
 /**
  * Generic OAuth callback — WooCommerce (and future channels) POST credentials here.

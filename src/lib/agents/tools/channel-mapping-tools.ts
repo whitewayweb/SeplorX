@@ -11,8 +11,8 @@ import { z } from "zod";
 import { db } from "@/db";
 import { products, channels, channelProductMappings, agentActions } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
-import { getChannelHandler } from "@/lib/channels/registry";
-import { decrypt } from "@/lib/crypto";
+import { getChannelHandler } from "@/lib/channels/handlers";
+import { decryptChannelCredentials } from "@/lib/channels/utils";
 
 const CURRENT_USER_ID = 1;
 
@@ -63,8 +63,8 @@ export const getSeplorxProducts = tool({
 
 export const getChannelProducts = tool({
   description:
-    "Fetch products from a connected channel (e.g. WooCommerce store) and return only the UNMAPPED ones. " +
-    "Already-mapped WC products are filtered out — the agent should only propose NEW links. " +
+    "Fetch products from a connected channel and return only the UNMAPPED ones. " +
+    "Already-mapped channel products are filtered out — the agent should only propose NEW links. " +
     "Returns channelName, channelType, unmapped products list, and how many were already mapped.",
   inputSchema: zodSchema(
     z.object({
@@ -96,7 +96,7 @@ export const getChannelProducts = tool({
     }
 
     const handler = getChannelHandler(channel.channelType);
-    if (!handler || !handler.fetchProducts) {
+    if (!handler || !handler.capabilities.canFetchProducts || !handler.fetchProducts) {
       throw new Error(`Channel type "${channel.channelType}" does not support product listing.`);
     }
 
@@ -104,17 +104,17 @@ export const getChannelProducts = tool({
       throw new Error(`Channel ${channelId} has no store URL configured.`);
     }
 
-    const creds = channel.credentials ?? {};
-    const consumerKey = creds.consumerKey ? decrypt(creds.consumerKey) : "";
-    const consumerSecret = creds.consumerSecret ? decrypt(creds.consumerSecret) : "";
+    // Decrypt all stored credentials generically — works for any channel type
+    // (WooCommerce: consumerKey/consumerSecret, Amazon: clientId/clientSecret/refreshToken, etc.).
+    const decryptedCreds = decryptChannelCredentials(channel.credentials);
 
-    if (!consumerKey || !consumerSecret) {
+    if (Object.keys(decryptedCreds).length === 0) {
       throw new Error(`Channel ${channelId} is missing credentials.`);
     }
 
     const externalProducts = await handler.fetchProducts(
       channel.storeUrl,
-      { consumerKey, consumerSecret },
+      decryptedCreds,
     );
 
     // Collect all already-mapped externalProductIds for this channel

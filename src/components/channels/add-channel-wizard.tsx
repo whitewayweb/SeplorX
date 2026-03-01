@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useActionState } from "react";
+import { useState, useActionState, startTransition } from "react";
 import Image from "next/image";
 import { Check, Store } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,9 +13,16 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { createChannel } from "@/app/channels/actions";
-import { channelRegistry, getChannelHandler } from "@/lib/channels/registry";
+import { channelRegistry } from "@/lib/channels/registry";
 import type { ChannelType, ChannelDefinition } from "@/lib/channels/types";
 
 type Step = 1 | 2 | 3 | 4;
@@ -139,12 +146,12 @@ function ConnectStep({
   const [state, action, pending] = useActionState(createChannel, null);
   const [configError, setConfigError] = useState("");
 
-  const handler = getChannelHandler(channelType);
+  const definition = channelRegistry.find((c) => c.id === channelType);
 
   async function handleConnect() {
-    if (!handler) return;
+    if (!definition) return;
 
-    const validationError = handler.validateConfig(config);
+    const validationError = definition.validateConfig?.(config);
     if (validationError) {
       setConfigError(validationError);
       return;
@@ -160,13 +167,15 @@ function ConnectStep({
       formData.set(key, value);
     }
 
-    action(formData);
+    startTransition(() => {
+      action(formData);
+    });
   }
 
   // Once createChannel succeeds we have channelId → build the connect URL
-  if (state?.success && state.channelId && handler) {
+  if (state?.success && state.channelId && definition?.buildConnectUrl) {
     const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin).replace(/\/$/, "");
-    const connectUrl = handler.buildConnectUrl(state.channelId, config, appUrl);
+    const connectUrl = definition.buildConnectUrl(state.channelId, config, appUrl);
     window.location.assign(connectUrl);
   }
 
@@ -180,29 +189,52 @@ function ConnectStep({
           : "Enter your store details to connect."}
       </p>
 
-      {handler?.configFields.map((field) => (
-        <div key={field.key} className="space-y-2">
-          <Label htmlFor={`config-${field.key}`}>
-            {field.label}
-            {field.required && <span className="text-destructive ml-1">*</span>}
-          </Label>
-          <Input
-            id={`config-${field.key}`}
-            type={field.type === "password" ? "password" : field.type === "url" ? "url" : "text"}
-            placeholder={field.placeholder}
-            value={config[field.key] ?? ""}
-            onChange={(e) => {
-              onConfigChange(field.key, e.target.value);
-              setConfigError("");
-            }}
-          />
-          {fieldErrors?.[field.key as keyof typeof fieldErrors]?.[0] && (
-            <p className="text-destructive text-xs">
-              {fieldErrors[field.key as keyof typeof fieldErrors]![0]}
-            </p>
-          )}
-        </div>
-      ))}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {definition?.configFields?.map((field) => (
+          <div key={field.key} className={cn("space-y-2", !field.halfWidth && "md:col-span-2")}>
+            <Label htmlFor={`config-${field.key}`}>
+              {field.label}
+              {field.required && <span className="text-destructive ml-1">*</span>}
+            </Label>
+            {field.type === "select" && field.options ? (
+              <Select
+                value={config[field.key] ?? ""}
+                onValueChange={(value) => {
+                  onConfigChange(field.key, value);
+                  setConfigError("");
+                }}
+              >
+                <SelectTrigger id={`config-${field.key}`}>
+                  <SelectValue placeholder={field.placeholder ?? "Select..."} />
+                </SelectTrigger>
+                <SelectContent>
+                  {field.options.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                id={`config-${field.key}`}
+                type={field.type === "password" ? "password" : field.type === "url" ? "url" : "text"}
+                placeholder={field.placeholder}
+                value={config[field.key] ?? ""}
+                onChange={(e) => {
+                  onConfigChange(field.key, e.target.value);
+                  setConfigError("");
+                }}
+              />
+            )}
+            {fieldErrors?.[field.key as keyof typeof fieldErrors]?.[0] && (
+              <p className="text-destructive text-xs">
+                {fieldErrors[field.key as keyof typeof fieldErrors]![0]}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
 
       {(configError || state?.error) && (
         <p className="text-destructive text-sm">{configError || state?.error}</p>
@@ -274,7 +306,7 @@ export function AddChannelWizard() {
       <DialogTrigger asChild>
         <Button>New Channel</Button>
       </DialogTrigger>
-      <DialogContent className="max-w-3xl p-0 gap-0">
+      <DialogContent className="sm:max-w-[750px] md:max-w-4xl p-0 gap-0">
         <div className="flex min-h-[480px]">
           {/* Left sidebar */}
           <div className="bg-muted/40 flex w-52 shrink-0 flex-col gap-1 rounded-l-lg border-r p-5">

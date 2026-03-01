@@ -164,6 +164,7 @@ Follow these principles for all code changes (based on sound software architectu
 
 - React 19 strict lint: no `setState` inside `useEffect`, no ref access during render
 - Use wrapper pattern in `useActionState` callback to close dialogs on success (see `company-dialog.tsx`)
+- Never add `_` to a variable name to bypass ESLint (e.g. `_channelWebhookBaseUrl`). Remove unused variables from the signature unless they are non-trailing and required for position.
 
 ## Design Docs
 

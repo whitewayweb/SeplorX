@@ -11,7 +11,7 @@ Channels are **distinct from Apps**:
 | Examples | Delhivery, FedEx, Razorpay | WooCommerce, Shopify, Amazon |
 | Purpose | Shipping / payment providers | Order source integrations |
 | Instances per type | 1 per user (unique constraint) | Many per user (multi-store) |
-| Auth method | API keys / passwords (config fields) | OAuth (1-click authorization) |
+| Auth method | API keys / passwords (config fields) | OAuth (1-click) or API key (wizard) |
 | DB table | `app_installations` | `channels` |
 | Row created | On "Install" click | Before OAuth redirect (`pending`) |
 | Config storage | `config` JSONB (dynamic fields) | `credentials` JSONB (fixed keys) |
@@ -58,6 +58,12 @@ interface ChannelDefinition {
   authType: "oauth" | "apikey";
   popular: boolean;
   available: boolean;        // gates UI access
+
+  // Isomorphic fields (safe for Client Components)
+  configFields?: ChannelConfigField[];
+  capabilities?: ChannelCapabilities;
+  validateConfig?: (config: Partial<Record<string, string>>) => string | null;
+  buildConnectUrl?: (channelId: number, config: Record<string, string>, appUrl: string) => string;
 }
 
 type ChannelStatus = "pending" | "connected" | "disconnected";
@@ -157,9 +163,9 @@ Step 4 calls `createChannel` server action, receives the new `channelId`, then r
 
 | Action | What it does |
 |--------|-------------|
-| `createChannel` | INSERT channels row (status: pending), returns `{ channelId }` |
-| `resetChannelStatus` | Reset status="pending", wipe credentials — used by "Complete Setup" / "Reconnect" buttons |
-| `disconnectChannel` | UPDATE status="disconnected", wipes credentials JSONB |
+| `createChannel` | INSERT channels row. OAuth channels → `status="pending"` (await callback). API-key channels → runs `channelDef.validateConfig()` first; on success `status="connected"` with encrypted credentials. Returns `{ channelId }` or `{ error, fieldErrors }`. |
+| `resetChannelStatus` | Reset `status="pending"`, wipe credentials — used by "Complete Setup" / "Reconnect" buttons |
+| `disconnectChannel` | UPDATE `status="disconnected"`, wipes credentials JSONB |
 | `deleteChannel` | DELETE the row entirely |
 
 ## Environment Variables
@@ -171,12 +177,12 @@ Step 4 calls `createChannel` server action, receives the new `channelId`, then r
 
 ## Current Channel Types
 
-| ID | Name | Auth | Available |
-|----|------|------|-----------|
-| woocommerce | WooCommerce | OAuth (1-click) | ✅ |
-| shopify | Shopify | OAuth | 🚧 Coming soon |
-| amazon | Amazon | API key | 🚧 Coming soon |
-| custom | Custom | API key | 🚧 Coming soon |
+| ID | Name | Auth | Available | `canFetchProducts` | `usesWebhooks` |
+|----|------|------|-----------|------------------|--------------|
+| woocommerce | WooCommerce | OAuth (1-click) | ✅ | ✅ | ✅ |
+| amazon | Amazon | API key (wizard) | ✅ | ✅ | ❌ |
+| shopify | Shopify | OAuth | 🚧 Coming soon | — | — |
+| custom | Custom | API key | 🚧 Coming soon | — | — |
 
 ---
 
@@ -199,15 +205,15 @@ interface ChannelHandler {
 }
 ```
 
-**Retrieve a handler:**
+**Retrieve a handler (Server-side only):**
 ```typescript
-import { getChannelHandler } from "@/lib/channels/registry";
+import { getChannelHandler } from "@/lib/channels/handlers";
 const handler = getChannelHandler("woocommerce");  // returns null for unknown types
 ```
 
 **Adding a new topic to WooCommerce webhooks** (e.g. `order.completed`): add the topic to `webhookTopics` and handle it in `processWebhook` inside `woocommerce/index.ts`. No changes to the generic webhook route.
 
-**`fetchProducts` is optional** — channels that don't support product listing (e.g. Amazon) simply don't implement it. The product mapping dialog shows "Channel does not support product listing" for those.
+**`fetchProducts` is optional** — declare `capabilities.canFetchProducts: true` and implement `fetchProducts()` to make the channel work with the AI auto-mapper and the Add Products drawer. Channels without it (e.g. future push-only channels) simply don't implement it.
 
 ---
 
@@ -279,21 +285,25 @@ Select one or more unmapped products → "Add X Products" → `saveChannelMappin
 
 ### AI auto-mapping (`/channels` → "Auto-Map (AI)" button)
 
+The button is shown only for connected channels where `capabilities.canFetchProducts === true` (e.g. WooCommerce, Amazon). Channels without product-listing support do not show the button.
+
 ```
 1. User clicks "Auto-Map (AI)" on a connected channel
    → POST /api/agents/channel-mapping { channelId }
 
 2. channel-mapping-agent.ts (Gemini 2.0 Flash):
-   a. getSeplorxProducts()       → all active SeplorX products
-   b. getChannelProducts({ channelId })  → unmapped WC products only
+   a. getSeplorxProducts()           → all active SeplorX products
+   b. getChannelProducts({ channelId })  → unmapped external products only
+      (credentials decrypted generically via decryptChannelCredentials();
+       passed directly to handler.fetchProducts — works for any channel type)
    c. Match by name + SKU (high/medium/low confidence)
-   d. proposeChannelMappings()   → writes agent_actions row (status: pending_approval)
+   d. proposeChannelMappings()       → writes agent_actions row (status: pending_approval)
    → Returns { taskId }
 
 3. /channels page shows ChannelMappingApprovalCard:
-   - Table: SeplorX product ↔ WC product, confidence badge, rationale
+   - Table: SeplorX product ↔ external product, confidence badge, rationale
    - Collapsible agent reasoning
-   - Unmatched WC products (informational — suggests creating SeplorX products)
+   - Unmatched external products (informational — suggests creating SeplorX products)
 
 4. User clicks "Approve & Map N Products"
    → approveChannelMappings(taskId) server action
@@ -306,4 +316,4 @@ Select one or more unmapped products → "Add X Products" → `saveChannelMappin
 
 **All-already-mapped guard:** If `getChannelProducts` returns 0 unmapped products, the agent returns `{ message: "All products are already mapped." }` and no `agent_actions` row is created.
 
-**One SeplorX product → many WC products** is intentional — variants (4pc pack, Series A/B) all map to the same SeplorX product for unified stock management.
+**One SeplorX product → many external products** is intentional — variants (4pc pack, Series A/B) all map to the same SeplorX product for unified stock management.

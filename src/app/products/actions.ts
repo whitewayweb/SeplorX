@@ -11,8 +11,8 @@ import {
   StockAdjustmentSchema,
 } from "@/lib/validations/products";
 import { ChannelMappingIdSchema } from "@/lib/validations/channels";
-import { getChannelHandler } from "@/lib/channels/registry";
-import { decrypt } from "@/lib/crypto";
+import { getChannelHandler } from "@/lib/channels/handlers";
+import { decryptChannelCredentials } from "@/lib/channels/utils";
 import type { ExternalProduct } from "@/lib/channels/types";
 
 // TODO: replace with auth() when auth is re-added
@@ -373,17 +373,20 @@ export async function pushProductStockToChannels(productId: number) {
         continue;
       }
 
-      const creds = m.credentials ?? {};
-      const consumerKey = creds.consumerKey ? decrypt(creds.consumerKey) : "";
-      const consumerSecret = creds.consumerSecret ? decrypt(creds.consumerSecret) : "";
+      const decryptedCreds = decryptChannelCredentials(m.credentials);
 
-      if (!consumerKey || !consumerSecret) {
+      if (Object.keys(decryptedCreds).length === 0) {
         results.push({ channelName: m.channelName, externalProductId: m.externalProductId, label: m.label, ok: false, error: "Missing credentials." });
         continue;
       }
 
+      if (!handler.capabilities.canPushStock || !handler.pushStock) {
+        results.push({ channelName: m.channelName, externalProductId: m.externalProductId, label: m.label, ok: false, error: "This channel does not support stock push." });
+        continue;
+      }
+
       try {
-        await handler.pushStock(m.storeUrl, { consumerKey, consumerSecret }, m.externalProductId, quantity);
+        await handler.pushStock(m.storeUrl, decryptedCreds, m.externalProductId, quantity);
         results.push({ channelName: m.channelName, externalProductId: m.externalProductId, label: m.label, ok: true });
       } catch (err) {
         const msg = String(err).replace(/^Error:\s*/, "").substring(0, 200);
@@ -441,7 +444,7 @@ export async function fetchChannelProducts(
   }
 
   const handler = getChannelHandler(channel.channelType);
-  if (!handler || !handler.fetchProducts) {
+  if (!handler || !handler.capabilities.canFetchProducts || !handler.fetchProducts) {
     return { error: "This channel does not support product listing." };
   }
 
@@ -449,11 +452,9 @@ export async function fetchChannelProducts(
     return { error: "Channel has no store URL configured." };
   }
 
-  const creds = channel.credentials ?? {};
-  const consumerKey = creds.consumerKey ? decrypt(creds.consumerKey) : "";
-  const consumerSecret = creds.consumerSecret ? decrypt(creds.consumerSecret) : "";
+  const decryptedCreds = decryptChannelCredentials(channel.credentials);
 
-  if (!consumerKey || !consumerSecret) {
+  if (Object.keys(decryptedCreds).length === 0) {
     return { error: "Channel credentials are missing or invalid." };
   }
 
@@ -461,7 +462,7 @@ export async function fetchChannelProducts(
   try {
     externalProducts = await handler.fetchProducts(
       channel.storeUrl,
-      { consumerKey, consumerSecret },
+      decryptedCreds,
       search,
     );
   } catch (err) {

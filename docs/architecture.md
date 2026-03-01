@@ -241,7 +241,9 @@ src/
     │   └── index.ts            # Barrel export
     ├── channels/               # Channel registry system
     │   ├── types.ts            # ChannelDefinition, ChannelInstance, ChannelType
-    │   └── registry.ts         # channelRegistry[], getChannelById(), getPopularChannels()
+    │   ├── registry.ts         # channelRegistry[] (safe for clients)
+    │   ├── handlers.ts         # getChannelHandler() (server-only logic)
+    │   └── amazon/config.ts    # channel-specific configs
     ├── validations/            # Zod schemas
     │   ├── apps.ts             # App config validation
     │   └── channels.ts         # Channel create/delete validation

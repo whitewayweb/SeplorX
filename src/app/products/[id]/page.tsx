@@ -18,7 +18,6 @@ import {
   CalendarDays,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { ProductDialog } from "@/components/products/product-dialog";
 import { StockAdjustmentDialog } from "@/components/products/stock-adjustment-dialog";
 import { ChannelSyncCard } from "@/components/products/channel-sync-card";
