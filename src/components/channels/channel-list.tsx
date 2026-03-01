@@ -3,7 +3,7 @@
 import { useActionState, useTransition, useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Store, Webhook } from "lucide-react";
+import { Store, Webhook, PackageSearch } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -114,6 +114,34 @@ function RegisterWebhooksButton({ channelId }: { channelId: number }) {
   );
 }
 
+// ─── Fetch Products button ────────────────────────────────────────────────────
+
+function FetchProductsButton({ channelId }: { channelId: number }) {
+  const [pending, startTransition] = useTransition();
+
+  function handleFetch() {
+    startTransition(async () => {
+      // TODO: wire up a server action / drawer to display fetched products
+      toast.info("Fetch Products", {
+        description: `Fetching products for channel ${channelId}…`,
+      });
+    });
+  }
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={handleFetch}
+      disabled={pending}
+      title="Fetch products from this channel"
+    >
+      <PackageSearch className="h-3 w-3 mr-1" />
+      {pending ? "Fetching…" : "Fetch Products"}
+    </Button>
+  );
+}
+
 // ─── Row actions ──────────────────────────────────────────────────────────────
 
 function ChannelRowActions({ channel }: { channel: ChannelInstance }) {
@@ -166,15 +194,18 @@ function ChannelRowActions({ channel }: { channel: ChannelInstance }) {
         ) : null;
       })()}
 
-      {/* AI Auto-Map: connected channels that support product listing */}
-      {channel.status === "connected" &&
-        AGENT_REGISTRY.channelMapping.enabled &&
-        (() => {
-          const def = getChannelById(channel.channelType as Parameters<typeof getChannelById>[0]);
-          return def?.capabilities?.canFetchProducts ? (
-            <ChannelMappingTrigger channelId={channel.id} />
-          ) : null;
-        })()}
+      {/* Fetch Products: connected channels that can fetch products */}
+      {channel.status === "connected" && (() => {
+        const def = getChannelById(channel.channelType as Parameters<typeof getChannelById>[0]);
+        return def?.capabilities?.canFetchProducts ? (
+          <FetchProductsButton channelId={channel.id} />
+        ) : null;
+      })()}
+
+      {/* AI Auto-Map: connected channels */}
+      {channel.status === "connected" && AGENT_REGISTRY.channelMapping.enabled && (
+        <ChannelMappingTrigger channelId={channel.id} />
+      )}
 
       {/* Disconnect: only when connected */}
       {channel.status === "connected" && (
