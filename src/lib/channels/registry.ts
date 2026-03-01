@@ -1,6 +1,6 @@
-import type { ChannelDefinition, ChannelHandler, ChannelType } from "./types";
-import { woocommerceHandler } from "./woocommerce";
-import { amazonHandler } from "./amazon";
+import type { ChannelDefinition, ChannelType } from "./types";
+import * as woocommerceConfig from "./woocommerce/config";
+import * as amazonConfig from "./amazon/config";
 
 export const channelRegistry: ChannelDefinition[] = [
   {
@@ -11,6 +11,7 @@ export const channelRegistry: ChannelDefinition[] = [
     authType: "oauth",
     popular: true,
     available: true,
+    ...woocommerceConfig,
   },
   {
     id: "shopify",
@@ -29,6 +30,7 @@ export const channelRegistry: ChannelDefinition[] = [
     authType: "apikey",
     popular: true,
     available: true,
+    ...amazonConfig,
   },
   {
     id: "custom",
@@ -45,17 +47,4 @@ export function getChannelById(id: ChannelType): ChannelDefinition | undefined {
   return channelRegistry.find((c) => c.id === id);
 }
 
-/**
- * Returns the runtime handler for a channel type, or null if the channel
- * is not yet implemented. Add new channels here as they are built.
- */
-export function getChannelHandler(type: string): ChannelHandler | null {
-  switch (type) {
-    case "woocommerce":
-      return woocommerceHandler;
-    case "amazon":
-      return amazonHandler;
-    default:
-      return null;
-  }
-}
+

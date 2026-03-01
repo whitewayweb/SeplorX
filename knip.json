@@ -4,8 +4,7 @@
   "entry": ["src/db/index.ts", "src/lib/env.ts", "src/lib/apps/index.ts", "src/lib/crypto.ts"],
   "ignoreDependencies": [
     "tailwindcss-animate",
-    "tailwindcss",
-    "@amazon-sp-api-release/amazon-sp-api-sdk-js"
+    "tailwindcss"
   ],
   "ignoreExportsUsedInFile": true,
   "ignore": ["src/components/ui/**"]

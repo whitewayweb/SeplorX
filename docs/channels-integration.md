@@ -58,6 +58,12 @@ interface ChannelDefinition {
   authType: "oauth" | "apikey";
   popular: boolean;
   available: boolean;        // gates UI access
+
+  // Isomorphic fields (safe for Client Components)
+  configFields?: ChannelConfigField[];
+  capabilities?: ChannelCapabilities;
+  validateConfig?: (config: Partial<Record<string, string>>) => string | null;
+  buildConnectUrl?: (channelId: number, config: Record<string, string>, appUrl: string) => string;
 }
 
 type ChannelStatus = "pending" | "connected" | "disconnected";
@@ -199,9 +205,9 @@ interface ChannelHandler {
 }
 ```
 
-**Retrieve a handler:**
+**Retrieve a handler (Server-side only):**
 ```typescript
-import { getChannelHandler } from "@/lib/channels/registry";
+import { getChannelHandler } from "@/lib/channels/handlers";
 const handler = getChannelHandler("woocommerce");  // returns null for unknown types
 ```
 

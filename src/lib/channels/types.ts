@@ -10,6 +10,13 @@ export interface ChannelDefinition {
   popular: boolean;
   /** If true, channel is implemented and can be connected */
   available: boolean;
+
+  // The following fields mirror ChannelHandler but belong to the definition
+  // to be safely accessible in Client Components without pulling in server modules.
+  configFields?: ChannelConfigField[];
+  capabilities?: ChannelCapabilities;
+  validateConfig?: (config: Partial<Record<string, string>>) => string | null;
+  buildConnectUrl?: (channelId: number, config: Record<string, string>, appUrl: string) => string;
 }
 
 export type ChannelStatus = "pending" | "connected" | "disconnected";
@@ -58,10 +65,24 @@ export interface ExternalProduct {
   parentId?: string;
 }
 
+export interface ChannelCapabilities {
+  /** Can fetch a product list from the remote channel (used in Add Products drawer) */
+  canFetchProducts: boolean;
+  /** Can push stock quantity back to the remote channel */
+  canPushStock: boolean;
+  /**
+   * Uses webhook-based event delivery (e.g. WooCommerce order webhooks).
+   * If false, the "Register Webhooks" button is hidden in the UI.
+   */
+  usesWebhooks: boolean;
+}
+
 export interface ChannelHandler {
   readonly id: ChannelType;
   /** Config fields shown in the connect wizard (step 4) */
   readonly configFields: ChannelConfigField[];
+  /** Declares which optional features this channel supports */
+  readonly capabilities: ChannelCapabilities;
   /**
    * Webhook topics to register on the remote store.
    * Adding a new topic = add here + handle in processWebhook.
@@ -74,7 +95,7 @@ export interface ChannelHandler {
 
   /**
    * Fetch a list of products from the remote store.
-   * Optional — channels without a product-list API simply omit this method.
+   * Required when capabilities.canFetchProducts = true.
    * @param search - Optional search term to filter products
    */
   fetchProducts?(
@@ -98,8 +119,11 @@ export interface ChannelHandler {
     body: string,
   ): { channelId: number; credentials: Record<string, string> } | null;
 
-  /** Push a stock quantity to a single external product */
-  pushStock(
+  /**
+   * Push a stock quantity to a single external product.
+   * Required when capabilities.canPushStock = true.
+   */
+  pushStock?(
     storeUrl: string,
     credentials: Record<string, string>,
     externalProductId: string,
@@ -108,9 +132,10 @@ export interface ChannelHandler {
 
   /**
    * Register all webhookTopics on the remote store.
+   * Required when capabilities.usesWebhooks = true.
    * Returns the shared HMAC secret used to verify incoming webhook payloads.
    */
-  registerWebhooks(
+  registerWebhooks?(
     storeUrl: string,
     credentials: Record<string, string>,
     /** Base URL used to build delivery URLs, e.g. `https://app.com/api/channels/woocommerce/webhook/3` */
@@ -119,13 +144,15 @@ export interface ChannelHandler {
 
   /**
    * Verify signature and parse an incoming webhook payload.
+   * Required when capabilities.usesWebhooks = true.
    * @param topic - value of X-WC-Webhook-Topic (or equivalent) header
    * Returns stock changes to apply in SeplorX (empty array if topic is unrecognised or no-op).
    */
-  processWebhook(
+  processWebhook?(
     body: string,
     signature: string,
     topic: string,
     secret: string,
   ): WebhookStockChange[];
 }
+

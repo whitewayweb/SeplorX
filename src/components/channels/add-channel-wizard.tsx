@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { createChannel } from "@/app/channels/actions";
-import { channelRegistry, getChannelHandler } from "@/lib/channels/registry";
+import { channelRegistry } from "@/lib/channels/registry";
 import type { ChannelType, ChannelDefinition } from "@/lib/channels/types";
 
 type Step = 1 | 2 | 3 | 4;
@@ -139,12 +139,12 @@ function ConnectStep({
   const [state, action, pending] = useActionState(createChannel, null);
   const [configError, setConfigError] = useState("");
 
-  const handler = getChannelHandler(channelType);
+  const definition = channelRegistry.find((c) => c.id === channelType);
 
   async function handleConnect() {
-    if (!handler) return;
+    if (!definition) return;
 
-    const validationError = handler.validateConfig(config);
+    const validationError = definition.validateConfig?.(config);
     if (validationError) {
       setConfigError(validationError);
       return;
@@ -166,9 +166,9 @@ function ConnectStep({
   }
 
   // Once createChannel succeeds we have channelId → build the connect URL
-  if (state?.success && state.channelId && handler) {
+  if (state?.success && state.channelId && definition?.buildConnectUrl) {
     const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin).replace(/\/$/, "");
-    const connectUrl = handler.buildConnectUrl(state.channelId, config, appUrl);
+    const connectUrl = definition.buildConnectUrl(state.channelId, config, appUrl);
     window.location.assign(connectUrl);
   }
 
@@ -182,7 +182,7 @@ function ConnectStep({
           : "Enter your store details to connect."}
       </p>
 
-      {handler?.configFields.map((field) => (
+      {definition?.configFields?.map((field) => (
         <div key={field.key} className="space-y-2">
           <Label htmlFor={`config-${field.key}`}>
             {field.label}

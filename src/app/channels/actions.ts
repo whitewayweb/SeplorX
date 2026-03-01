@@ -5,7 +5,8 @@ import { channels } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { CreateChannelSchema, ChannelIdSchema } from "@/lib/validations/channels";
-import { getChannelHandler, getChannelById } from "@/lib/channels/registry";
+import { getChannelById } from "@/lib/channels/registry";
+import { getChannelHandler } from "@/lib/channels/handlers";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
 import type { ChannelType } from "@/lib/channels/types";
 import { encrypt } from "@/lib/crypto";
@@ -153,6 +154,9 @@ export async function registerChannelWebhooks(channelId: number) {
 
     const handler = getChannelHandler(channel.channelType);
     if (!handler) return { error: "This channel type does not support webhooks." };
+    if (!handler.capabilities.usesWebhooks || !handler.registerWebhooks) {
+      return { error: "This channel type does not use webhooks." };
+    }
 
     const creds = channel.credentials ?? {};
     const decryptedCreds = decryptChannelCredentials(creds);

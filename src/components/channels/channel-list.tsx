@@ -21,7 +21,7 @@ import {
   resetChannelStatus,
   registerChannelWebhooks,
 } from "@/app/channels/actions";
-import { getChannelById, getChannelHandler } from "@/lib/channels/registry";
+import { getChannelById } from "@/lib/channels/registry";
 import type { ChannelInstance } from "@/lib/channels/types";
 import { ChannelMappingTrigger } from "@/components/agents/channel-mapping-trigger";
 import { AGENT_REGISTRY } from "@/lib/agents/registry";
@@ -51,13 +51,13 @@ function ReconnectButton({ channelId, channelType, storeUrl, label }: ReconnectB
         setError(result.error ?? "Something went wrong.");
         return;
       }
-      const handler = getChannelHandler(channelType);
-      if (!handler) {
+      const definition = getChannelById(channelType as Parameters<typeof getChannelById>[0]);
+      if (!definition?.buildConnectUrl) {
         setError("This channel type is not supported.");
         return;
       }
       const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin).replace(/\/$/, "");
-      const connectUrl = handler.buildConnectUrl(channelId, { storeUrl }, appUrl);
+      const connectUrl = definition.buildConnectUrl(channelId, { storeUrl }, appUrl);
       window.location.assign(connectUrl);
     });
   }
@@ -91,7 +91,7 @@ function RegisterWebhooksButton({ channelId }: { channelId: number }) {
         setError(result.error ?? "Failed to register webhooks.");
       } else {
         toast.success("Webhooks registered", {
-          description: "WooCommerce will now send order events to SeplorX.",
+          description: "The channel will now send order events to SeplorX.",
         });
       }
     });
@@ -158,10 +158,13 @@ function ChannelRowActions({ channel }: { channel: ChannelInstance }) {
         />
       )}
 
-      {/* Register Webhooks: connected channels that haven't registered yet */}
-      {channel.status === "connected" && !channel.hasWebhooks && (
-        <RegisterWebhooksButton channelId={channel.id} />
-      )}
+      {/* Register Webhooks: connected channels that support webhooks and haven't registered yet */}
+      {channel.status === "connected" && !channel.hasWebhooks && (() => {
+        const def = getChannelById(channel.channelType as Parameters<typeof getChannelById>[0]);
+        return def?.capabilities?.usesWebhooks ? (
+          <RegisterWebhooksButton channelId={channel.id} />
+        ) : null;
+      })()}
 
       {/* AI Auto-Map: connected channels */}
       {channel.status === "connected" && AGENT_REGISTRY.channelMapping.enabled && (

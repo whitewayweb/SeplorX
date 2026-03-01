@@ -11,7 +11,7 @@ import {
   StockAdjustmentSchema,
 } from "@/lib/validations/products";
 import { ChannelMappingIdSchema } from "@/lib/validations/channels";
-import { getChannelHandler } from "@/lib/channels/registry";
+import { getChannelHandler } from "@/lib/channels/handlers";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
 import type { ExternalProduct } from "@/lib/channels/types";
 
@@ -380,6 +380,11 @@ export async function pushProductStockToChannels(productId: number) {
         continue;
       }
 
+      if (!handler.capabilities.canPushStock || !handler.pushStock) {
+        results.push({ channelName: m.channelName, externalProductId: m.externalProductId, label: m.label, ok: false, error: "This channel does not support stock push." });
+        continue;
+      }
+
       try {
         await handler.pushStock(m.storeUrl, decryptedCreds, m.externalProductId, quantity);
         results.push({ channelName: m.channelName, externalProductId: m.externalProductId, label: m.label, ok: true });
@@ -439,7 +444,7 @@ export async function fetchChannelProducts(
   }
 
   const handler = getChannelHandler(channel.channelType);
-  if (!handler || !handler.fetchProducts) {
+  if (!handler || !handler.capabilities.canFetchProducts || !handler.fetchProducts) {
     return { error: "This channel does not support product listing." };
   }
 
