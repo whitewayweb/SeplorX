@@ -11,8 +11,6 @@ import { z } from "zod";
 import { db } from "@/db";
 import { products, channels, channelProductMappings, agentActions, channelProducts } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
-import { getChannelHandler } from "@/lib/channels/handlers";
-import { decryptChannelCredentials } from "@/lib/channels/utils";
 
 const CURRENT_USER_ID = 1;
 

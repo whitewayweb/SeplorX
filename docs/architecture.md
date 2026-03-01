@@ -97,33 +97,39 @@ Zod schemas are built at runtime from the app registry's `configFields`. This ke
 
 These principles guide all development decisions in SeplorX.
 
-### 1. Respect the Client/Server Boundary
+### 1. Respect the Boundaries: Server vs Client vs DAL
 
-Next.js App Router enforces a clear separation between server and client code. This is the single most important architectural constraint.
+Next.js App Router enforces a clear separation between server and client code. To ensure maintainability, we introduce a **Data Access Layer (DAL)** pattern.
+
+**Data Access Layer (DAL)** (`src/lib/*/queries.ts`):
+- Pure TypeScript functions containing raw SQL/Drizzle queries
+- Extracts database logic away from UI components
+- Ensures queries are reusable across pages, actions, and API routes
 
 **Server Components** (the default):
-- Fetch data directly from the database
+- Fetch data by importing functions from the DAL (e.g., `getUserChannels()`)
 - Render HTML on the server
 - Cannot use hooks (`useState`, `useEffect`), browser APIs, or event handlers
-- Pass data down to client components via props
+- Do **not** write raw ORM queries inline
 
 **Client Components** (`"use client"` directive):
 - Handle user interactivity: forms, dialogs, click handlers, state
 - Must be explicitly marked — keep them as thin as possible
-- Receive data from server components via props; never query the DB directly
+- Receive data from server components via props
 - Use `useActionState` for form submissions with server actions
 
 **Server Actions** (`"use server"` directive):
 - The only way to perform mutations (create, update, delete)
 - Accept `FormData`, validate with Zod, interact with DB, call `revalidatePath`
-- Return `{ success: true }` or `{ error: string }` — never throw to the client
+- Return `{ success: true }` or `{ error: string }`
 
 **Data Flow:**
 ```
-Server Component (fetch data)
-  → props → Client Component (user interaction)
-    → Server Action (validate + mutate)
-      → revalidatePath (refresh server component)
+DAL (execute raw query)
+  → Server Component (call DAL, format data)
+    → props → Client Component (render UI & capture input)
+      → Server Action (validate + mutate)
+        → revalidatePath (refresh Server Component)
 ```
 
 ### 2. Minimal Engineering
@@ -132,7 +138,7 @@ Do the minimum required work, but do it correctly:
 
 - **No premature abstractions**: Extract shared code only when 3+ concrete callsites exist. Three similar lines of code is better than one premature helper.
 - **No speculative features**: Don't add configuration, feature flags, or extensibility points for hypothetical future requirements.
-- **No over-validation**: Validate at system boundaries (server actions receive untrusted FormData). Trust internal code — don't re-validate data flowing between your own functions.
+- **No over-validation**: Validate at system boundaries (server actions receive untrusted FormData). Trust internal code.
 - **Inline first, extract later**: If a pattern is used once, inline it. If it appears across multiple modules, extract it.
 
 ### 3. Scalable Database Patterns

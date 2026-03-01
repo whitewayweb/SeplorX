@@ -70,6 +70,25 @@ E-commerce order channel instances. Each row is one connected store. Multiple ro
 
 **channel_type** references the TypeScript channel registry (`src/lib/channels/registry.ts`), not another DB table.
 
+### channel_products
+
+A local cache of all products fetched from connected channels. Used to power the channel product browser and improve performance for AI mapping tools by preventing redundant API calls.
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | serial | PK |
+| channel_id | integer | NOT NULL, FK → channels.id (CASCADE) |
+| external_id | varchar(255) | NOT NULL (product ID on the external channel) |
+| name | varchar(1000) | NOT NULL |
+| sku | varchar(255) | nullable |
+| type | varchar(100) | nullable ("simple", "variable", "variation") |
+| stock_quantity | integer | nullable |
+| raw_payload | jsonb | NOT NULL, default {} (the unadulterated channel-specific API response) |
+| last_synced_at | timestamp | default now() |
+
+**Unique index**: `(channel_id, external_id)` — prevents duplicate caches of the same external product.
+**Index**: `(channel_id)` — optimizes listing products for a specific channel.
+
 ### channel_product_mappings
 
 Links SeplorX products to external product IDs on a channel. Supports the one-to-many design: one SeplorX product can map to multiple WooCommerce products per channel (e.g. "Yellow Buffer" → WC IDs 55 "Series A", 56 "Series B", 57 "4pc pack").

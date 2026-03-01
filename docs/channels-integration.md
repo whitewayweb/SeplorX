@@ -213,7 +213,21 @@ const handler = getChannelHandler("woocommerce");  // returns null for unknown t
 
 **Adding a new topic to WooCommerce webhooks** (e.g. `order.completed`): add the topic to `webhookTopics` and handle it in `processWebhook` inside `woocommerce/index.ts`. No changes to the generic webhook route.
 
-**`fetchProducts` is optional** — declare `capabilities.canFetchProducts: true` and implement `fetchProducts()` to make the channel work with the AI auto-mapper and the Add Products drawer. Channels without it (e.g. future push-only channels) simply don't implement it.
+**`fetchProducts` caching** — declare `capabilities.canFetchProducts: true` and implement `fetchProducts()`. This method is called by the `syncChannelProducts` Server Action, which saves the results to the local `channel_products` cache table. All AI mapping and product browsing reads from this high-performance cache rather than hitting external APIs on the fly.
+
+---
+
+## Channel API Client Pattern
+
+For complex channels (like Amazon SP-API), `fetchProducts` and other operations can become unwieldy due to token refreshing, polling, signing requests, and pagination.
+
+Instead of stuffing all this logic into the generic `index.ts` handler file, use the **API Client Pattern**:
+
+1. Create `src/lib/channels/{channel_id}/api/client.ts`.
+2. Encapsulate token generation, fetching, polling, and data parsing inside an object-oriented class (e.g., `AmazonAPIClient`).
+3. Keep the `index.ts` handler as a simple interface adapter that instantiates the client and calls its high-level methods.
+
+This pattern enforces a clean boundary between "SeplorX framework requirements" (the Handler) and "External channel communication" (the Client).
 
 ---
 

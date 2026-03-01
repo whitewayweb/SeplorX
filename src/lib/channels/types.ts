@@ -67,7 +67,7 @@ export interface ExternalProduct {
   /** For variations: the parent variable product ID */
   parentId?: string;
   /** Complete raw payload from the channel API to be stored in the DB */
-  rawPayload: Record<string, any>;
+  rawPayload: Record<string, unknown>;
 }
 
 export interface ChannelCapabilities {
