@@ -1,4 +1,4 @@
-import { decrypt } from "@/lib/crypto";
+import { decrypt, isEncrypted } from "@/lib/crypto";
 
 /**
  * Decrypt all stored credential fields for a channel.
@@ -11,8 +11,11 @@ import { decrypt } from "@/lib/crypto";
  * know which keys a particular channel type uses.  The resulting object is passed
  * directly to `ChannelHandler` methods which each know their own field names.
  *
- * Non-string or empty values are silently skipped.
- * Values that fail decryption are passed through as-is (handles plain-text legacy values).
+ * Behaviour per value:
+ *  - Non-string or empty          → skipped (key omitted from result)
+ *  - Looks encrypted, decrypts OK → decrypted plaintext included
+ *  - Looks encrypted, decrypt fails → key mismatch / corruption; key omitted + warning logged
+ *  - Does not look encrypted       → legacy plaintext; passed through as-is
  */
 export function decryptChannelCredentials(
   raw: Record<string, unknown> | null | undefined,
@@ -23,10 +26,25 @@ export function decryptChannelCredentials(
 
   for (const [key, value] of Object.entries(raw)) {
     if (typeof value !== "string" || !value) continue;
-    try {
-      result[key] = decrypt(value);
-    } catch {
-      // Value is not encrypted (e.g. migrated plain-text) — pass through as-is
+
+    if (isEncrypted(value)) {
+      // Value matches the iv:authTag:ciphertext format — it must decrypt cleanly.
+      // A failure here indicates a key mismatch or data corruption, NOT a legacy
+      // plaintext value. Omit the key so callers see an incomplete credential map
+      // rather than silently receiving corrupt ciphertext as a usable string.
+      try {
+        result[key] = decrypt(value);
+      } catch (err) {
+        console.warn(
+          `[decryptChannelCredentials] Failed to decrypt credential key "${key}". ` +
+            "Possible key mismatch or data corruption — key omitted from result.",
+          err instanceof Error ? err.message : String(err),
+        );
+        // key intentionally omitted
+      }
+    } else {
+      // Value does not match the encrypted format — treat as legacy plaintext
+      // migrated before encryption was introduced.
       result[key] = value;
     }
   }

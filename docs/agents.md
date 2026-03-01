@@ -36,7 +36,7 @@ export const AGENT_REGISTRY = {
   channelMapping: {
     id: "channelMapping",
     name: "Channel Product Mapper",
-    description: "Automatically matches SeplorX products to WooCommerce products by name and SKU.",
+    description: "Automatically matches SeplorX products to external channel products by name and SKU.",
     enabled: true,
     route: "/api/agents/channel-mapping",
     triggerPage: "/channels",
@@ -166,7 +166,7 @@ src/
 | Agent | Status | Trigger | Value |
 |-------|--------|---------|-------|
 | Low-Stock Reorder | ✅ Enabled | `/inventory` → "AI Reorder Check" button | Drafts purchase order from supplier history |
-| Channel Product Mapper | ✅ Enabled | `/channels` → "Auto-Map (AI)" per connected channel | Bulk-matches SeplorX products to WooCommerce products by name + SKU similarity |
+| Channel Product Mapper | ✅ Enabled | `/channels` → "Auto-Map (AI)" per connected channel with `canFetchProducts` | Bulk-matches SeplorX products to external channel products by name + SKU similarity |
 
 ## Environment Variables
 

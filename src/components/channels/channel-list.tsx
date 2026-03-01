@@ -166,10 +166,15 @@ function ChannelRowActions({ channel }: { channel: ChannelInstance }) {
         ) : null;
       })()}
 
-      {/* AI Auto-Map: connected channels */}
-      {channel.status === "connected" && AGENT_REGISTRY.channelMapping.enabled && (
-        <ChannelMappingTrigger channelId={channel.id} />
-      )}
+      {/* AI Auto-Map: connected channels that support product listing */}
+      {channel.status === "connected" &&
+        AGENT_REGISTRY.channelMapping.enabled &&
+        (() => {
+          const def = getChannelById(channel.channelType as Parameters<typeof getChannelById>[0]);
+          return def?.capabilities?.canFetchProducts ? (
+            <ChannelMappingTrigger channelId={channel.id} />
+          ) : null;
+        })()}
 
       {/* Disconnect: only when connected */}
       {channel.status === "connected" && (

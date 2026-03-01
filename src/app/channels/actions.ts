@@ -31,16 +31,54 @@ export async function createChannel(_prevState: unknown, formData: FormData) {
 
   try {
     const channelDef = getChannelById(parsed.data.channelType as ChannelType);
-    
+
+    // Block channels that are not yet available (e.g. "Coming Soon") from being
+    // created via crafted requests that bypass the UI wizard.
+    if (!channelDef || !channelDef.available) {
+      return {
+        error: "This channel is not available.",
+        fieldErrors: { channelType: ["This channel type is not currently available."] },
+      };
+    }
+
     const credentials: Record<string, string> = {};
     let status: "pending" | "connected" | "disconnected" = "pending";
 
-    if (channelDef?.authType === "apikey" && channelDef.configFields) {
-      status = "connected";
+    if (channelDef.authType === "apikey" && channelDef.configFields) {
+      // Collect raw (unencrypted) values for all config fields so we can
+      // validate them before committing anything to the database.
+      const rawConfig: Partial<Record<string, string>> = {};
+
+      // storeUrl comes from the top-level parsed field (it is stored in its
+      // own DB column), all other fields land in the credentials JSON blob.
+      rawConfig["storeUrl"] = parsed.data.storeUrl || undefined;
+
       for (const field of channelDef.configFields) {
         if (field.key !== "storeUrl") {
           const val = formData.get(field.key);
           if (val && typeof val === "string") {
+            rawConfig[field.key] = val;
+          }
+        }
+      }
+
+      // Run the channel-specific validation before touching the DB.
+      if (channelDef.validateConfig) {
+        const configError = channelDef.validateConfig(rawConfig);
+        if (configError) {
+          return {
+            error: configError,
+            fieldErrors: { config: [configError] },
+          };
+        }
+      }
+
+      // Validation passed – encrypt and store credentials.
+      status = "connected";
+      for (const field of channelDef.configFields) {
+        if (field.key !== "storeUrl") {
+          const val = rawConfig[field.key];
+          if (val) {
             credentials[field.key] = encrypt(val);
           }
         }
