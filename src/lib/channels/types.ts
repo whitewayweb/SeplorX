@@ -42,6 +42,8 @@ export interface ChannelConfigField {
   required: boolean;
   placeholder?: string;
   options?: { label: string; value: string }[];
+  /** Render field half-width to fit 2 columns per row */
+  halfWidth?: boolean;
 }
 
 export interface WebhookStockChange {

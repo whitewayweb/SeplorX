@@ -36,7 +36,7 @@ export function buildConnectUrl(channelId: number, config: Record<string, string
     app_name: "SeplorX",
     scope: "read_write",
     user_id: String(channelId),
-    return_url: `${base}/channels?connected=1`,
+    return_url: `${base}/channels?connected=woocommerce`,
     callback_url: `${base}/api/channels/woocommerce/callback`,
   });
   return `${storeBase}/wc-auth/v1/authorize?${params}`;

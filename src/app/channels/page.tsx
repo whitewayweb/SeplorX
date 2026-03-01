@@ -94,7 +94,7 @@ export default async function ChannelsPage({
 
       <ChannelList
         channels={channelInstances}
-        connected={connected === "1"}
+        connected={connected || undefined}
         mappedProductCounts={mappedProductCounts}
       />
     </div>
