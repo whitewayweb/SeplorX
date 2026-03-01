@@ -1,9 +1,8 @@
 import type { ChannelHandler, ChannelConfigField } from "../types";
-import { SellersSpApi } from "@amazon-sp-api-release/amazon-sp-api-sdk-js";
 
 const configFields: ChannelConfigField[] = [
   {
-    key: "endpoint",
+    key: "storeUrl",
     label: "SP-API Endpoint URL",
     type: "url",
     required: true,
@@ -35,12 +34,12 @@ export const amazonHandler: ChannelHandler = {
   webhookTopics: [],
 
   validateConfig(config) {
-    if (!config.endpoint) return "Endpoint URL is required";
+    if (!config.storeUrl) return "Endpoint URL is required";
     if (!config.clientId) return "Client ID is required";
     if (!config.clientSecret) return "Client Secret is required";
     if (!config.refreshToken) return "Refresh Token is required";
     try {
-      new URL(config.endpoint);
+      new URL(config.storeUrl);
     } catch {
       return "Endpoint must be a valid URL";
     }
@@ -54,12 +53,12 @@ export const amazonHandler: ChannelHandler = {
     return `${base}/channels?connected=1`;
   },
 
-  parseCallback(_body) {
+  parseCallback() {
     // Not used for apikey auth type.
     return null;
   },
 
-  async fetchProducts(storeUrl, credentials, _search) {
+  async fetchProducts(storeUrl: string, credentials: Record<string, string>) {
     try {
       // Basic implementation to ensure the SDK works as per docs.
       // Bypass Webpack static analysis so this works in Next.js builds since the SDK requires `node:fs`
@@ -68,7 +67,7 @@ export const amazonHandler: ChannelHandler = {
       
       const { SellersSpApi } = requireFunc("@amazon-sp-api-release/amazon-sp-api-sdk-js");
       
-      const endpoint = credentials.endpoint || storeUrl;
+      const endpoint = credentials.storeUrl || storeUrl;
       const sellersApiClient = new SellersSpApi.ApiClient(endpoint);
       sellersApiClient.enableAutoRetrievalAccessToken(
         credentials.clientId,
@@ -89,18 +88,18 @@ export const amazonHandler: ChannelHandler = {
     return [];
   },
 
-  async pushStock(_storeUrl, _credentials, externalProductId, quantity) {
+  async pushStock(storeUrl: string, credentials: Record<string, string>, externalProductId: string, quantity: number) {
     // Implementation for stock update (e.g. Feeds API or Listings Items API)
-    console.log("Amazon pushStock called", { externalProductId, quantity });
+    console.log("Amazon pushStock called", { storeUrl, credentials, externalProductId, quantity });
   },
 
-  async registerWebhooks(_storeUrl, _credentials, _channelWebhookBaseUrl) {
+  async registerWebhooks() {
     // Amazon SP-API uses SQS for notifications, not standard webhooks.
     console.warn("Register webhooks is not typically applicable for Amazon SP-API like this.");
     return { secret: "sqs_or_eventbridge" };
   },
 
-  processWebhook(_body, _signature, _topic, _secret) {
+  processWebhook() {
     return [];
   },
 };

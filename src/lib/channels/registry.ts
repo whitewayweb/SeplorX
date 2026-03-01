@@ -24,8 +24,8 @@ export const channelRegistry: ChannelDefinition[] = [
   {
     id: "amazon",
     name: "Amazon",
-    description: "Pull orders from Amazon Seller Central.",
-    icon: null,
+    description: "Pull data from Amazon Seller Central.",
+    icon: "/channels/amazon.png",
     authType: "apikey",
     popular: true,
     available: true,

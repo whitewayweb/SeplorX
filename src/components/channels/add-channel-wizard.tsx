@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useActionState } from "react";
+import { useState, useActionState, startTransition } from "react";
 import Image from "next/image";
 import { Check, Store } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -160,7 +160,9 @@ function ConnectStep({
       formData.set(key, value);
     }
 
-    action(formData);
+    startTransition(() => {
+      action(formData);
+    });
   }
 
   // Once createChannel succeeds we have channelId → build the connect URL

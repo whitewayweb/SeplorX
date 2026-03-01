@@ -14,10 +14,10 @@ const CURRENT_USER_ID = 1;
 
 export async function createChannel(_prevState: unknown, formData: FormData) {
   const parsed = CreateChannelSchema.safeParse({
-    channelType: formData.get("channelType"),
-    name: formData.get("name"),
-    storeUrl: formData.get("storeUrl"),
-    defaultPickupLocation: formData.get("defaultPickupLocation"),
+    channelType: String(formData.get("channelType") || ""),
+    name: String(formData.get("name") || ""),
+    storeUrl: (formData.get("storeUrl") as string) || undefined,
+    defaultPickupLocation: (formData.get("defaultPickupLocation") as string) || undefined,
   });
 
   if (!parsed.success) {
