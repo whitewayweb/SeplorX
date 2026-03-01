@@ -20,6 +20,7 @@ import {
   deleteChannel,
   resetChannelStatus,
   registerChannelWebhooks,
+  syncChannelProducts,
 } from "@/app/channels/actions";
 import { getChannelById } from "@/lib/channels/registry";
 import type { ChannelInstance } from "@/lib/channels/types";
@@ -164,10 +165,14 @@ function FetchProductsButton({ channelId }: { channelId: number }) {
 
   function handleFetch() {
     startTransition(async () => {
-      // TODO: wire up a server action / drawer to display fetched products
-      toast.info("Fetch Products", {
-        description: `Fetching products for channel ${channelId}…`,
-      });
+      const res = await syncChannelProducts(channelId);
+      if (res.error) {
+        toast.error("Fetch failed", { description: res.error });
+      } else {
+        toast.success("Products Synced", {
+          description: `Successfully cached ${res.count} products from this channel.`,
+        });
+      }
     });
   }
 

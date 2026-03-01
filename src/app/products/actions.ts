@@ -1,8 +1,8 @@
 "use server";
 
 import { db } from "@/db";
-import { products, inventoryTransactions, channels, channelProductMappings } from "@/db/schema";
-import { and, eq, sql } from "drizzle-orm";
+import { products, inventoryTransactions, channels, channelProductMappings, channelProducts } from "@/db/schema";
+import { and, eq, sql, ilike, or } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import {
   CreateProductSchema,
@@ -443,31 +443,42 @@ export async function fetchChannelProducts(
     return { error: "Channel is not connected." };
   }
 
-  const handler = getChannelHandler(channel.channelType);
-  if (!handler || !handler.capabilities.canFetchProducts || !handler.fetchProducts) {
-    return { error: "This channel does not support product listing." };
-  }
-
-  if (!channel.storeUrl) {
-    return { error: "Channel has no store URL configured." };
-  }
-
-  const decryptedCreds = decryptChannelCredentials(channel.credentials);
-
-  if (Object.keys(decryptedCreds).length === 0) {
-    return { error: "Channel credentials are missing or invalid." };
-  }
+  const query = db
+    .select({
+      id: channelProducts.externalId,
+      name: channelProducts.name,
+      sku: channelProducts.sku,
+      stockQuantity: channelProducts.stockQuantity,
+      type: channelProducts.type,
+      rawPayload: channelProducts.rawData,
+    })
+    .from(channelProducts)
+    .where(
+      and(
+        eq(channelProducts.channelId, channelId),
+        search && search.trim() !== ""
+          ? or(
+              ilike(channelProducts.name, `%${search}%`),
+              ilike(channelProducts.sku, `%${search}%`)
+            )
+          : undefined
+      )
+    )
+    .limit(100);
 
   let externalProducts: ExternalProduct[];
   try {
-    externalProducts = await handler.fetchProducts(
-      channel.storeUrl,
-      decryptedCreds,
-      search,
-    );
+    const rows = await query;
+    externalProducts = rows.map((r) => ({
+      ...r,
+      sku: r.sku || undefined,
+      stockQuantity: r.stockQuantity ?? undefined,
+      type: (r.type as ExternalProduct["type"]) || "simple",
+      rawPayload: r.rawPayload as Record<string, unknown>,
+    }));
   } catch (err) {
-    console.error("[fetchChannelProducts] fetchProducts error", { channelId, error: String(err) });
-    return { error: "Unable to load products from this channel." };
+    console.error("[fetchChannelProducts] db query error", { channelId, error: String(err) });
+    return { error: "Unable to load cached products from DB. Did you sync first?" };
   }
 
   // Load all existing mappings for this channel (to determine state)

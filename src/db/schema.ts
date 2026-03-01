@@ -260,6 +260,24 @@ export const channelProductMappings = pgTable("channel_product_mappings", {
   index("channel_product_mappings_product_idx").on(table.productId),
 ]).enableRLS();
 
+// ─── Channel Products (Cache) ────────────────────────────────────────────────
+// A local cache of external channel products pulled from the platforms' APIs.
+// This allows SeplorX to map products lighting-fast without hitting external
+// API rate limits or waiting on network latency.
+export const channelProducts = pgTable("channel_products", {
+  id: serial("id").primaryKey(),
+  channelId: integer("channel_id").notNull().references(() => channels.id, { onDelete: "cascade" }),
+  externalId: varchar("external_id", { length: 255 }).notNull(),
+  name: varchar("name", { length: 500 }).notNull(),
+  sku: varchar("sku", { length: 255 }),
+  stockQuantity: integer("stock_quantity"),
+  type: varchar("type", { length: 50 }),
+  rawData: jsonb("raw_data").default({}).notNull(),
+  lastSyncedAt: timestamp("last_synced_at").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("channel_products_unique_ext_id").on(table.channelId, table.externalId),
+]).enableRLS();
+
 // ─── Settings ────────────────────────────────────────────────────────────────
 // Scalable key-value store for all platform-wide configuration (agent toggles,
 // theme, notifications, etc.). Keys are namespaced by convention:

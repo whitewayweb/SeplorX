@@ -1,8 +1,8 @@
 "use server";
 
 import { db } from "@/db";
-import { channels } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { channels, channelProducts } from "@/db/schema";
+import { eq, and, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { CreateChannelSchema, ChannelIdSchema } from "@/lib/validations/channels";
 import { getChannelById } from "@/lib/channels/registry";
@@ -215,4 +215,75 @@ export async function deleteChannel(_prevState: unknown, formData: FormData) {
 
   revalidatePath("/channels");
   return { success: true };
+}
+
+// ─── Sync Products ─────────────────────────────────────────────────────────────
+
+export async function syncChannelProducts(channelId: number) {
+  try {
+    const rows = await db
+      .select({
+        id: channels.id,
+        channelType: channels.channelType,
+        storeUrl: channels.storeUrl,
+        credentials: channels.credentials,
+        status: channels.status,
+      })
+      .from(channels)
+      .where(and(eq(channels.id, channelId), eq(channels.userId, CURRENT_USER_ID)))
+      .limit(1);
+
+    if (rows.length === 0) return { error: "Channel not found." };
+
+    const channel = rows[0];
+    if (channel.status !== "connected") return { error: "Channel is not connected." };
+    if (!channel.storeUrl) return { error: "Channel has no store URL." };
+
+    const handler = getChannelHandler(channel.channelType);
+    if (!handler || !handler.capabilities.canFetchProducts || !handler.fetchProducts) {
+      return { error: "This channel type does not support fetching products." };
+    }
+
+    const decryptedCreds = decryptChannelCredentials(channel.credentials);
+    if (Object.keys(decryptedCreds).length === 0) return { error: "Channel credentials missing." };
+
+    const externalProducts = await handler.fetchProducts(channel.storeUrl, decryptedCreds);
+
+    if (externalProducts.length > 0) {
+      const BATCH_SIZE = 100;
+      for (let i = 0; i < externalProducts.length; i += BATCH_SIZE) {
+        const batch = externalProducts.slice(i, i + BATCH_SIZE).map((p) => ({
+          channelId,
+          externalId: p.id,
+          name: p.name,
+          sku: p.sku || null,
+          stockQuantity: p.stockQuantity ?? null,
+          type: p.type || null,
+          rawData: p.rawPayload,
+          lastSyncedAt: new Date(),
+        }));
+
+        await db
+          .insert(channelProducts)
+          .values(batch)
+          .onConflictDoUpdate({
+            target: [channelProducts.channelId, channelProducts.externalId],
+            set: {
+              name: sql`EXCLUDED.name`,
+              sku: sql`EXCLUDED.sku`,
+              stockQuantity: sql`EXCLUDED.stock_quantity`,
+              type: sql`EXCLUDED.type`,
+              rawData: sql`EXCLUDED.raw_data`,
+              lastSyncedAt: sql`EXCLUDED.last_synced_at`,
+            },
+          });
+      }
+    }
+
+    revalidatePath("/channels");
+    return { success: true, count: externalProducts.length };
+  } catch (err) {
+    console.error("[syncChannelProducts]", { channelId, error: String(err) });
+    return { error: String(err).replace(/^Error:\s*/, "").substring(0, 200) };
+  }
 }

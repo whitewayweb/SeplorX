@@ -132,6 +132,7 @@ export const amazonHandler: ChannelHandler = {
         name: summary?.itemName ?? asin,
         sku: skuIdentifier?.identifier,
         type: "simple" as const,
+        rawPayload: item as Record<string, any>,
       };
     });
   },
