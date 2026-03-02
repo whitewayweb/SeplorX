@@ -124,7 +124,7 @@ export async function updateChannel(_prevState: unknown, formData: FormData) {
     const channelDef = getChannelById(existingChannel.channelType as ChannelType);
 
     let storeUrl = existingChannel.storeUrl;
-    let newCredentials = { ...(existingChannel.credentials || {}) };
+    const newCredentials = { ...(existingChannel.credentials || {}) };
 
     if (channelDef?.configFields) {
       for (const field of channelDef.configFields) {
@@ -185,7 +185,7 @@ export async function getChannelConfig(channelId: number) {
       }
     }
     return { success: true, config };
-  } catch (err) {
+  } catch {
     return { error: "Failed to load config." };
   }
 }

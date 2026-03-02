@@ -30,22 +30,29 @@ export function EditChannelDialog({ channel, onOpenChange }: EditChannelDialogPr
 
   const channelDef = channel ? getChannelById(channel.channelType as ChannelType) : null;
 
+  const [prevChannelId, setPrevChannelId] = useState<number | undefined>(undefined);
+  if (channel?.id !== prevChannelId) {
+    setPrevChannelId(channel?.id);
+    setName(channel?.name || "");
+    setPickupLocation(channel?.defaultPickupLocation || "");
+    setLoadingConfig(!!channel);
+    if (!channel) setConfig({});
+  }
+
   useEffect(() => {
     if (channel) {
-      setName(channel.name);
-      setPickupLocation(channel.defaultPickupLocation || "");
-
       // Load config fields asynchronously
-      setLoadingConfig(true);
+      let active = true;
       getChannelConfig(channel.id)
         .then((res) => {
-          if (res.success && res.config) {
+          if (active && res.success && res.config) {
             setConfig(res.config);
           }
         })
-        .finally(() => setLoadingConfig(false));
-    } else {
-      setConfig({});
+        .finally(() => {
+          if (active) setLoadingConfig(false);
+        });
+      return () => { active = false; };
     }
   }, [channel]);
 
