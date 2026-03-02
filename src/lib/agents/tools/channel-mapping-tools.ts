@@ -104,7 +104,7 @@ export const getChannelProducts = tool({
       .where(eq(channelProducts.channelId, channelId));
 
     if (channelProductsRows.length === 0) {
-      throw new Error(`No products found for channel ${channelId}. Have you synced the products yet?`);
+      return { message: "No products found in the cache for this channel. Please sync products first." };
     }
 
     // Collect all already-mapped externalProductIds for this channel

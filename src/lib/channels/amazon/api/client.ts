@@ -1,5 +1,8 @@
 import * as zlib from "node:zlib";
+import { promisify } from "node:util";
 import type { ExternalProduct } from "../../types";
+
+const gunzipAsync = promisify(zlib.gunzip);
 
 export class AmazonAPIClient {
   private marketplaceId: string;
@@ -78,8 +81,18 @@ export class AmazonAPIClient {
   }
 
   private async pollReportStatus(accessToken: string, reportId: string): Promise<string> {
-    for (let attempts = 0; attempts < 20; attempts++) {
-      await new Promise((res) => setTimeout(res, 3000));
+    // Use exponential backoff (3 s → 6 s → 12 s … capped at 15 s per interval).
+    // Hard wall-clock deadline of 55 s keeps the total under typical serverless limits.
+    const DEADLINE_MS = 55_000;
+    const deadline = Date.now() + DEADLINE_MS;
+    let intervalMs = 3_000;
+
+    while (Date.now() < deadline) {
+      await new Promise((res) => setTimeout(res, intervalMs));
+      intervalMs = Math.min(intervalMs * 2, 15_000);
+
+      if (Date.now() >= deadline) break;
+
       const getReportUrl = new URL(`${this.endpoint}/reports/2021-06-30/reports/${reportId}`);
       const getReportRes = await fetch(getReportUrl.toString(), {
         headers: {
@@ -94,12 +107,15 @@ export class AmazonAPIClient {
 
       if (reportStatus.processingStatus === "DONE") {
         return reportStatus.reportDocumentId;
-      } else if (reportStatus.processingStatus === "CANCELLED" || reportStatus.processingStatus === "FATAL") {
+      } else if (
+        reportStatus.processingStatus === "CANCELLED" ||
+        reportStatus.processingStatus === "FATAL"
+      ) {
         throw new Error(`Amazon report failed: ${reportStatus.processingStatus}`);
       }
     }
 
-    throw new Error("Amazon report timed out while generating (took over 60 seconds).");
+    throw new Error("Amazon report timed out while generating (exceeded 55 s deadline).");
   }
 
   private async getReportDocumentUrl(accessToken: string, reportDocumentId: string): Promise<{ url: string; compressionAlgorithm?: string }> {
@@ -138,7 +154,8 @@ export class AmazonAPIClient {
     let fileBuffer = Buffer.from(arrayBuffer);
 
     if (compressionAlgorithm === "GZIP") {
-      fileBuffer = zlib.gunzipSync(fileBuffer);
+      // Use async gunzip — gunzipSync blocks the event loop on large payloads.
+      fileBuffer = await gunzipAsync(fileBuffer);
     }
 
     const textBase = fileBuffer.toString("utf-8");

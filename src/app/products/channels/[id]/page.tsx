@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { TableSearch } from "@/components/ui/table-search";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { getChannel, getChannelProductsWithVariations } from "@/lib/channels/queries";
+import { parsePaginationParams } from "@/lib/utils/pagination";
 
 export const dynamic = "force-dynamic";
 
@@ -27,10 +28,8 @@ export default async function ChannelProductsPage({
   const channelId = parseInt(resolvedParams.id, 10);
 
   const resolvedSearchParams = await searchParams;
-  const query = typeof resolvedSearchParams?.q === "string" ? resolvedSearchParams.q : "";
-  const page = parseInt((resolvedSearchParams?.page as string) || "1", 10);
-  const limit = parseInt((resolvedSearchParams?.limit as string) || "20", 10);
-  const offset = (page - 1) * limit;
+  const { query, page, limit, offset } = parsePaginationParams(resolvedSearchParams);
+
 
   if (isNaN(channelId)) {
     notFound();

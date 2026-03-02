@@ -8,6 +8,7 @@ import { AddChannelWizard } from "@/components/channels/add-channel-wizard";
 import { ChannelMappingApprovalCard } from "@/components/agents/channel-mapping-approval-card";
 import type { ChannelInstance } from "@/lib/channels/types";
 import type { ChannelMappingPlan } from "@/lib/agents/tools/channel-mapping-tools";
+import { getCachedProductCountsByChannel } from "@/lib/channels/queries";
 
 const CURRENT_USER_ID = 1;
 
@@ -37,7 +38,13 @@ export default async function ChannelsPage({
   const channelInstances: ChannelInstance[] = rows.map(({ credentials, ...row }) => ({
     ...row,
     hasWebhooks: typeof credentials?.webhookSecret === "string" && credentials.webhookSecret.length > 0,
+    cachedProductCount: 0, // populated below
   }));
+
+  const cachedProductCountMap = await getCachedProductCountsByChannel();
+  for (const instance of channelInstances) {
+    instance.cachedProductCount = cachedProductCountMap.get(instance.id) ?? 0;
+  }
 
   // Count DISTINCT mapped products per channel (for the "Mapped Products" column)
   const mappingCounts = await db

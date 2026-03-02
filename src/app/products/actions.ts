@@ -451,6 +451,7 @@ export async function fetchChannelProducts(
       stockQuantity: channelProducts.stockQuantity,
       type: channelProducts.type,
       rawPayload: channelProducts.rawData,
+      parentId: sql<string | null>`COALESCE(raw_data->>'parentId', CAST(raw_data->>'parent_id' AS TEXT))`,
     })
     .from(channelProducts)
     .where(
@@ -474,6 +475,7 @@ export async function fetchChannelProducts(
       sku: r.sku || undefined,
       stockQuantity: r.stockQuantity ?? undefined,
       type: (r.type as ExternalProduct["type"]) || "simple",
+      parentId: r.parentId ?? undefined,
       rawPayload: r.rawPayload as Record<string, unknown>,
     }));
   } catch (err) {

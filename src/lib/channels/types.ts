@@ -31,6 +31,8 @@ export interface ChannelInstance {
   createdAt: Date | null;
   /** True if webhook credentials are registered for this channel (derived server-side) */
   hasWebhooks?: boolean;
+  /** Number of products synced into the local cache for this channel */
+  cachedProductCount: number;
 }
 
 // ─── Channel Handler (per-channel-type plugin interface) ─────────────────────

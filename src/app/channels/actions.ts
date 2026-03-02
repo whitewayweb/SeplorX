@@ -32,18 +32,37 @@ export async function createChannel(_prevState: unknown, formData: FormData) {
 
   try {
     const channelDef = getChannelById(parsed.data.channelType as ChannelType);
-    
+
+    // Guard: block unavailable or unknown channel types from being created,
+    // even if the UI hides them — crafted POST requests could bypass it.
+    if (!channelDef || !channelDef.available) {
+      return { error: "This channel type is not available." };
+    }
+
     const credentials: Record<string, string> = {};
     let status: "pending" | "connected" | "disconnected" = "pending";
 
-    if (channelDef?.authType === "apikey" && channelDef.configFields) {
-      status = "connected";
+    if (channelDef.authType === "apikey" && channelDef.configFields) {
+      // Collect all config values first so validateConfig can inspect them.
+      const rawConfig: Record<string, string> = {};
       for (const field of channelDef.configFields) {
-        if (field.key !== "storeUrl") {
-          const val = formData.get(field.key);
-          if (val && typeof val === "string") {
-            credentials[field.key] = encrypt(val);
-          }
+        const val = formData.get(field.key);
+        if (val && typeof val === "string") {
+          rawConfig[field.key] = val;
+        }
+      }
+
+      // Run channel-specific validation before touching the DB.
+      if (channelDef.validateConfig) {
+        const configError = channelDef.validateConfig(rawConfig);
+        if (configError) return { error: configError };
+      }
+
+      // Encrypt and store credentials (exclude storeUrl — stored in its own column).
+      status = "connected";
+      for (const [key, val] of Object.entries(rawConfig)) {
+        if (key !== "storeUrl") {
+          credentials[key] = encrypt(val);
         }
       }
     }
@@ -221,6 +240,10 @@ export async function deleteChannel(_prevState: unknown, formData: FormData) {
 // ─── Sync Products ─────────────────────────────────────────────────────────────
 
 export async function syncChannelProducts(channelId: number) {
+  const parsed = ChannelIdSchema.safeParse({ id: channelId });
+  if (!parsed.success) return { error: "Invalid channel ID." };
+  const validatedChannelId = parsed.data.id;
+
   try {
     const rows = await db
       .select({
@@ -231,7 +254,7 @@ export async function syncChannelProducts(channelId: number) {
         status: channels.status,
       })
       .from(channels)
-      .where(and(eq(channels.id, channelId), eq(channels.userId, CURRENT_USER_ID)))
+      .where(and(eq(channels.id, validatedChannelId), eq(channels.userId, CURRENT_USER_ID)))
       .limit(1);
 
     if (rows.length === 0) return { error: "Channel not found." };
@@ -248,14 +271,18 @@ export async function syncChannelProducts(channelId: number) {
     const decryptedCreds = decryptChannelCredentials(channel.credentials);
     if (Object.keys(decryptedCreds).length === 0) return { error: "Channel credentials missing." };
 
+    // NOTE: `fetchProducts` may be long-running for some channel types (e.g. Amazon SP-API
+    // creates a report and polls for up to ~55 s). Ensure the hosting environment (Vercel
+    // function duration, etc.) is configured to allow sufficient time for this channel type.
     const externalProducts = await handler.fetchProducts(channel.storeUrl, decryptedCreds);
+
 
 
     if (externalProducts.length > 0) {
       const BATCH_SIZE = 100;
       for (let i = 0; i < externalProducts.length; i += BATCH_SIZE) {
         const batch = externalProducts.slice(i, i + BATCH_SIZE).map((p) => ({
-          channelId,
+          channelId: validatedChannelId,
           externalId: p.id,
           name: p.name,
           sku: p.sku || null,
@@ -272,7 +299,7 @@ export async function syncChannelProducts(channelId: number) {
     revalidatePath("/channels");
     return { success: true, count: externalProducts.length };
   } catch (err) {
-    console.error("[syncChannelProducts]", { channelId, error: String(err) });
+    console.error("[syncChannelProducts]", { channelId: validatedChannelId, error: String(err) });
     return { error: String(err).replace(/^Error:\s*/, "").substring(0, 200) };
   }
 }

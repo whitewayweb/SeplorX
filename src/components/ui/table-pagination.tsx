@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,11 +26,9 @@ export function TablePagination({ totalItems, itemsPerPage, currentPage }: Table
   const searchParams = useSearchParams();
   const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
 
-  const [jumpPage, setJumpPage] = useState(currentPage.toString());
-
-  useEffect(() => {
-    setJumpPage(currentPage.toString());
-  }, [currentPage]);
+  // Local draft: tracks what the user has typed. Reset by remounting the Input
+  // via `key={currentPage}` when navigation commits — no useEffect needed.
+  const [draft, setDraft] = useState(currentPage.toString());
 
   const createPageUrl = (pageNumber: number) => {
     const params = new URLSearchParams(searchParams);
@@ -39,11 +37,11 @@ export function TablePagination({ totalItems, itemsPerPage, currentPage }: Table
   };
 
   const handleJump = () => {
-    const page = parseInt(jumpPage, 10);
+    const page = parseInt(draft, 10);
     if (!isNaN(page) && page >= 1 && page <= totalPages && page !== currentPage) {
       router.push(createPageUrl(page));
     } else {
-      setJumpPage(currentPage.toString());
+      setDraft(currentPage.toString());
     }
   };
 
@@ -110,11 +108,12 @@ export function TablePagination({ totalItems, itemsPerPage, currentPage }: Table
         <div className="flex items-center space-x-2">
           <p className="text-sm font-medium whitespace-nowrap text-muted-foreground">Go to page</p>
           <Input
+            key={currentPage}
             type="number"
             min={1}
             max={totalPages}
-            value={jumpPage}
-            onChange={(e) => setJumpPage(e.target.value)}
+            defaultValue={currentPage}
+            onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 handleJump();

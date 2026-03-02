@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { channelProducts, channels } from "@/db/schema";
-import { and, desc, eq, ilike, isNull, ne, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, ilike, isNull, ne, or, sql } from "drizzle-orm";
 
 /**
  * Data Access Layer (DAL) for channels.
@@ -73,6 +73,11 @@ export async function getChannelProductsWithVariations(channelId: number, option
     .where(whereCondition);
 
   // 2. Get the paginated parent products
+  // Defense-in-depth: clamp limit and offset so this function is safe
+  // regardless of what its callers pass in.
+  const safeLimit = Math.min(Math.max(1, limit), 100);
+  const safeOffset = Math.max(0, offset);
+
   const productsList = await db
     .select({
       id: channelProducts.id,
@@ -86,8 +91,8 @@ export async function getChannelProductsWithVariations(channelId: number, option
     .from(channelProducts)
     .where(whereCondition)
     .orderBy(desc(channelProducts.lastSyncedAt))
-    .limit(limit)
-    .offset(offset);
+    .limit(safeLimit)
+    .offset(safeOffset);
 
   // 3. Get variations for these parents
   let variationsList: (typeof productsList[0] & { parentId?: string })[] = [];
@@ -155,4 +160,38 @@ export async function upsertChannelProducts(products: {
       },
     });
 }
+/**
+ * Returns a Map of channelId → number of cached products.
+ * Used by the Channels page to gate the "Auto-Map" button on channels
+ * that have actually been synced.
+ */
+export async function getCachedProductCountsByChannel(): Promise<Map<number, number>> {
+  const rows = await db
+    .select({
+      channelId: channelProducts.channelId,
+      count: count(),
+    })
+    .from(channelProducts)
+    .groupBy(channelProducts.channelId);
 
+  return new Map(rows.map((r) => [r.channelId, r.count]));
+}
+
+/**
+ * Fetches the minimal channel fields needed to validate an agent request.
+ * Returns `undefined` if the channel does not exist.
+ */
+export async function getChannelForAgent(
+  channelId: number
+): Promise<{ channelType: string; status: string } | undefined> {
+  const [row] = await db
+    .select({
+      channelType: channels.channelType,
+      status: channels.status,
+    })
+    .from(channels)
+    .where(eq(channels.id, channelId))
+    .limit(1);
+
+  return row;
+}
