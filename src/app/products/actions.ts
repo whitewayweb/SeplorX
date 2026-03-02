@@ -1,8 +1,8 @@
 "use server";
 
 import { db } from "@/db";
-import { products, inventoryTransactions, channels, channelProductMappings, channelProducts } from "@/db/schema";
-import { and, eq, sql, ilike, or } from "drizzle-orm";
+import { products, inventoryTransactions, channels, channelProductMappings } from "@/db/schema";
+import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import {
   CreateProductSchema,
@@ -11,9 +11,12 @@ import {
   StockAdjustmentSchema,
 } from "@/lib/validations/products";
 import { ChannelMappingIdSchema } from "@/lib/validations/channels";
-import { getChannelHandler } from "@/lib/channels/handlers";
-import { decryptChannelCredentials } from "@/lib/channels/utils";
-import type { ExternalProduct } from "@/lib/channels/types";
+import {
+  pushProductStockToChannelsService,
+  fetchChannelProductsService,
+  saveChannelMappingsService,
+  type ChannelProductWithState,
+} from "@/lib/products/services";
 
 // TODO: replace with auth() when auth is re-added
 const CURRENT_USER_ID = 1;
@@ -179,26 +182,42 @@ export async function deleteProduct(_prevState: unknown, formData: FormData) {
   const { id } = parsed.data;
 
   try {
-    const existing = await db
-      .select({ id: products.id })
-      .from(products)
-      .where(eq(products.id, id))
-      .limit(1);
+    await db.transaction(async (tx) => {
+      const existing = await tx
+        .select({ id: products.id })
+        .from(products)
+        .where(eq(products.id, id))
+        .limit(1);
 
-    if (existing.length === 0) {
-      return { error: "Product not found." };
-    }
+      if (existing.length === 0) {
+        throw new Error("Product not found.");
+      }
 
-    await db.delete(products).where(eq(products.id, id));
+      const hasTransactions = await tx
+        .select({ id: inventoryTransactions.id })
+        .from(inventoryTransactions)
+        .where(eq(inventoryTransactions.productId, id))
+        .limit(1);
+
+      if (hasTransactions.length > 0) {
+        throw new Error("Cannot delete product with existing inventory records. Deactivate instead.");
+      }
+
+      await tx.delete(products).where(eq(products.id, id));
+    });
   } catch (err) {
     console.error("[deleteProduct]", { productId: id, error: String(err) });
+    if (err instanceof Error) {
+      if (err.message === "Product not found.") return { error: err.message };
+      if (err.message === "Cannot delete product with existing inventory records. Deactivate instead.") return { error: err.message };
+    }
     if (
       err &&
       typeof err === "object" &&
       "code" in err &&
       err.code === "23503"
     ) {
-      return { error: "Cannot delete product with existing invoices or inventory records. Deactivate instead." };
+      return { error: "Cannot delete product because it is referenced in other records (e.g., invoices or channels)." };
     }
     return { error: "Failed to delete product. Please try again." };
   }
@@ -321,193 +340,30 @@ export async function deleteChannelMapping(_prevState: unknown, formData: FormDa
  */
 export async function pushProductStockToChannels(productId: number) {
   try {
-    const productRows = await db
-      .select({ quantityOnHand: products.quantityOnHand })
-      .from(products)
-      .where(eq(products.id, productId))
-      .limit(1);
-
-    if (productRows.length === 0) return { error: "Product not found." };
-
-    const quantity = productRows[0].quantityOnHand;
-
-    // Fetch all mappings for this product, joined with their channel details
-    const mappings = await db
-      .select({
-        mappingId: channelProductMappings.id,
-        channelId: channelProductMappings.channelId,
-        externalProductId: channelProductMappings.externalProductId,
-        label: channelProductMappings.label,
-        channelType: channels.channelType,
-        storeUrl: channels.storeUrl,
-        credentials: channels.credentials,
-        channelName: channels.name,
-        status: channels.status,
-      })
-      .from(channelProductMappings)
-      .innerJoin(channels, eq(channelProductMappings.channelId, channels.id))
-      .where(
-        and(
-          eq(channelProductMappings.productId, productId),
-          eq(channels.userId, CURRENT_USER_ID),
-          eq(channels.status, "connected"),
-        ),
-      );
-
-    if (mappings.length === 0) {
-      return { success: true, results: [], message: "No channel mappings found." };
-    }
-
-    const results: Array<{
-      channelName: string;
-      externalProductId: string;
-      label: string | null;
-      ok: boolean;
-      error?: string;
-    }> = [];
-
-    for (const m of mappings) {
-      const handler = getChannelHandler(m.channelType);
-      if (!handler || !m.storeUrl) {
-        results.push({ channelName: m.channelName, externalProductId: m.externalProductId, label: m.label, ok: false, error: "Handler or store URL not available." });
-        continue;
-      }
-
-      const decryptedCreds = decryptChannelCredentials(m.credentials);
-
-      if (Object.keys(decryptedCreds).length === 0) {
-        results.push({ channelName: m.channelName, externalProductId: m.externalProductId, label: m.label, ok: false, error: "Missing credentials." });
-        continue;
-      }
-
-      if (!handler.capabilities.canPushStock || !handler.pushStock) {
-        results.push({ channelName: m.channelName, externalProductId: m.externalProductId, label: m.label, ok: false, error: "This channel does not support stock push." });
-        continue;
-      }
-
-      try {
-        await handler.pushStock(m.storeUrl, decryptedCreds, m.externalProductId, quantity);
-        results.push({ channelName: m.channelName, externalProductId: m.externalProductId, label: m.label, ok: true });
-      } catch (err) {
-        const msg = String(err).replace(/^Error:\s*/, "").substring(0, 200);
-        results.push({ channelName: m.channelName, externalProductId: m.externalProductId, label: m.label, ok: false, error: msg });
-      }
-    }
-
-    return { success: true, results, quantity };
+    const result = await pushProductStockToChannelsService(CURRENT_USER_ID, productId);
+    return result;
   } catch (err) {
     console.error("[pushProductStockToChannels]", { productId, error: String(err) });
-    return { error: "Failed to push stock to channels." };
+    return { error: String(err).replace(/^Error:\s*/, "") || "Failed to push stock to channels." };
   }
 }
 
 // ─── Fetch channel products with mapping state ────────────────────────────────
 
-export type ChannelProductWithState = ExternalProduct & {
-  mappingState:
-    | { kind: "unmapped" }
-    | { kind: "mapped_here" }
-    | { kind: "mapped_other"; productId: number; productName: string };
-};
+export { type ChannelProductWithState } from "@/lib/products/services";
 
-/**
- * Fetch products from the remote channel and enrich each with its mapping state
- * relative to the given SeplorX product (productId).
- *
- * - unmapped: not yet mapped to any SeplorX product on this channel
- * - mapped_here: already mapped to THIS product → shown checked + disabled
- * - mapped_other: mapped to a DIFFERENT SeplorX product → greyed, non-selectable
- */
 export async function fetchChannelProducts(
   channelId: number,
   productId: number,
   search?: string,
 ): Promise<ChannelProductWithState[] | { error: string }> {
-  // Verify channel belongs to current user and is connected
-  const channelRows = await db
-    .select({
-      id: channels.id,
-      channelType: channels.channelType,
-      storeUrl: channels.storeUrl,
-      credentials: channels.credentials,
-      status: channels.status,
-    })
-    .from(channels)
-    .where(and(eq(channels.id, channelId), eq(channels.userId, CURRENT_USER_ID)))
-    .limit(1);
-
-  if (channelRows.length === 0) return { error: "Channel not found." };
-
-  const channel = channelRows[0];
-  if (channel.status !== "connected") {
-    return { error: "Channel is not connected." };
-  }
-
-  const query = db
-    .select({
-      id: channelProducts.externalId,
-      name: channelProducts.name,
-      sku: channelProducts.sku,
-      stockQuantity: channelProducts.stockQuantity,
-      type: channelProducts.type,
-      rawPayload: channelProducts.rawData,
-      parentId: sql<string | null>`COALESCE(raw_data->>'parentId', CAST(raw_data->>'parent_id' AS TEXT))`,
-    })
-    .from(channelProducts)
-    .where(
-      and(
-        eq(channelProducts.channelId, channelId),
-        search && search.trim() !== ""
-          ? or(
-              ilike(channelProducts.name, `%${search}%`),
-              ilike(channelProducts.sku, `%${search}%`)
-            )
-          : undefined
-      )
-    )
-    .limit(100);
-
-  let externalProducts: ExternalProduct[];
   try {
-    const rows = await query;
-    externalProducts = rows.map((r) => ({
-      ...r,
-      sku: r.sku || undefined,
-      stockQuantity: r.stockQuantity ?? undefined,
-      type: (r.type as ExternalProduct["type"]) || "simple",
-      parentId: r.parentId ?? undefined,
-      rawPayload: r.rawPayload as Record<string, unknown>,
-    }));
+    const products = await fetchChannelProductsService(CURRENT_USER_ID, channelId, productId, search);
+    return products;
   } catch (err) {
-    console.error("[fetchChannelProducts] db query error", { channelId, error: String(err) });
-    return { error: "Unable to load cached products from DB. Did you sync first?" };
+    console.error("[fetchChannelProducts]", { channelId, error: String(err) });
+    return { error: String(err).replace(/^Error:\s*/, "") || "Unable to load channel products." };
   }
-
-  // Load all existing mappings for this channel (to determine state)
-  const existingMappings = await db
-    .select({
-      externalProductId: channelProductMappings.externalProductId,
-      productId: channelProductMappings.productId,
-      productName: products.name,
-    })
-    .from(channelProductMappings)
-    .innerJoin(products, eq(channelProductMappings.productId, products.id))
-    .where(eq(channelProductMappings.channelId, channelId));
-
-  const mappingByExternalId = new Map(
-    existingMappings.map((m) => [m.externalProductId, { productId: m.productId, productName: m.productName }]),
-  );
-
-  return externalProducts.map((p): ChannelProductWithState => {
-    const existing = mappingByExternalId.get(p.id);
-    if (!existing) {
-      return { ...p, mappingState: { kind: "unmapped" } };
-    }
-    if (existing.productId === productId) {
-      return { ...p, mappingState: { kind: "mapped_here" } };
-    }
-    return { ...p, mappingState: { kind: "mapped_other", productId: existing.productId, productName: existing.productName } };
-  });
 }
 
 // ─── Batch save channel mappings ──────────────────────────────────────────────
@@ -523,52 +379,12 @@ export async function saveChannelMappings(
   channelId: number,
   items: { externalProductId: string; label: string }[],
 ): Promise<{ added: number; skipped: number } | { error: string }> {
-  if (items.length === 0) return { added: 0, skipped: 0 };
-
-  // Verify channel belongs to current user
-  const channelRow = await db
-    .select({ id: channels.id })
-    .from(channels)
-    .where(and(eq(channels.id, channelId), eq(channels.userId, CURRENT_USER_ID)))
-    .limit(1);
-
-  if (channelRow.length === 0) return { error: "Channel not found." };
-
-  let added = 0;
-  let skipped = 0;
-
   try {
-    for (const item of items) {
-      try {
-        const result = await db
-          .insert(channelProductMappings)
-          .values({
-            channelId,
-            productId,
-            externalProductId: item.externalProductId,
-            label: item.label || null,
-          })
-          .onConflictDoNothing()
-          .returning({ id: channelProductMappings.id });
-        if (result.length > 0) {
-          added++;
-        } else {
-          skipped++;
-        }
-      } catch (err) {
-        const code = (err as { code?: string }).code;
-        // 23505 = unique_violation — WC product already mapped to a different SeplorX product
-        if (code === "23505") {
-          return { error: `WC product ${item.externalProductId} is already mapped to another product.` };
-        }
-        throw err;
-      }
-    }
+    const result = await saveChannelMappingsService(CURRENT_USER_ID, productId, channelId, items);
+    revalidatePath(`/products/${productId}`);
+    return result;
   } catch (err) {
     console.error("[saveChannelMappings]", { channelId, productId, error: String(err) });
-    return { error: "Failed to save mappings. Please try again." };
+    return { error: String(err).replace(/^Error:\s*/, "") || "Failed to save mappings. Please try again." };
   }
-
-  revalidatePath(`/products/${productId}`);
-  return { added, skipped };
 }

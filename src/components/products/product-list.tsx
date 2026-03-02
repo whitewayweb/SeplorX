@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
+import { useOptimistic, useTransition } from "react";
+import { toast } from "sonner";
 import Link from "next/link";
 import {
   Table,
@@ -15,7 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { ProductDialog } from "@/components/products/product-dialog";
 import { StockAdjustmentDialog } from "@/components/products/stock-adjustment-dialog";
 import { toggleProductActive, deleteProduct } from "@/app/products/actions";
-import { Eye, Power, Trash2 } from "lucide-react";
+import { Power, Trash2 } from "lucide-react";
 
 type Product = {
   id: number;
@@ -44,11 +45,21 @@ function StockBadge({ quantity, reorderLevel }: { quantity: number; reorderLevel
   return <span className="font-mono text-sm">{quantity}</span>;
 }
 
-function ToggleButton({ product }: { product: Product }) {
-  const [, action, pending] = useActionState(toggleProductActive, null);
+function ToggleButton({ product, onToggleOptimistic }: { product: Product, onToggleOptimistic: () => void }) {
+  const [pending, startTransition] = useTransition();
 
   return (
-    <form action={action}>
+    <form action={(formData) => {
+      startTransition(async () => {
+        onToggleOptimistic();
+        const result = await toggleProductActive(null, formData);
+        if (result.error) {
+          toast.error(result.error);
+        } else if (result.success) {
+          toast.success("Product status updated");
+        }
+      });
+    }}>
       <input type="hidden" name="id" value={product.id} />
       <Button
         variant="ghost"
@@ -63,11 +74,28 @@ function ToggleButton({ product }: { product: Product }) {
   );
 }
 
-function DeleteButton({ product }: { product: Product }) {
-  const [state, action, pending] = useActionState(deleteProduct, null);
+function DeleteButton({ product, onDeleteOptimistic }: { product: Product, onDeleteOptimistic: () => void }) {
+  const [pending, startTransition] = useTransition();
 
   return (
-    <form action={action}>
+    <form
+      action={(formData) => {
+        startTransition(async () => {
+          onDeleteOptimistic();
+          const result = await deleteProduct(null, formData);
+          if (result.error) {
+            toast.error(result.error);
+          } else if (result.success) {
+            toast.success("Product deleted successfully");
+          }
+        });
+      }}
+      onSubmit={(e) => {
+        if (!window.confirm("Are you sure you want to delete this product?")) {
+          e.preventDefault();
+        }
+      }}
+    >
       <input type="hidden" name="id" value={product.id} />
       <Button
         variant="ghost"
@@ -78,9 +106,6 @@ function DeleteButton({ product }: { product: Product }) {
       >
         <Trash2 className="h-4 w-4 text-destructive" />
       </Button>
-      {state?.error && (
-        <span className="text-xs text-destructive">{state.error}</span>
-      )}
     </form>
   );
 }
@@ -92,7 +117,23 @@ function formatPrice(value: string | null): string {
 }
 
 export function ProductList({ products }: ProductListProps) {
-  if (products.length === 0) {
+  const [optimisticProducts, setOptimisticProducts] = useOptimistic(
+    products,
+    (state, info: { action: "toggle" | "delete"; id: number }) => {
+      switch (info.action) {
+        case "toggle":
+          return state.map((p) =>
+            p.id === info.id ? { ...p, isActive: !p.isActive } : p
+          );
+        case "delete":
+          return state.filter((p) => p.id !== info.id);
+        default:
+          return state;
+      }
+    }
+  );
+
+  if (optimisticProducts.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <p className="text-muted-foreground text-lg">No products yet</p>
@@ -120,9 +161,13 @@ export function ProductList({ products }: ProductListProps) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {products.map((product) => (
+          {optimisticProducts.map((product) => (
             <TableRow key={product.id}>
-              <TableCell className="font-medium">{product.name}</TableCell>
+              <TableCell className="font-medium">
+                <Link href={`/products/${product.id}`} className="hover:underline text-primary">
+                  {product.name}
+                </Link>
+              </TableCell>
               <TableCell className="font-mono text-sm">{product.sku ?? "—"}</TableCell>
               <TableCell>{product.category ?? "—"}</TableCell>
               <TableCell>{product.unit}</TableCell>
@@ -132,21 +177,22 @@ export function ProductList({ products }: ProductListProps) {
                 <StockBadge quantity={product.quantityOnHand} reorderLevel={product.reorderLevel} />
               </TableCell>
               <TableCell>
-                <Badge variant={product.isActive ? "default" : "secondary"}>
+                <Badge variant={product.isActive ? "default" : "secondary"} className="transition-colors">
                   {product.isActive ? "Active" : "Inactive"}
                 </Badge>
               </TableCell>
               <TableCell>
                 <div className="flex items-center justify-end gap-1">
-                  <Button variant="ghost" size="icon" asChild>
-                    <Link href={`/products/${product.id}`}>
-                      <Eye className="h-4 w-4" />
-                    </Link>
-                  </Button>
                   <StockAdjustmentDialog productId={product.id} productName={product.name} />
                   <ProductDialog product={product} />
-                  <ToggleButton product={product} />
-                  <DeleteButton product={product} />
+                  <ToggleButton
+                    product={product}
+                    onToggleOptimistic={() => setOptimisticProducts({ action: "toggle", id: product.id })}
+                  />
+                  <DeleteButton
+                    product={product}
+                    onDeleteOptimistic={() => setOptimisticProducts({ action: "delete", id: product.id })}
+                  />
                 </div>
               </TableCell>
             </TableRow>

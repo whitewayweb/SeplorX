@@ -3,7 +3,6 @@ import { products, inventoryTransactions, agentActions } from "@/db/schema";
 import { and, desc, eq, lte, sql } from "drizzle-orm";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -13,7 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Package, AlertTriangle, PackageX, Eye } from "lucide-react";
+import { Package, AlertTriangle, PackageX } from "lucide-react";
 import { AGENT_REGISTRY } from "@/lib/agents/registry";
 import { ReorderTrigger } from "@/components/agents/reorder-trigger";
 import { ReorderApprovalCard } from "@/components/agents/reorder-approval-card";
@@ -182,13 +181,16 @@ export default async function InventoryPage() {
                     <TableHead className="text-right">On Hand</TableHead>
                     <TableHead className="text-right">Reorder Level</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {lowStockProducts.map((product) => (
                     <TableRow key={product.id}>
-                      <TableCell className="font-medium">{product.name}</TableCell>
+                      <TableCell className="font-medium">
+                        <Link href={`/products/${product.id}`} className="hover:underline text-primary">
+                          {product.name}
+                        </Link>
+                      </TableCell>
                       <TableCell className="font-mono text-sm">{product.sku ?? "—"}</TableCell>
                       <TableCell>{product.unit}</TableCell>
                       <TableCell className="text-right font-mono">{product.quantityOnHand}</TableCell>
@@ -201,13 +203,6 @@ export default async function InventoryPage() {
                             Low stock
                           </Badge>
                         )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" asChild>
-                          <Link href={`/products/${product.id}`}>
-                            <Eye className="h-4 w-4" />
-                          </Link>
-                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -249,10 +244,10 @@ export default async function InventoryPage() {
                         <TableCell className="text-sm">
                           {txn.createdAt
                             ? new Date(txn.createdAt).toLocaleDateString("en-IN", {
-                                day: "numeric",
-                                month: "short",
-                                year: "numeric",
-                              })
+                              day: "numeric",
+                              month: "short",
+                              year: "numeric",
+                            })
                             : "—"}
                         </TableCell>
                         <TableCell>

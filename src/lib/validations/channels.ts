@@ -23,3 +23,9 @@ export const ChannelIdSchema = z.object({
 export const ChannelMappingIdSchema = z.object({
   id: z.coerce.number().int().positive("Invalid mapping ID"),
 });
+
+export const UpdateChannelSchema = z.object({
+  id: z.coerce.number().int().positive("Invalid channel ID"),
+  name: z.string().trim().min(1, "Channel name is required").max(255),
+  defaultPickupLocation: z.string().trim().optional().or(z.literal("")),
+});

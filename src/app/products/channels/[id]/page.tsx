@@ -14,6 +14,7 @@ import { TableSearch } from "@/components/ui/table-search";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { getChannel, getChannelProductsWithVariations } from "@/lib/channels/queries";
 import { parsePaginationParams } from "@/lib/utils/pagination";
+import { ClearProductsButton } from "@/components/channels/clear-products-button";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +55,10 @@ export default async function ChannelProductsPage({
             Browse all products fetched from {channel.name}. Total: {count}
           </p>
         </div>
-        <TableSearch placeholder="Search by name, SKU, or ID..." />
+        <div className="flex items-center gap-4">
+          <TableSearch placeholder="Search by name, SKU, or ID..." />
+          {count > 0 && <ClearProductsButton channelId={channelId} />}
+        </div>
       </div>
 
       <div className="rounded-md border bg-white shadow-sm overflow-hidden">

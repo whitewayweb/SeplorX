@@ -26,6 +26,7 @@ import { getChannelById } from "@/lib/channels/registry";
 import type { ChannelInstance } from "@/lib/channels/types";
 import { ChannelMappingTrigger } from "@/components/agents/channel-mapping-trigger";
 import { AGENT_REGISTRY } from "@/lib/agents/registry";
+import { EditChannelDialog } from "./edit-channel-dialog";
 
 // ─── Reconnect button (pending / disconnected OAuth channels) ─────────────────
 
@@ -208,7 +209,7 @@ function ChannelRowActions({ channel }: { channel: ChannelInstance }) {
   const isOAuth = definition?.authType === "oauth";
 
   return (
-    <div className="flex items-center gap-2 flex-wrap">
+    <div className="flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
       {disconnectState?.error && (
         <span className="text-destructive text-xs">{disconnectState.error}</span>
       )}
@@ -295,6 +296,7 @@ interface ChannelListProps {
 export function ChannelList({ channels, connected, mappedProductCounts }: ChannelListProps) {
   const router = useRouter();
   const shown = useRef(false);
+  const [editingChannel, setEditingChannel] = useState<ChannelInstance | null>(null);
 
   useEffect(() => {
     if (connected && !shown.current) {
@@ -328,7 +330,6 @@ export function ChannelList({ channels, connected, mappedProductCounts }: Channe
           <TableRow>
             <TableHead>Channel</TableHead>
             <TableHead>Type</TableHead>
-            <TableHead>Store URL</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Mapped Products</TableHead>
             <TableHead className="w-[320px]">Actions</TableHead>
@@ -340,8 +341,19 @@ export function ChannelList({ channels, connected, mappedProductCounts }: Channe
               channel.channelType as Parameters<typeof getChannelById>[0],
             );
             return (
-              <TableRow key={channel.id}>
-                <TableCell className="font-medium">{channel.name}</TableCell>
+              <TableRow
+                key={channel.id}
+                className="cursor-pointer hover:bg-muted/30 transition-colors"
+                onClick={() => setEditingChannel(channel)}
+              >
+                <TableCell>
+                  <div className="font-medium">{channel.name}</div>
+                  {channel.storeUrl && (
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      {channel.storeUrl}
+                    </div>
+                  )}
+                </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
                     {definition?.icon ? (
@@ -360,11 +372,7 @@ export function ChannelList({ channels, connected, mappedProductCounts }: Channe
                     </span>
                   </div>
                 </TableCell>
-                <TableCell>
-                  <span className="text-muted-foreground text-sm">
-                    {channel.storeUrl ?? "—"}
-                  </span>
-                </TableCell>
+
                 <TableCell>
                   <ChannelStatusBadge status={channel.status} />
                 </TableCell>
@@ -383,6 +391,14 @@ export function ChannelList({ channels, connected, mappedProductCounts }: Channe
           })}
         </TableBody>
       </Table>
+      {editingChannel && (
+        <EditChannelDialog
+          channel={editingChannel}
+          onOpenChange={(open) => {
+            if (!open) setEditingChannel(null);
+          }}
+        />
+      )}
     </div>
   );
 }
