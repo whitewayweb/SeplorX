@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState, startTransition } from "react";
+import { useActionState, useEffect, startTransition } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,38 +23,24 @@ interface EditChannelDialogProps {
 
 export function EditChannelDialog({ channel, onOpenChange }: EditChannelDialogProps) {
   const [state, action, pending] = useActionState(updateChannel, null);
-  const [name, setName] = useState("");
-  const [pickupLocation, setPickupLocation] = useState("");
-  const [config, setConfig] = useState<Record<string, string>>({});
-  const [loadingConfig, setLoadingConfig] = useState(false);
+
+  const [configState, fetchConfigAction, fetchingConfig] = useActionState(
+    async (_state: Record<string, string>, channelId: number) => {
+      const res = await getChannelConfig(channelId);
+      return res.success && res.config ? res.config : {};
+    },
+    {}
+  );
 
   const channelDef = channel ? getChannelById(channel.channelType as ChannelType) : null;
 
-  const [prevChannelId, setPrevChannelId] = useState<number | undefined>(undefined);
-  if (channel?.id !== prevChannelId) {
-    setPrevChannelId(channel?.id);
-    setName(channel?.name || "");
-    setPickupLocation(channel?.defaultPickupLocation || "");
-    setLoadingConfig(!!channel);
-    if (!channel) setConfig({});
-  }
-
   useEffect(() => {
     if (channel) {
-      // Load config fields asynchronously
-      let active = true;
-      getChannelConfig(channel.id)
-        .then((res) => {
-          if (active && res.success && res.config) {
-            setConfig(res.config);
-          }
-        })
-        .finally(() => {
-          if (active) setLoadingConfig(false);
-        });
-      return () => { active = false; };
+      startTransition(() => {
+        fetchConfigAction(channel.id);
+      });
     }
-  }, [channel]);
+  }, [channel, fetchConfigAction]);
 
   useEffect(() => {
     if (state?.success) {
@@ -76,7 +62,7 @@ export function EditChannelDialog({ channel, onOpenChange }: EditChannelDialogPr
         <DialogHeader>
           <DialogTitle>Edit Channel</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4 py-4">
+        <form key={channel?.id || "empty"} onSubmit={handleSubmit} className="space-y-4 py-4">
           <input type="hidden" name="id" value={channel?.id || ""} />
 
           <div className="space-y-2">
@@ -84,8 +70,7 @@ export function EditChannelDialog({ channel, onOpenChange }: EditChannelDialogPr
             <Input
               id="edit-name"
               name="name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
+              defaultValue={channel?.name || ""}
               placeholder="e.g. My Awesome Store"
               required
             />
@@ -99,8 +84,7 @@ export function EditChannelDialog({ channel, onOpenChange }: EditChannelDialogPr
             <Input
               id="edit-pickup"
               name="defaultPickupLocation"
-              value={pickupLocation}
-              onChange={(e) => setPickupLocation(e.target.value)}
+              defaultValue={channel?.defaultPickupLocation || ""}
               placeholder="e.g. Main Warehouse"
             />
             {state?.fieldErrors?.defaultPickupLocation && (
@@ -108,7 +92,7 @@ export function EditChannelDialog({ channel, onOpenChange }: EditChannelDialogPr
             )}
           </div>
 
-          {!loadingConfig && channelDef?.configFields?.map((field) => (
+          {!fetchingConfig && channelDef?.configFields?.map((field) => (
             <div key={field.key} className="space-y-2">
               <Label htmlFor={`config-${field.key}`}>
                 {field.label}
@@ -116,8 +100,7 @@ export function EditChannelDialog({ channel, onOpenChange }: EditChannelDialogPr
               {field.type === "select" && field.options ? (
                 <Select
                   name={field.key}
-                  value={config[field.key] ?? ""}
-                  onValueChange={(value) => setConfig((prev) => ({ ...prev, [field.key]: value }))}
+                  defaultValue={configState[field.key] ?? ""}
                 >
                   <SelectTrigger id={`config-${field.key}`}>
                     <SelectValue placeholder={field.placeholder ?? "Select..."} />
@@ -136,8 +119,7 @@ export function EditChannelDialog({ channel, onOpenChange }: EditChannelDialogPr
                   name={field.key}
                   type={field.type === "password" ? "password" : field.type === "url" ? "url" : "text"}
                   placeholder={field.type === "password" ? "Leave blank to keep unchanged" : field.placeholder}
-                  value={config[field.key] ?? ""}
-                  onChange={(e) => setConfig((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                  defaultValue={configState[field.key] ?? ""}
                 />
               )}
             </div>
@@ -156,7 +138,7 @@ export function EditChannelDialog({ channel, onOpenChange }: EditChannelDialogPr
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={pending || !name.trim()}>
+            <Button type="submit" disabled={pending}>
               {pending ? "Saving..." : "Save Changes"}
             </Button>
           </div>

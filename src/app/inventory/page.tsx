@@ -181,7 +181,6 @@ export default async function InventoryPage() {
                     <TableHead className="text-right">On Hand</TableHead>
                     <TableHead className="text-right">Reorder Level</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useOptimistic } from "react";
+import { useOptimistic, useTransition } from "react";
 import { toast } from "sonner";
 import Link from "next/link";
 import {
@@ -46,20 +46,19 @@ function StockBadge({ quantity, reorderLevel }: { quantity: number; reorderLevel
 }
 
 function ToggleButton({ product, onToggleOptimistic }: { product: Product, onToggleOptimistic: () => void }) {
-  const [state, action, pending] = useActionState(toggleProductActive, null);
-
-  useEffect(() => {
-    if (state?.error) {
-      toast.error(state.error);
-    } else if (state?.success) {
-      toast.success("Product status updated");
-    }
-  }, [state]);
+  const [pending, startTransition] = useTransition();
 
   return (
     <form action={(formData) => {
-      onToggleOptimistic();
-      action(formData);
+      startTransition(async () => {
+        onToggleOptimistic();
+        const result = await toggleProductActive(null, formData);
+        if (result.error) {
+          toast.error(result.error);
+        } else if (result.success) {
+          toast.success("Product status updated");
+        }
+      });
     }}>
       <input type="hidden" name="id" value={product.id} />
       <Button
@@ -76,21 +75,20 @@ function ToggleButton({ product, onToggleOptimistic }: { product: Product, onTog
 }
 
 function DeleteButton({ product, onDeleteOptimistic }: { product: Product, onDeleteOptimistic: () => void }) {
-  const [state, action, pending] = useActionState(deleteProduct, null);
-
-  useEffect(() => {
-    if (state?.error) {
-      toast.error(state.error);
-    } else if (state?.success) {
-      toast.success("Product deleted successfully");
-    }
-  }, [state]);
+  const [pending, startTransition] = useTransition();
 
   return (
     <form
       action={(formData) => {
-        onDeleteOptimistic();
-        action(formData);
+        startTransition(async () => {
+          onDeleteOptimistic();
+          const result = await deleteProduct(null, formData);
+          if (result.error) {
+            toast.error(result.error);
+          } else if (result.success) {
+            toast.success("Product deleted successfully");
+          }
+        });
       }}
       onSubmit={(e) => {
         if (!window.confirm("Are you sure you want to delete this product?")) {

@@ -78,6 +78,11 @@ export async function updateChannelService(
   const newCredentials = { ...(existingChannel.credentials || {}) };
 
   if (channelDef?.configFields) {
+    if (channelDef.validateConfig) {
+      const configError = channelDef.validateConfig(rawConfig);
+      if (configError) throw new Error(configError);
+    }
+
     for (const field of channelDef.configFields) {
       const val = rawConfig[field.key];
       if (val && typeof val === "string" && val.trim() !== "") {

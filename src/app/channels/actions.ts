@@ -8,6 +8,7 @@ import { CreateChannelSchema, ChannelIdSchema, UpdateChannelSchema } from "@/lib
 import { getChannelById } from "@/lib/channels/registry";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
 import type { ChannelType } from "@/lib/channels/types";
+import { z } from "zod";
 import {
   createChannelService,
   updateChannelService,
@@ -88,6 +89,9 @@ export async function updateChannel(_prevState: unknown, formData: FormData) {
 }
 
 export async function getChannelConfig(channelId: number) {
+  const parsed = z.number().int().positive().safeParse(channelId);
+  if (!parsed.success) return { error: "Invalid channel ID." };
+
   try {
     const existing = await db
       .select({ channelType: channels.channelType, storeUrl: channels.storeUrl, credentials: channels.credentials })
@@ -119,6 +123,9 @@ export async function getChannelConfig(channelId: number) {
 }
 
 export async function resetChannelStatus(channelId: number) {
+  const parsed = z.number().int().positive().safeParse(channelId);
+  if (!parsed.success) return { error: "Invalid channel ID." };
+
   try {
     const row = await resetChannelStatusService(CURRENT_USER_ID, channelId);
     revalidatePath("/channels");
