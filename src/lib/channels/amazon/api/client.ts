@@ -203,7 +203,6 @@ export class AmazonAPIClient {
         id: asin,
         name,
         sku: sku || undefined,
-        type: "simple" as const,
         stockQuantity: isNaN(stockQuantity) ? undefined : stockQuantity,
         rawPayload,
       });

@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { channels } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { CreateChannelSchema, ChannelIdSchema } from "@/lib/validations/channels";
+import { CreateChannelSchema, ChannelIdSchema, UpdateChannelSchema } from "@/lib/validations/channels";
 import { getChannelById } from "@/lib/channels/registry";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
@@ -85,6 +85,108 @@ export async function createChannel(_prevState: unknown, formData: FormData) {
   } catch (err) {
     console.error("[createChannel]", { error: String(err) });
     return { error: "Failed to create channel. Please try again." };
+  }
+}
+
+export async function updateChannel(_prevState: unknown, formData: FormData) {
+  const parsed = UpdateChannelSchema.safeParse({
+    id: formData.get("id"),
+    name: String(formData.get("name") || ""),
+    defaultPickupLocation: (formData.get("defaultPickupLocation") as string) || undefined,
+  });
+
+  if (!parsed.success) {
+    return {
+      error: "Validation failed.",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  try {
+    const existing = await db
+      .select({ 
+        id: channels.id, 
+        channelType: channels.channelType, 
+        credentials: channels.credentials,
+        storeUrl: channels.storeUrl 
+      })
+      .from(channels)
+      .where(
+        and(
+          eq(channels.id, parsed.data.id),
+          eq(channels.userId, CURRENT_USER_ID)
+        )
+      )
+      .limit(1);
+
+    if (existing.length === 0) return { error: "Channel not found." };
+    const existingChannel = existing[0];
+    const channelDef = getChannelById(existingChannel.channelType as ChannelType);
+
+    let storeUrl = existingChannel.storeUrl;
+    let newCredentials = { ...(existingChannel.credentials || {}) };
+
+    if (channelDef?.configFields) {
+      for (const field of channelDef.configFields) {
+        const val = formData.get(field.key);
+        // Only update if a value was provided (passwords might be left blank to remain unchanged)
+        if (val && typeof val === "string" && val.trim() !== "") {
+          if (field.key === "storeUrl") {
+            storeUrl = val.trim();
+          } else {
+            newCredentials[field.key] = encrypt(val.trim());
+          }
+        }
+      }
+    }
+
+    await db
+      .update(channels)
+      .set({
+        name: parsed.data.name,
+        defaultPickupLocation: parsed.data.defaultPickupLocation || null,
+        storeUrl,
+        credentials: newCredentials,
+        updatedAt: new Date(),
+      })
+      .where(eq(channels.id, parsed.data.id));
+
+    revalidatePath("/channels");
+    return { success: true };
+  } catch (err) {
+    console.error("[updateChannel]", { error: String(err) });
+    return { error: "Failed to update channel. Please try again." };
+  }
+}
+
+export async function getChannelConfig(channelId: number) {
+  try {
+    const existing = await db
+      .select({ channelType: channels.channelType, storeUrl: channels.storeUrl, credentials: channels.credentials })
+      .from(channels)
+      .where(and(eq(channels.id, channelId), eq(channels.userId, CURRENT_USER_ID)))
+      .limit(1);
+
+    if (existing.length === 0) return { error: "Not found" };
+
+    const channelDef = getChannelById(existing[0].channelType as ChannelType);
+    const decryptedCreds = decryptChannelCredentials(existing[0].credentials || {});
+
+    const config: Record<string, string> = {};
+    if (existing[0].storeUrl) {
+      config.storeUrl = existing[0].storeUrl;
+    }
+
+    if (channelDef?.configFields) {
+      for (const field of channelDef.configFields) {
+        if (field.key !== "storeUrl" && decryptedCreds[field.key] && field.type !== "password") {
+          config[field.key] = decryptedCreds[field.key];
+        }
+      }
+    }
+    return { success: true, config };
+  } catch (err) {
+    return { error: "Failed to load config." };
   }
 }
 
