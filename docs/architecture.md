@@ -103,15 +103,20 @@ Next.js App Router enforces a clear separation between server and client code. T
 
 **Data Access Layer (DAL)** (`src/lib/*/queries.ts`):
 - Pure TypeScript functions containing raw SQL/Drizzle queries
-- Extracts database logic away from UI components (Server Components) and Server Actions
-- Ensures queries are reusable across pages, actions, and API routes
-- **CRITICAL**: Server Components and Actions must *never* import `db` or `pgTable` directly if a DAL function can be used instead.
+- Extracts reusable Read logic away from UI components (Server Components) and Server Actions
+- **CRITICAL**: Server Components configure standard fetch via DAL.
+
+**Service Layer (Business Logic)** (`src/lib/*/services.ts`):
+- **Only necessary for complex features**. Pure TypeScript functions executing mutation business logic.
+- Execute Drizzle ORM transactions spanning multiple domains.
+- Call external providers (e.g., third-party API syncing, payment gateways), hash/encrypt data, construct errors.
+- Extract logic to a service *only* if it exceeds basic CRUD, needs to be shared across distinct entry points (like an AI Agent or API Route), or is highly complex and testable business logic.
+- Do not import `FormData` or UI routing states.
 
 **Server Components** (the default):
-- Fetch data by importing functions from the DAL (e.g., `getUserChannels()`, `getChannelProductsWithVariations()`)
-- Render HTML on the server
-- Cannot use hooks (`useState`, `useEffect`), browser APIs, or event handlers
-- Do **not** write raw ORM queries or raw SQL inline.
+- Fetch data by importing functions from the DAL.
+- Render HTML on the server.
+- Cannot use hooks (`useState`, `useEffect`), browser APIs, or event handlers.
 
 **Client Components** (`"use client"` directive):
 - Handle user interactivity: forms, dialogs, click handlers, state
@@ -119,28 +124,34 @@ Next.js App Router enforces a clear separation between server and client code. T
 - Receive data from server components via props
 - Use `useActionState` for form submissions with server actions
 
-**Server Actions** (`"use server"` directive):
+**Controllers / Server Actions** (`"use server"` directive):
+- Found in `src/app/*/actions.ts`.
 - The only way to perform mutations (create, update, delete)
-- Accept `FormData`, validate with Zod, interact with DB, call `revalidatePath`
-- Return `{ success: true }` or `{ error: string }`
+- Accept `FormData`, validate with Zod.
+- Route request parameters into the Service Layer.
+- Catch domain errors, handle Next.js caching (`revalidatePath`), return UI states:`{ success: true }` or `{ error: string }`.
 
 **Data Flow:**
 ```
 DAL (execute raw query)
   → Server Component (call DAL, format data)
     → props → Client Component (render UI & capture input)
-      → Server Action (validate + mutate)
-        → revalidatePath (refresh Server Component)
+      → Server Action (validate UI payload)
+        → Service Layer (execute mutation/transaction)
+          → Server Action (revalidatePath)
 ```
 
-### 2. Minimal Engineering
+### 2. Pragmatic Engineering (Avoid Folder Sprawl)
 
 Do the minimum required work, but do it correctly:
 
+- **Fat Actions for CRUD**: For basic Create, Read, Update, Delete operations (e.g., managing Companies), do *not* create a dedicated Service layer. Validate input with Zod and write `db.insert()` directly inside `src/app/<domain>/actions.ts`. This keeps the filesystem light and the code highly readable.
+- **Service Layer for Complexity**: Move logic out of the Server Action and into `src/lib/<domain>/services.ts` **only when**:
+  1. The action file grows too large (~300+ lines) or handles complex domain logic (e.g., cryptographic key saving or multi-step API synchronization).
+  2. The exact same mutation logic must be triggered by a human via UI *and* by an AI Agent, Webhook, or Cron Job.
 - **No premature abstractions**: Extract shared code only when 3+ concrete callsites exist. Three similar lines of code is better than one premature helper.
 - **No speculative features**: Don't add configuration, feature flags, or extensibility points for hypothetical future requirements.
 - **No over-validation**: Validate at system boundaries (server actions receive untrusted FormData). Trust internal code.
-- **Inline first, extract later**: If a pattern is used once, inline it. If it appears across multiple modules, extract it.
 
 ### 3. Scalable Database Patterns
 
