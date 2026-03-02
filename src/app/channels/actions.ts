@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/db";
-import { channels } from "@/db/schema";
+import { channels, channelProducts } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { CreateChannelSchema, ChannelIdSchema, UpdateChannelSchema } from "@/lib/validations/channels";
@@ -403,5 +403,30 @@ export async function syncChannelProducts(channelId: number) {
   } catch (err) {
     console.error("[syncChannelProducts]", { channelId: validatedChannelId, error: String(err) });
     return { error: String(err).replace(/^Error:\s*/, "").substring(0, 200) };
+  }
+}
+
+export async function clearChannelProducts(channelId: number) {
+  const parsed = ChannelIdSchema.safeParse({ id: channelId });
+  if (!parsed.success) return { error: "Invalid channel ID." };
+  const validatedChannelId = parsed.data.id;
+
+  try {
+    const rows = await db
+      .select({ id: channels.id })
+      .from(channels)
+      .where(and(eq(channels.id, validatedChannelId), eq(channels.userId, CURRENT_USER_ID)))
+      .limit(1);
+
+    if (rows.length === 0) return { error: "Channel not found." };
+
+    await db.delete(channelProducts).where(eq(channelProducts.channelId, validatedChannelId));
+
+    revalidatePath("/channels");
+    revalidatePath(`/products/channels/${validatedChannelId}`);
+    return { success: true };
+  } catch (err) {
+    console.error("[clearChannelProducts]", { channelId: validatedChannelId, error: String(err) });
+    return { error: "Failed to clear products. Please try again." };
   }
 }
