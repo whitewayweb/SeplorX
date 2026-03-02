@@ -57,7 +57,7 @@ export default async function ChannelProductsPage({
         </div>
         <div className="flex items-center gap-4">
           <TableSearch placeholder="Search by name, SKU, or ID..." />
-          <ClearProductsButton channelId={channelId} />
+          {count > 0 && <ClearProductsButton channelId={channelId} />}
         </div>
       </div>
 
