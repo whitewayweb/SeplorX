@@ -119,6 +119,7 @@ export const woocommerceHandler: ChannelHandler = {
         sku: p.sku || undefined,
         stockQuantity: p.stock_quantity ?? undefined,
         type: productType,
+        rawPayload: p as unknown as Record<string, unknown>,
       });
     }
 
@@ -169,6 +170,7 @@ export const woocommerceHandler: ChannelHandler = {
           stockQuantity: v.stock_quantity ?? undefined,
           type: "variation",
           parentId: String(p.id),
+          rawPayload: v as unknown as Record<string, unknown>,
         });
       }
     }

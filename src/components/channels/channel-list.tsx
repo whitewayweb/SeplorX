@@ -3,7 +3,7 @@
 import { useActionState, useTransition, useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Store, Webhook } from "lucide-react";
+import { Store, Webhook, PackageSearch, PlugZap } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +20,7 @@ import {
   deleteChannel,
   resetChannelStatus,
   registerChannelWebhooks,
+  syncChannelProducts,
 } from "@/app/channels/actions";
 import { getChannelById } from "@/lib/channels/registry";
 import type { ChannelInstance } from "@/lib/channels/types";
@@ -114,6 +115,81 @@ function RegisterWebhooksButton({ channelId }: { channelId: number }) {
   );
 }
 
+// ─── Reconnect button for API-key channels ────────────────────────────────────
+
+function ReconnectApiKeyButton({
+  channelId,
+  channelType,
+}: {
+  channelId: number;
+  channelType: string;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function handleReconnect() {
+    setError(null);
+    startTransition(async () => {
+      const result = await resetChannelStatus(channelId);
+      if (!result.success) {
+        setError(result.error ?? "Something went wrong.");
+        return;
+      }
+      // Redirect to the new-channel dialog pre-filtered to this type so the
+      // user can re-enter their API credentials.
+      router.push(`/channels?reconnect=${channelId}&type=${channelType}`);
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      {error && <span className="text-destructive text-xs">{error}</span>}
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={handleReconnect}
+        disabled={pending}
+      >
+        <PlugZap className="h-3 w-3 mr-1" />
+        {pending ? "Reconnecting…" : "Reconnect"}
+      </Button>
+    </div>
+  );
+}
+
+// ─── Fetch Products button ────────────────────────────────────────────────────
+
+function FetchProductsButton({ channelId }: { channelId: number }) {
+  const [pending, startTransition] = useTransition();
+
+  function handleFetch() {
+    startTransition(async () => {
+      const res = await syncChannelProducts(channelId);
+      if (res.error) {
+        toast.error("Fetch failed", { description: res.error });
+      } else {
+        toast.success("Products Synced", {
+          description: `Successfully cached ${res.count} products from this channel.`,
+        });
+      }
+    });
+  }
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={handleFetch}
+      disabled={pending}
+      title="Fetch products from this channel"
+    >
+      <PackageSearch className="h-3 w-3 mr-1" />
+      {pending ? "Fetching…" : "Fetch Products"}
+    </Button>
+  );
+}
+
 // ─── Row actions ──────────────────────────────────────────────────────────────
 
 function ChannelRowActions({ channel }: { channel: ChannelInstance }) {
@@ -157,6 +233,12 @@ function ChannelRowActions({ channel }: { channel: ChannelInstance }) {
           label="Reconnect"
         />
       )}
+      {!isOAuth && channel.status === "disconnected" && (
+        <ReconnectApiKeyButton
+          channelId={channel.id}
+          channelType={channel.channelType}
+        />
+      )}
 
       {/* Register Webhooks: connected channels that support webhooks and haven't registered yet */}
       {channel.status === "connected" && !channel.hasWebhooks && (() => {
@@ -166,15 +248,21 @@ function ChannelRowActions({ channel }: { channel: ChannelInstance }) {
         ) : null;
       })()}
 
-      {/* AI Auto-Map: connected channels that support product listing */}
-      {channel.status === "connected" &&
-        AGENT_REGISTRY.channelMapping.enabled &&
-        (() => {
-          const def = getChannelById(channel.channelType as Parameters<typeof getChannelById>[0]);
-          return def?.capabilities?.canFetchProducts ? (
-            <ChannelMappingTrigger channelId={channel.id} />
-          ) : null;
-        })()}
+      {/* Fetch Products: connected channels that can fetch products */}
+      {channel.status === "connected" && (() => {
+        const def = getChannelById(channel.channelType as Parameters<typeof getChannelById>[0]);
+        return def?.capabilities?.canFetchProducts ? (
+          <FetchProductsButton channelId={channel.id} />
+        ) : null;
+      })()}
+
+      {/* AI Auto-Map: connected channels that can fetch products and have a product cache */}
+      {channel.status === "connected" && AGENT_REGISTRY.channelMapping.enabled && (() => {
+        const def = getChannelById(channel.channelType as Parameters<typeof getChannelById>[0]);
+        return def?.capabilities?.canFetchProducts && channel.cachedProductCount > 0 ? (
+          <ChannelMappingTrigger channelId={channel.id} />
+        ) : null;
+      })()}
 
       {/* Disconnect: only when connected */}
       {channel.status === "connected" && (

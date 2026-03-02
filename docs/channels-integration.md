@@ -213,7 +213,42 @@ const handler = getChannelHandler("woocommerce");  // returns null for unknown t
 
 **Adding a new topic to WooCommerce webhooks** (e.g. `order.completed`): add the topic to `webhookTopics` and handle it in `processWebhook` inside `woocommerce/index.ts`. No changes to the generic webhook route.
 
-**`fetchProducts` is optional** — declare `capabilities.canFetchProducts: true` and implement `fetchProducts()` to make the channel work with the AI auto-mapper and the Add Products drawer. Channels without it (e.g. future push-only channels) simply don't implement it.
+**`fetchProducts` caching** — declare `capabilities.canFetchProducts: true` and implement `fetchProducts()`. This method is called by the `syncChannelProducts` Server Action, which saves the results to the local `channel_products` cache table via the `upsertChannelProducts` DAL function. All AI mapping and product browsing reads from this high-performance cache rather than hitting external APIs on the fly.
+
+### Product Cache Schema (`channel_products`)
+
+| Column | Type | Description |
+|---|---|---|
+| `external_id` | `varchar` | Primary identifier from the source (WC ID, Amazon ASIN, etc.) |
+| `name` | `varchar` | Display name |
+| `sku` | `varchar` | Product SKU (optional) |
+| `type` | `varchar` | `simple`, `variable`, or `variation` |
+| `stock_quantity`| `integer` | Local cached stock level |
+| `raw_data` | `jsonb` | Full payload + normalized `parentId` for variations |
+
+### Product Browsing & Pagination
+
+The Channel Products page (`/products/channels/[id]`) implements high-performance server-side browsing:
+
+1.  **Parent-Centric Pagination**: The primary query only selects top-level products (`type != 'variation'`).
+2.  **Recursive Search**: If a search query matches a child variation (e.g., by SKU), a SQL `EXISTS` subquery ensures the parent product is also returned in the results.
+3.  **Parent-Child Nesting**: Variations are fetched in a secondary query for the current page's parents and rendered as nested child rows (↳ indicator) for visual clarity.
+4.  **Interactive Pagination**: Supports custom page limits (20–100) and direct "Go to page" jumping.
+5.  **Data Access Layer**: All database interactions are encapsulated in `src/lib/channels/queries.ts`.
+
+---
+
+## Channel API Client Pattern
+
+For complex channels (like Amazon SP-API), `fetchProducts` and other operations can become unwieldy due to token refreshing, polling, signing requests, and pagination.
+
+Instead of stuffing all this logic into the generic `index.ts` handler file, use the **API Client Pattern**:
+
+1. Create `src/lib/channels/{channel_id}/api/client.ts`.
+2. Encapsulate token generation, fetching, polling, and data parsing inside an object-oriented class (e.g., `AmazonAPIClient`).
+3. Keep the `index.ts` handler as a simple interface adapter that instantiates the client and calls its high-level methods.
+
+This pattern enforces a clean boundary between "SeplorX framework requirements" (the Handler) and "External channel communication" (the Client).
 
 ---
 

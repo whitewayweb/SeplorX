@@ -31,6 +31,8 @@ export interface ChannelInstance {
   createdAt: Date | null;
   /** True if webhook credentials are registered for this channel (derived server-side) */
   hasWebhooks?: boolean;
+  /** Number of products synced into the local cache for this channel */
+  cachedProductCount: number;
 }
 
 // ─── Channel Handler (per-channel-type plugin interface) ─────────────────────
@@ -66,6 +68,8 @@ export interface ExternalProduct {
   type?: "simple" | "variable" | "variation";
   /** For variations: the parent variable product ID */
   parentId?: string;
+  /** Complete raw payload from the channel API to be stored in the DB */
+  rawPayload: Record<string, unknown>;
 }
 
 export interface ChannelCapabilities {

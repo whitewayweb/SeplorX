@@ -8,6 +8,7 @@ import { CreateChannelSchema, ChannelIdSchema } from "@/lib/validations/channels
 import { getChannelById } from "@/lib/channels/registry";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
+import { upsertChannelProducts } from "@/lib/channels/queries";
 import type { ChannelType } from "@/lib/channels/types";
 import { encrypt } from "@/lib/crypto";
 import { env } from "@/lib/env";
@@ -32,55 +33,36 @@ export async function createChannel(_prevState: unknown, formData: FormData) {
   try {
     const channelDef = getChannelById(parsed.data.channelType as ChannelType);
 
-    // Block channels that are not yet available (e.g. "Coming Soon") from being
-    // created via crafted requests that bypass the UI wizard.
+    // Guard: block unavailable or unknown channel types from being created,
+    // even if the UI hides them — crafted POST requests could bypass it.
     if (!channelDef || !channelDef.available) {
-      return {
-        error: "This channel is not available.",
-        fieldErrors: { channelType: ["This channel type is not currently available."] },
-      };
+      return { error: "This channel type is not available." };
     }
 
     const credentials: Record<string, string> = {};
     let status: "pending" | "connected" | "disconnected" = "pending";
 
     if (channelDef.authType === "apikey" && channelDef.configFields) {
-      // Collect raw (unencrypted) values for all config fields so we can
-      // validate them before committing anything to the database.
-      const rawConfig: Partial<Record<string, string>> = {};
-
-      // storeUrl comes from the top-level parsed field (it is stored in its
-      // own DB column), all other fields land in the credentials JSON blob.
-      rawConfig["storeUrl"] = parsed.data.storeUrl || undefined;
-
+      // Collect all config values first so validateConfig can inspect them.
+      const rawConfig: Record<string, string> = {};
       for (const field of channelDef.configFields) {
-        if (field.key !== "storeUrl") {
-          const val = formData.get(field.key);
-          if (val && typeof val === "string") {
-            rawConfig[field.key] = val;
-          }
+        const val = formData.get(field.key);
+        if (val && typeof val === "string") {
+          rawConfig[field.key] = val;
         }
       }
 
-      // Run the channel-specific validation before touching the DB.
+      // Run channel-specific validation before touching the DB.
       if (channelDef.validateConfig) {
         const configError = channelDef.validateConfig(rawConfig);
-        if (configError) {
-          return {
-            error: configError,
-            fieldErrors: { config: [configError] },
-          };
-        }
+        if (configError) return { error: configError };
       }
 
-      // Validation passed – encrypt and store credentials.
+      // Encrypt and store credentials (exclude storeUrl — stored in its own column).
       status = "connected";
-      for (const field of channelDef.configFields) {
-        if (field.key !== "storeUrl") {
-          const val = rawConfig[field.key];
-          if (val) {
-            credentials[field.key] = encrypt(val);
-          }
+      for (const [key, val] of Object.entries(rawConfig)) {
+        if (key !== "storeUrl") {
+          credentials[key] = encrypt(val);
         }
       }
     }
@@ -253,4 +235,71 @@ export async function deleteChannel(_prevState: unknown, formData: FormData) {
 
   revalidatePath("/channels");
   return { success: true };
+}
+
+// ─── Sync Products ─────────────────────────────────────────────────────────────
+
+export async function syncChannelProducts(channelId: number) {
+  const parsed = ChannelIdSchema.safeParse({ id: channelId });
+  if (!parsed.success) return { error: "Invalid channel ID." };
+  const validatedChannelId = parsed.data.id;
+
+  try {
+    const rows = await db
+      .select({
+        id: channels.id,
+        channelType: channels.channelType,
+        storeUrl: channels.storeUrl,
+        credentials: channels.credentials,
+        status: channels.status,
+      })
+      .from(channels)
+      .where(and(eq(channels.id, validatedChannelId), eq(channels.userId, CURRENT_USER_ID)))
+      .limit(1);
+
+    if (rows.length === 0) return { error: "Channel not found." };
+
+    const channel = rows[0];
+    if (channel.status !== "connected") return { error: "Channel is not connected." };
+    if (!channel.storeUrl) return { error: "Channel has no store URL." };
+
+    const handler = getChannelHandler(channel.channelType);
+    if (!handler || !handler.capabilities.canFetchProducts || !handler.fetchProducts) {
+      return { error: "This channel type does not support fetching products." };
+    }
+
+    const decryptedCreds = decryptChannelCredentials(channel.credentials);
+    if (Object.keys(decryptedCreds).length === 0) return { error: "Channel credentials missing." };
+
+    // NOTE: `fetchProducts` may be long-running for some channel types (e.g. Amazon SP-API
+    // creates a report and polls for up to ~55 s). Ensure the hosting environment (Vercel
+    // function duration, etc.) is configured to allow sufficient time for this channel type.
+    const externalProducts = await handler.fetchProducts(channel.storeUrl, decryptedCreds);
+
+
+
+    if (externalProducts.length > 0) {
+      const BATCH_SIZE = 100;
+      for (let i = 0; i < externalProducts.length; i += BATCH_SIZE) {
+        const batch = externalProducts.slice(i, i + BATCH_SIZE).map((p) => ({
+          channelId: validatedChannelId,
+          externalId: p.id,
+          name: p.name,
+          sku: p.sku || null,
+          stockQuantity: p.stockQuantity ?? null,
+          type: p.type || null,
+          rawData: { ...p.rawPayload, parentId: p.parentId },
+        }));
+
+        await upsertChannelProducts(batch);
+      }
+    }
+
+
+    revalidatePath("/channels");
+    return { success: true, count: externalProducts.length };
+  } catch (err) {
+    console.error("[syncChannelProducts]", { channelId: validatedChannelId, error: String(err) });
+    return { error: String(err).replace(/^Error:\s*/, "").substring(0, 200) };
+  }
 }

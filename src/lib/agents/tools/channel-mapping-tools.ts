@@ -9,10 +9,8 @@
 import { tool, zodSchema } from "ai";
 import { z } from "zod";
 import { db } from "@/db";
-import { products, channels, channelProductMappings, agentActions } from "@/db/schema";
+import { products, channels, channelProductMappings, agentActions, channelProducts } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
-import { getChannelHandler } from "@/lib/channels/handlers";
-import { decryptChannelCredentials } from "@/lib/channels/utils";
 
 const CURRENT_USER_ID = 1;
 
@@ -95,27 +93,19 @@ export const getChannelProducts = tool({
       throw new Error(`Channel ${channelId} is not connected (status: ${channel.status}).`);
     }
 
-    const handler = getChannelHandler(channel.channelType);
-    if (!handler || !handler.capabilities.canFetchProducts || !handler.fetchProducts) {
-      throw new Error(`Channel type "${channel.channelType}" does not support product listing.`);
+    const channelProductsRows = await db
+      .select({
+        id: channelProducts.externalId,
+        name: channelProducts.name,
+        sku: channelProducts.sku,
+        stockQuantity: channelProducts.stockQuantity,
+      })
+      .from(channelProducts)
+      .where(eq(channelProducts.channelId, channelId));
+
+    if (channelProductsRows.length === 0) {
+      return { message: "No products found in the cache for this channel. Please sync products first." };
     }
-
-    if (!channel.storeUrl) {
-      throw new Error(`Channel ${channelId} has no store URL configured.`);
-    }
-
-    // Decrypt all stored credentials generically — works for any channel type
-    // (WooCommerce: consumerKey/consumerSecret, Amazon: clientId/clientSecret/refreshToken, etc.).
-    const decryptedCreds = decryptChannelCredentials(channel.credentials);
-
-    if (Object.keys(decryptedCreds).length === 0) {
-      throw new Error(`Channel ${channelId} is missing credentials.`);
-    }
-
-    const externalProducts = await handler.fetchProducts(
-      channel.storeUrl,
-      decryptedCreds,
-    );
 
     // Collect all already-mapped externalProductIds for this channel
     const mappedRows = await db
@@ -126,7 +116,7 @@ export const getChannelProducts = tool({
     const mappedIds = new Set(mappedRows.map((r) => r.externalProductId));
     const alreadyMappedCount = mappedIds.size;
 
-    const unmappedProducts = externalProducts.filter((p) => !mappedIds.has(p.id));
+    const unmappedProducts = channelProductsRows.filter((p) => !mappedIds.has(p.id));
 
     return {
       channelName: channel.name,
