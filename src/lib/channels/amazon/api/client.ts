@@ -54,6 +54,47 @@ export class AmazonAPIClient {
     return await this.downloadAndParseReport(url, compressionAlgorithm, search);
   }
 
+  public async getCatalogItem(asin: string): Promise<ExternalProduct> {
+    if (!asin || typeof asin !== "string") {
+      throw new Error("A valid ASIN is required.");
+    }
+
+    const accessToken = await this.getAccessToken();
+
+    const url = new URL(`${this.endpoint}/catalog/2022-04-01/items/${encodeURIComponent(asin)}`);
+    url.searchParams.set("marketplaceIds", this.marketplaceId);
+    url.searchParams.set("includedData", "summaries");
+
+    const res = await fetch(url.toString(), {
+      headers: {
+        Accept: "application/json",
+        "x-amz-access-token": accessToken,
+      },
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[Amazon SP-API] getCatalogItem Error:", errText);
+      throw new Error(`Failed to get catalog item for ASIN ${asin}: ${res.status}`);
+    }
+
+    const data = await res.json();
+
+    // Extract item name from the summaries array
+    const summaries = data.summaries ?? [];
+    const itemName =
+      summaries.find((s: Record<string, unknown>) => s.marketplaceId === this.marketplaceId)?.itemName ??
+      summaries[0]?.itemName ??
+      asin;
+
+    return {
+      id: data.asin ?? asin,
+      name: itemName,
+      rawPayload: data,
+    };
+  }
+
   private async createListingReport(accessToken: string): Promise<string> {
     const createReportUrl = new URL(`${this.endpoint}/reports/2021-06-30/reports`);
     const createReportRes = await fetch(createReportUrl.toString(), {

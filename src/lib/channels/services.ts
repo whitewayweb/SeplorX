@@ -257,3 +257,49 @@ export async function clearChannelProductsService(userId: number, channelId: num
 
   await db.delete(channelProducts).where(eq(channelProducts.channelId, channelId));
 }
+
+export async function getCatalogItemService(userId: number, channelId: number, asin: string) {
+  const rows = await db
+    .select({
+      id: channels.id,
+      channelType: channels.channelType,
+      storeUrl: channels.storeUrl,
+      credentials: channels.credentials,
+      status: channels.status,
+    })
+    .from(channels)
+    .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
+    .limit(1);
+
+  if (rows.length === 0) throw new Error("Channel not found.");
+
+  const channel = rows[0];
+  if (channel.status !== "connected") throw new Error("Channel is not connected.");
+  if (!channel.storeUrl) throw new Error("Channel has no store URL.");
+
+  const handler = getChannelHandler(channel.channelType);
+  if (!handler || !handler.getCatalogItem) {
+    throw new Error("This channel type does not support fetching catalog items.");
+  }
+
+  const decryptedCreds = decryptChannelCredentials(channel.credentials);
+  if (Object.keys(decryptedCreds).length === 0) throw new Error("Channel credentials missing.");
+
+  const product = await handler.getCatalogItem(channel.storeUrl, decryptedCreds, asin);
+
+  // Upsert into channel_products cache
+  // Use the input `asin` (from the existing externalId) as the upsert key
+  // to guarantee ON CONFLICT matches the existing row, even if the API
+  // response contains a subtly different ASIN format.
+  await upsertChannelProducts([{
+    channelId,
+    externalId: asin,
+    name: product.name,
+    sku: product.sku || null,
+    stockQuantity: product.stockQuantity ?? null,
+    type: product.type || null,
+    rawData: { ...product.rawPayload, parentId: product.parentId },
+  }]);
+
+  return product;
+}

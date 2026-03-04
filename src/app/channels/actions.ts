@@ -17,7 +17,8 @@ import {
   deleteChannelService,
   registerChannelWebhooksService,
   syncChannelProductsService,
-  clearChannelProductsService
+  clearChannelProductsService,
+  getCatalogItemService,
 } from "@/lib/channels/services";
 
 const CURRENT_USER_ID = 1;
@@ -201,5 +202,37 @@ export async function clearChannelProducts(channelId: number) {
   } catch (err) {
     console.error("[clearChannelProducts]", { channelId: parsed.data.id, error: String(err) });
     return { error: "Failed to clear products. Please try again." };
+  }
+}
+
+export async function getCatalogItem(channelId: number, asin: string) {
+  const parsedId = ChannelIdSchema.safeParse({ id: channelId });
+  if (!parsedId.success) return { error: "Invalid channel ID." };
+
+  const parsedAsin = z.string().min(1).safeParse(asin);
+  if (!parsedAsin.success) return { error: "A valid ASIN is required." };
+
+  try {
+    const product = await getCatalogItemService(CURRENT_USER_ID, parsedId.data.id, parsedAsin.data);
+    revalidatePath("/channels");
+    return { success: true, product };
+  } catch (err) {
+    console.error("[getCatalogItem]", { channelId: parsedId.data.id, asin, error: String(err) });
+    return { error: String(err).replace(/^Error:\s*/, "").substring(0, 200) };
+  }
+}
+
+export async function getChannelProduct(productId: number) {
+  const parsed = z.number().int().positive().safeParse(productId);
+  if (!parsed.success) return { error: "Invalid product ID." };
+
+  try {
+    const { getChannelProductById } = await import("@/lib/channels/queries");
+    const product = await getChannelProductById(parsed.data);
+    if (!product) return { error: "Product not found." };
+    return { success: true, product };
+  } catch (err) {
+    console.error("[getChannelProduct]", { productId, error: String(err) });
+    return { error: "Failed to load product details." };
   }
 }

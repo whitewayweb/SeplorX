@@ -167,6 +167,7 @@ Step 4 calls `createChannel` server action, receives the new `channelId`, then r
 | `resetChannelStatus` | Reset `status="pending"`, wipe credentials — used by "Complete Setup" / "Reconnect" buttons |
 | `disconnectChannel` | UPDATE `status="disconnected"`, wipes credentials JSONB |
 | `deleteChannel` | DELETE the row entirely |
+| `getCatalogItem` | Fetch a single catalog item by ASIN (or external ID) via the channel's `getCatalogItem` handler method. Upserts the result into the `channel_products` cache. Returns `{ success, product }` or `{ error }`. |
 
 ## Environment Variables
 
@@ -202,6 +203,7 @@ interface ChannelHandler {
   registerWebhooks(storeUrl, credentials, baseUrl): Promise<{ secret: string }>;
   processWebhook(body, signature, topic, secret): WebhookStockChange[];
   fetchProducts?(storeUrl, credentials, search?): Promise<ExternalProduct[]>;  // optional
+  getCatalogItem?(storeUrl, credentials, externalId): Promise<ExternalProduct>; // optional — single-item fetch
 }
 ```
 
@@ -235,6 +237,7 @@ The Channel Products page (`/products/channels/[id]`) implements high-performanc
 3.  **Parent-Child Nesting**: Variations are fetched in a secondary query for the current page's parents and rendered as nested child rows (↳ indicator) for visual clarity.
 4.  **Interactive Pagination**: Supports custom page limits (20–100) and direct "Go to page" jumping.
 5.  **Data Access Layer**: All database interactions are encapsulated in `src/lib/channels/queries.ts`.
+6.  **Per-Row Refetch**: For channels that implement `getCatalogItem` (e.g. Amazon), each product row shows a refresh icon button that re-fetches the individual item from the channel API and upserts it into the cache — useful for updating a single product without a full sync.
 
 ---
 
