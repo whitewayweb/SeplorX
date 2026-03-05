@@ -2,6 +2,11 @@ import * as zlib from "node:zlib";
 import { promisify } from "node:util";
 import type { ExternalProduct } from "../../types";
 
+import { type SellersSchema } from "./types/sellersSchema";
+import { type CatalogItemsSchema } from "./types/catalogItemsSchema";
+import { type ProductTypesSchema } from "./types/productTypesSchema";
+import { type ListingsItemsSchema } from "./types/listingsItemsSchema";
+
 const gunzipAsync = promisify(zlib.gunzip);
 
 export class AmazonAPIClient {
@@ -79,7 +84,7 @@ export class AmazonAPIClient {
       throw new Error(`Failed to get catalog item for ASIN ${asin}: ${res.status}`);
     }
 
-    const data = await res.json();
+    const data = (await res.json()) as CatalogItemsSchema["Item"];
 
     let pricingData = null;
     try {
@@ -91,7 +96,7 @@ export class AmazonAPIClient {
     // Extract item name from the summaries array
     const summaries = data.summaries ?? [];
     const itemName =
-      summaries.find((s: Record<string, unknown>) => s.marketplaceId === this.marketplaceId)?.itemName ??
+      summaries.find((s) => s.marketplaceId === this.marketplaceId)?.itemName ??
       summaries[0]?.itemName ??
       asin;
 
@@ -139,7 +144,7 @@ export class AmazonAPIClient {
    * Useful for validating credentials and auto-discovering marketplace IDs.
    * GET /sellers/v1/marketplaceParticipations
    */
-  public async getMarketplaceParticipations(): Promise<unknown> {
+  public async getMarketplaceParticipations(): Promise<SellersSchema["GetMarketplaceParticipationsResponse"]> {
     const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}/sellers/v1/marketplaceParticipations`);
     const res = await fetch(url.toString(), {
@@ -159,7 +164,7 @@ export class AmazonAPIClient {
    * Complements getCatalogItem (by ASIN) with SKU-based lookup.
    * GET /listings/2021-08-01/items/:sellerId/:sku
    */
-  public async getListingItem(sellerId: string, sku: string, includedData = "summaries"): Promise<unknown> {
+  public async getListingItem(sellerId: string, sku: string, includedData = "summaries"): Promise<ListingsItemsSchema["Item"]> {
     if (!sellerId || !sku) throw new Error("sellerId and sku are required.");
     const accessToken = await this.getAccessToken();
     const url = new URL(
@@ -185,7 +190,7 @@ export class AmazonAPIClient {
    * Use keywords (e.g. "car parts") or leave empty to list all.
    * GET /definitions/2020-09-01/productTypes
    */
-  public async searchProductTypes(keywords?: string): Promise<unknown> {
+  public async searchProductTypes(keywords?: string): Promise<ProductTypesSchema["ProductTypeList"]> {
     const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}/definitions/2020-09-01/productTypes`);
     url.searchParams.set("marketplaceIds", this.marketplaceId);
