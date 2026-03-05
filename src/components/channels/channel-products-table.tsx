@@ -116,33 +116,78 @@ export function ChannelProductsTable({
 
     const colSpan = canRefetchItem ? 6 : 5;
 
+    function flattenObject(obj: unknown, prefix = ''): { key: string, value: unknown }[] {
+        if (obj === null || obj === undefined || obj === "") return [];
+
+        if (typeof obj !== "object") {
+            return [{ key: prefix, value: obj }];
+        }
+
+        let result: { key: string, value: unknown }[] = [];
+
+        if (Array.isArray(obj)) {
+            if (obj.length === 0) {
+                return [{ key: prefix, value: "[]" }];
+            }
+            for (let i = 0; i < obj.length; i++) {
+                const newPrefix = prefix ? `${prefix}[${i}]` : `[${i}]`;
+                result = result.concat(flattenObject(obj[i], newPrefix));
+            }
+        } else {
+            const entries = Object.entries(obj as Record<string, unknown>).filter(
+                ([, v]) => v !== null && v !== undefined && v !== ""
+            );
+            if (entries.length === 0) {
+                return [{ key: prefix, value: "{}" }];
+            }
+            for (const [k, v] of entries) {
+                const newPrefix = prefix ? `${prefix}.${k}` : k;
+                result = result.concat(flattenObject(v, newPrefix));
+            }
+        }
+        return result;
+    }
+
     function renderRawData(data: Record<string, unknown>) {
-        const entries = Object.entries(data).filter(
+        const topLevelEntries = Object.entries(data).filter(
             ([, v]) => v !== null && v !== undefined && v !== ""
         );
 
-        if (entries.length === 0) {
+        if (topLevelEntries.length === 0) {
             return <p className="text-muted-foreground text-sm">No raw data available.</p>;
         }
 
         return (
-            <div className="space-y-1">
-                {entries.map(([key, value]) => (
-                    <div key={key} className="grid grid-cols-[140px_1fr] gap-2 py-1.5 border-b border-muted/30 last:border-0">
-                        <span className="text-xs font-medium text-muted-foreground truncate" title={key}>
-                            {key}
-                        </span>
-                        <span className="text-xs break-all">
-                            {typeof value === "object" ? (
-                                <pre className="text-xs bg-muted/50 rounded p-1.5 overflow-x-auto max-h-40">
-                                    {JSON.stringify(value, null, 2)}
-                                </pre>
-                            ) : (
-                                String(value)
-                            )}
-                        </span>
-                    </div>
-                ))}
+            <div className="space-y-6">
+                {topLevelEntries.map(([sectionKey, sectionData]) => {
+                    const flattened = flattenObject(sectionData);
+
+                    return (
+                        <div key={sectionKey} className="space-y-2">
+                            <h4 className="text-sm font-semibold text-foreground border-b pb-1">
+                                {sectionKey}
+                            </h4>
+                            <div className="bg-muted/10 rounded-md border text-sm overflow-hidden">
+                                {flattened.length === 0 ? (
+                                    <div className="p-3 text-muted-foreground text-xs">—</div>
+                                ) : (
+                                    <div className="divide-y divide-muted/30">
+                                        {flattened.map(({ key, value }, idx) => (
+                                            <div key={idx} className="grid grid-cols-[minmax(150px,_35%)_1fr] gap-4 p-2.5 items-start px-3 hover:bg-muted/20 transition-colors">
+                                                <div className="text-xs font-medium text-muted-foreground break-all" title={key || sectionKey}>
+                                                    {key || "value"}
+                                                </div>
+                                                <div className="text-xs font-mono break-words text-foreground">
+                                                    {String(value)}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    );
+                })}
             </div>
         );
     }
@@ -213,10 +258,10 @@ export function ChannelProductsTable({
                                                     {product.lastSyncedAt ? (
                                                         <div className="flex flex-col items-end">
                                                             <span className="text-[14px] font-medium text-foreground">
-                                                                {new Date(product.lastSyncedAt).toLocaleDateString()}
+                                                                {new Date(product.lastSyncedAt).toISOString().slice(0, 10)}
                                                             </span>
                                                             <span className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
-                                                                {new Date(product.lastSyncedAt).toLocaleTimeString()}
+                                                                {new Date(product.lastSyncedAt).toISOString().slice(11, 19)} UTC
                                                             </span>
                                                         </div>
                                                     ) : (
@@ -277,10 +322,10 @@ export function ChannelProductsTable({
                                                         {variation.lastSyncedAt ? (
                                                             <div className="flex flex-col items-end">
                                                                 <span className="text-[14px] font-medium text-foreground">
-                                                                    {new Date(variation.lastSyncedAt).toLocaleDateString()}
+                                                                    {new Date(variation.lastSyncedAt).toISOString().slice(0, 10)}
                                                                 </span>
                                                                 <span className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
-                                                                    {new Date(variation.lastSyncedAt).toLocaleTimeString()}
+                                                                    {new Date(variation.lastSyncedAt).toISOString().slice(11, 19)} UTC
                                                                 </span>
                                                             </div>
                                                         ) : (
@@ -301,9 +346,10 @@ export function ChannelProductsTable({
 
             {/* ── Product Detail Drawer ────────────────────────────────────────── */}
             <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
-                <SheetContent side="right" className="sm:max-w-lg w-full overflow-y-auto">
+                <SheetContent side="right" className="sm:max-w-[60vw] w-full overflow-y-auto w-[60vw]">
                     {loadingDetail ? (
                         <div className="flex items-center justify-center h-full">
+                            <SheetTitle className="sr-only">Loading product details...</SheetTitle>
                             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                         </div>
                     ) : selectedProduct ? (
@@ -343,7 +389,7 @@ export function ChannelProductsTable({
                                         </div>
                                         <div className="mt-1 text-sm font-medium">
                                             {selectedProduct.lastSyncedAt
-                                                ? `${new Date(selectedProduct.lastSyncedAt).toLocaleDateString()} at ${new Date(selectedProduct.lastSyncedAt).toLocaleTimeString()}`
+                                                ? new Date(selectedProduct.lastSyncedAt).toISOString().replace("T", " ").slice(0, 19) + " UTC"
                                                 : "—"}
                                         </div>
                                     </div>

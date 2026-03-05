@@ -50,7 +50,7 @@ export class AmazonAPIClient {
     const reportId = await this.createListingReport(accessToken);
     const reportDocumentId = await this.pollReportStatus(accessToken, reportId);
     const { url, compressionAlgorithm } = await this.getReportDocumentUrl(accessToken, reportDocumentId);
-    
+
     return await this.downloadAndParseReport(url, compressionAlgorithm, search);
   }
 
@@ -81,6 +81,13 @@ export class AmazonAPIClient {
 
     const data = await res.json();
 
+    let pricingData = null;
+    try {
+      pricingData = await this.getProductPricing(asin);
+    } catch (err) {
+      console.warn(`[Amazon SP-API] Failed to fetch pricing for ASIN ${asin}`, err);
+    }
+
     // Extract item name from the summaries array
     const summaries = data.summaries ?? [];
     const itemName =
@@ -91,8 +98,108 @@ export class AmazonAPIClient {
     return {
       id: data.asin ?? asin,
       name: itemName,
-      rawPayload: data,
+      rawPayload: {
+        ...data,
+        pricing: pricingData,
+      },
     };
+  }
+
+  public async getProductPricing(asin: string): Promise<unknown> {
+    if (!asin || typeof asin !== "string") {
+      throw new Error("A valid ASIN is required.");
+    }
+
+    const accessToken = await this.getAccessToken();
+    const url = new URL(`${this.endpoint}/products/pricing/v0/price`);
+
+    url.searchParams.set("MarketplaceId", this.marketplaceId);
+    url.searchParams.set("ItemType", "Asin");
+    url.searchParams.set("Asins", asin);
+
+    const res = await fetch(url.toString(), {
+      headers: {
+        Accept: "application/json",
+        "x-amz-access-token": accessToken,
+      },
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[Amazon SP-API] getProductPricing Error:", errText);
+      throw new Error(`Failed to get pricing for ASIN ${asin}: ${res.status}`);
+    }
+
+    return res.json();
+  }
+
+  /**
+   * Sellers API — list all marketplaces the seller participates in.
+   * Useful for validating credentials and auto-discovering marketplace IDs.
+   * GET /sellers/v1/marketplaceParticipations
+   */
+  public async getMarketplaceParticipations(): Promise<unknown> {
+    const accessToken = await this.getAccessToken();
+    const url = new URL(`${this.endpoint}/sellers/v1/marketplaceParticipations`);
+    const res = await fetch(url.toString(), {
+      headers: { Accept: "application/json", "x-amz-access-token": accessToken },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[Amazon SP-API] getMarketplaceParticipations Error:", errText);
+      throw new Error(`Failed to get marketplace participations: ${res.status}`);
+    }
+    return res.json();
+  }
+
+  /**
+   * Listings Items API — fetch a single listing by seller SKU.
+   * Complements getCatalogItem (by ASIN) with SKU-based lookup.
+   * GET /listings/2021-08-01/items/:sellerId/:sku
+   */
+  public async getListingItem(sellerId: string, sku: string, includedData = "summaries"): Promise<unknown> {
+    if (!sellerId || !sku) throw new Error("sellerId and sku are required.");
+    const accessToken = await this.getAccessToken();
+    const url = new URL(
+      `${this.endpoint}/listings/2021-08-01/items/${encodeURIComponent(sellerId)}/${encodeURIComponent(sku)}`
+    );
+    url.searchParams.set("marketplaceIds", this.marketplaceId);
+    url.searchParams.set("includedData", includedData);
+    const res = await fetch(url.toString(), {
+      headers: { Accept: "application/json", "Content-Type": "application/json", "x-amz-access-token": accessToken },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[Amazon SP-API] getListingItem Error:", errText);
+      throw new Error(`Failed to get listing item for SKU ${sku}: ${res.status}`);
+    }
+    return res.json();
+  }
+
+  /**
+   * Product Type Definitions API — search for Amazon product types.
+   * Returns schemas that define required/optional attributes per product type.
+   * Use keywords (e.g. "car parts") or leave empty to list all.
+   * GET /definitions/2020-09-01/productTypes
+   */
+  public async searchProductTypes(keywords?: string): Promise<unknown> {
+    const accessToken = await this.getAccessToken();
+    const url = new URL(`${this.endpoint}/definitions/2020-09-01/productTypes`);
+    url.searchParams.set("marketplaceIds", this.marketplaceId);
+    if (keywords) url.searchParams.set("keywords", keywords);
+    const res = await fetch(url.toString(), {
+      headers: { Accept: "application/json", "x-amz-access-token": accessToken },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[Amazon SP-API] searchProductTypes Error:", errText);
+      throw new Error(`Failed to search product types: ${res.status}`);
+    }
+    return res.json();
   }
 
   private async createListingReport(accessToken: string): Promise<string> {
