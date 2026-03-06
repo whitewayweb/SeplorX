@@ -215,9 +215,10 @@ export async function getCatalogItem(channelId: number, asin: string) {
   try {
     const product = await getCatalogItemService(CURRENT_USER_ID, parsedId.data.id, parsedAsin.data);
     revalidatePath("/channels");
+    revalidatePath(`/products/channels/${parsedId.data.id}`);
     return { success: true, product };
   } catch (err) {
-    console.error("[getCatalogItem]", { channelId: parsedId.data.id, asin, error: String(err) });
+    console.error("[getCatalogItem]", { contextId: String(parsedId.data.id), channelId: parsedId.data.id, asin, error: String(err) });
     return { error: String(err).replace(/^Error:\s*/, "").substring(0, 200) };
   }
 }
@@ -227,8 +228,8 @@ export async function getChannelProduct(productId: number) {
   if (!parsed.success) return { error: "Invalid product ID." };
 
   try {
-    const { getChannelProductById } = await import("@/lib/channels/queries");
-    const product = await getChannelProductById(parsed.data);
+    const { getChannelProductByIdForUser } = await import("@/lib/channels/queries");
+    const product = await getChannelProductByIdForUser(CURRENT_USER_ID, parsed.data);
     if (!product) return { error: "Product not found." };
     return { success: true, product };
   } catch (err) {

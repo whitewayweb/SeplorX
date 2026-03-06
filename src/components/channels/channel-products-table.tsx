@@ -3,6 +3,7 @@
 import { useState, useTransition, useCallback, Fragment } from "react";
 import { CornerDownRight, RefreshCw, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 import {
     Table,
     TableBody,
@@ -69,6 +70,7 @@ export function ChannelProductsTable({
     variations,
     canRefetchItem,
 }: ChannelProductsTableProps) {
+    const router = useRouter();
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [selectedProduct, setSelectedProduct] = useState<ChannelProductDetail | null>(null);
     const [loadingDetail, startLoadingDetail] = useTransition();
@@ -98,18 +100,24 @@ export function ChannelProductsTable({
             e.stopPropagation(); // Don't open the drawer
             setRefetchingId(externalId);
             (async () => {
-                const result = await getCatalogItem(channelId, externalId);
-                setRefetchingId(null);
-                if (result.error) {
-                    toast.error("Failed to refetch product", { description: result.error });
-                } else {
-                    toast.success("Product refreshed", {
-                        description: `"${result.product?.name ?? externalId}" has been updated.`,
-                    });
+                try {
+                    const result = await getCatalogItem(channelId, externalId);
+                    if (result.error) {
+                        toast.error("Failed to refetch product", { description: result.error });
+                    } else {
+                        toast.success("Product refreshed", {
+                            description: `"${result.product?.name ?? externalId}" has been updated.`,
+                        });
+                        router.refresh();
+                    }
+                } catch (err) {
+                    toast.error("Failed to refetch product", { description: String(err) });
+                } finally {
+                    setRefetchingId(null);
                 }
             })();
         },
-        [channelId],
+        [channelId, router],
     );
 
     // ── Helpers ─────────────────────────────────────────────────────────────

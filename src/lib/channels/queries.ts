@@ -197,10 +197,10 @@ export async function getChannelForAgent(
 }
 
 /**
- * Fetches a single channel product by its DB id, including the full rawData payload.
+ * Fetches a single channel product by its DB id, scoped to the current user.
  * Used by the product detail drawer.
  */
-export async function getChannelProductById(id: number) {
+export async function getChannelProductByIdForUser(userId: number, id: number) {
   const [row] = await db
     .select({
       id: channelProducts.id,
@@ -214,7 +214,8 @@ export async function getChannelProductById(id: number) {
       lastSyncedAt: channelProducts.lastSyncedAt,
     })
     .from(channelProducts)
-    .where(eq(channelProducts.id, id))
+    .innerJoin(channels, eq(channelProducts.channelId, channels.id))
+    .where(and(eq(channelProducts.id, id), eq(channels.userId, userId)))
     .limit(1);
 
   return row ?? null;

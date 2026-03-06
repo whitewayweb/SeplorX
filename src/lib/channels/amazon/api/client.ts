@@ -88,7 +88,7 @@ export class AmazonAPIClient {
 
     let pricingData = null;
     try {
-      pricingData = await this.getProductPricing(asin);
+      pricingData = await this.getProductPricing(accessToken, asin);
     } catch (err) {
       console.warn(`[Amazon SP-API] Failed to fetch pricing for ASIN ${asin}`, err);
     }
@@ -110,12 +110,11 @@ export class AmazonAPIClient {
     };
   }
 
-  public async getProductPricing(asin: string): Promise<unknown> {
+  public async getProductPricing(accessToken: string, asin: string): Promise<unknown> {
     if (!asin || typeof asin !== "string") {
       throw new Error("A valid ASIN is required.");
     }
 
-    const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}/products/pricing/v0/price`);
 
     url.searchParams.set("MarketplaceId", this.marketplaceId);
