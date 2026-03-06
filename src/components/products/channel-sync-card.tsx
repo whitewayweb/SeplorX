@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import {
   deleteChannelMapping,
   pushProductStockToChannels,
-} from "@/app/products/actions";
+} from "@/app/(dashboard)/products/actions";
 import { getChannelById } from "@/lib/channels/registry";
 import Link from "next/link";
 import { AddMappingDialog } from "./add-mapping-dialog";

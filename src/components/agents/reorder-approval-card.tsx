@@ -13,7 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { CheckCircle, XCircle, Bot } from "lucide-react";
-import { approveReorderPlan, dismissAgentTask } from "@/app/agents/actions";
+import { approveReorderPlan, dismissAgentTask } from "@/app/(dashboard)/agents/actions";
 import type { ReorderPlan } from "@/lib/agents/tools/inventory-tools";
 
 type Props = {

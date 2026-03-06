@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { createInvoice } from "@/app/invoices/actions";
+import { createInvoice } from "@/app/(dashboard)/invoices/actions";
 import { Plus, Trash2 } from "lucide-react";
 
 type Company = { id: number; name: string };

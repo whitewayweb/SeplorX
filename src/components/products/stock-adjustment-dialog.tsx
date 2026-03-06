@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { adjustStock } from "@/app/products/actions";
+import { adjustStock } from "@/app/(dashboard)/products/actions";
 import { useState } from "react";
 import { PackagePlus } from "lucide-react";
 

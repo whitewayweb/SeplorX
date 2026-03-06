@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { addPayment } from "@/app/invoices/actions";
+import { addPayment } from "@/app/(dashboard)/invoices/actions";
 import { useState } from "react";
 import { CreditCard } from "lucide-react";
 

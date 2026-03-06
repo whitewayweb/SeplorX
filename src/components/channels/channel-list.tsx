@@ -21,7 +21,7 @@ import {
   resetChannelStatus,
   registerChannelWebhooks,
   syncChannelProducts,
-} from "@/app/channels/actions";
+} from "@/app/(dashboard)/channels/actions";
 import { getChannelById } from "@/lib/channels/registry";
 import type { ChannelInstance } from "@/lib/channels/types";
 import { ChannelMappingTrigger } from "@/components/agents/channel-mapping-trigger";

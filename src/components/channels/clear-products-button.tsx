@@ -14,7 +14,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { clearChannelProducts } from "@/app/channels/actions";
+import { clearChannelProducts } from "@/app/(dashboard)/channels/actions";
 
 interface ClearProductsButtonProps {
   channelId: number;

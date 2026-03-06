@@ -109,6 +109,7 @@ src/
 - **Agent registry:** Agent definitions in TypeScript (`src/lib/agents/registry.ts`), `enabled` flag controls visibility. See `docs/agents.md`
 - **Dynamic validation:** Zod schemas built at runtime from registry `configFields`
 - **Server actions:** Mutations via `"use server"` actions with `useActionState` on client
+- **Auth pattern:** Custom secure session cookies (`src/lib/auth/session.ts`) parsed via `src/proxy.ts` edge middleware. All dashboard routes are grouped inside `src/app/(dashboard)`. The app avoids external auth dependencies inside Next.js 16 to observe minimalism.
 - **Agent pattern:** Agents are reasoning-only (read-only DB tools); writes happen via existing Server Actions after human approval. Two-phase serverless-safe flow.
 
 ## Database

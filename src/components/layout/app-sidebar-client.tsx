@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { logoutAction } from "@/app/(auth)/logout/actions";
 import {
   LayoutDashboard,
   Building2,
@@ -12,6 +13,7 @@ import {
   Bot,
   Receipt,
   Store,
+  LogOut,
 } from "lucide-react";
 import {
   Sidebar,
@@ -128,6 +130,21 @@ export function AppSidebarClient({
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Account</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <form action={logoutAction}>
+                  <SidebarMenuButton type="submit">
+                    <LogOut />
+                    <span>Log Out</span>
+                  </SidebarMenuButton>
+                </form>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
