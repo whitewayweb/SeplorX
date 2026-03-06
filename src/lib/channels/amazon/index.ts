@@ -38,6 +38,15 @@ export const amazonHandler: ChannelHandler = {
     return await client.fetchProducts(search);
   },
 
+  async getCatalogItem(storeUrl, credentials, asin) {
+    if (!credentials.marketplaceId || !credentials.clientId || !credentials.clientSecret || !credentials.refreshToken) {
+      throw new Error("Missing required Amazon credentials (marketplaceId, clientId, clientSecret, refreshToken)");
+    }
+
+    const client = new AmazonAPIClient(credentials, storeUrl);
+    return await client.getCatalogItem(asin);
+  },
+
   // pushStock: not implemented — capabilities.canPushStock = false
   // registerWebhooks: not applicable — capabilities.usesWebhooks = false
   // processWebhook: not applicable — capabilities.usesWebhooks = false

@@ -167,6 +167,8 @@ Step 4 calls `createChannel` server action, receives the new `channelId`, then r
 | `resetChannelStatus` | Reset `status="pending"`, wipe credentials — used by "Complete Setup" / "Reconnect" buttons |
 | `disconnectChannel` | UPDATE `status="disconnected"`, wipes credentials JSONB |
 | `deleteChannel` | DELETE the row entirely |
+| `getCatalogItem` | Fetch a single catalog item by ASIN via the channel's `getCatalogItem` handler method. Upserts result into `channel_products` cache. Returns `{ success, product }` or `{ error }`. |
+| `getChannelProduct` | Fetch a single cached `channel_products` row including its full `rawData`, used to populate the product detail drawer. |
 
 ## Environment Variables
 
@@ -202,6 +204,7 @@ interface ChannelHandler {
   registerWebhooks(storeUrl, credentials, baseUrl): Promise<{ secret: string }>;
   processWebhook(body, signature, topic, secret): WebhookStockChange[];
   fetchProducts?(storeUrl, credentials, search?): Promise<ExternalProduct[]>;  // optional
+  getCatalogItem?(storeUrl, credentials, externalId): Promise<ExternalProduct>; // optional — single-item fetch
 }
 ```
 
@@ -235,6 +238,7 @@ The Channel Products page (`/products/channels/[id]`) implements high-performanc
 3.  **Parent-Child Nesting**: Variations are fetched in a secondary query for the current page's parents and rendered as nested child rows (↳ indicator) for visual clarity.
 4.  **Interactive Pagination**: Supports custom page limits (20–100) and direct "Go to page" jumping.
 5.  **Data Access Layer**: All database interactions are encapsulated in `src/lib/channels/queries.ts`.
+6.  **Per-Row Refetch**: For channels that implement `getCatalogItem` (e.g. Amazon), each product row shows a refresh icon button that re-fetches the individual item from the channel API and upserts it into the cache — useful for updating a single product without a full sync.
 
 ---
 
@@ -249,6 +253,21 @@ Instead of stuffing all this logic into the generic `index.ts` handler file, use
 3. Keep the `index.ts` handler as a simple interface adapter that instantiates the client and calls its high-level methods.
 
 This pattern enforces a clean boundary between "SeplorX framework requirements" (the Handler) and "External channel communication" (the Client).
+
+### Amazon SP-API Client (`AmazonAPIClient`)
+
+File: `src/lib/channels/amazon/api/client.ts`
+
+| Method | SP-API Endpoint | Description |
+|--------|----------------|-------------|
+| `fetchProducts(search?)` | `GET /reports/2021-06-30/*` | Full product sync via report download (bulk, gzipped TSV). Polls until ready. |
+| `getCatalogItem(asin)` | `GET /catalog/2022-04-01/items/:asin` | Fetch single product by ASIN + embedded pricing. Upserts into `channel_products`. |
+| `getProductPricing(asin)` | `GET /products/pricing/v0/price` | Pricing for a single ASIN (embedded in `getCatalogItem` rawPayload). |
+| `getMarketplaceParticipations()` | `GET /sellers/v1/marketplaceParticipations` | List all marketplaces the seller is active in. Useful for credential validation. |
+| `getListingItem(sellerId, sku)` | `GET /listings/2021-08-01/items/:sellerId/:sku` | Fetch a single listing by SKU (complements getCatalogItem which uses ASIN). |
+| `searchProductTypes(keywords?)` | `GET /definitions/2020-09-01/productTypes` | Search Amazon product type schemas. Returns type names for use with product attribute validation. |
+
+> **About product schema types:** Yes — Amazon's Product Type Definitions API (`searchProductTypes` / `GET /definitions/2020-09-01/productTypes/:productType`) returns full JSON Schema documents for each product category (e.g. `AUTO_PART`, `LUGGAGE`). These schemas define required/optional attributes, allowed values, and validation rules. Call `searchProductTypes("keyword")` to find the type, then call `GET /definitions/2020-09-01/productTypes/:productType` to get the full schema.
 
 ---
 

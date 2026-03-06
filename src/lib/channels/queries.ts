@@ -29,7 +29,7 @@ export async function getChannel(id: number) {
     .from(channels)
     .where(eq(channels.id, id))
     .limit(1);
-    
+
   return channel;
 }
 
@@ -47,11 +47,11 @@ export async function getChannelProductsWithVariations(channelId: number, option
 
   const queryCondition = query
     ? or(
-        ilike(channelProducts.name, `%${query}%`),
-        ilike(channelProducts.sku, `%${query}%`),
-        ilike(channelProducts.externalId, `%${query}%`),
-        // Also match if any of its child variations contain the search term
-        sql`EXISTS (
+      ilike(channelProducts.name, `%${query}%`),
+      ilike(channelProducts.sku, `%${query}%`),
+      ilike(channelProducts.externalId, `%${query}%`),
+      // Also match if any of its child variations contain the search term
+      sql`EXISTS (
           SELECT 1 FROM ${channelProducts} child
           WHERE COALESCE(child.raw_data->>'parentId', CAST(child.raw_data->>'parent_id' AS TEXT)) = ${channelProducts.externalId}
           AND child.channel_id = ${channelId}
@@ -61,7 +61,7 @@ export async function getChannelProductsWithVariations(channelId: number, option
             child.external_id ILIKE ${`%${query}%`}
           )
         )`
-      )
+    )
     : undefined;
 
   const whereCondition = and(baseCondition, queryCondition);
@@ -194,4 +194,29 @@ export async function getChannelForAgent(
     .limit(1);
 
   return row;
+}
+
+/**
+ * Fetches a single channel product by its DB id, scoped to the current user.
+ * Used by the product detail drawer.
+ */
+export async function getChannelProductByIdForUser(userId: number, id: number) {
+  const [row] = await db
+    .select({
+      id: channelProducts.id,
+      channelId: channelProducts.channelId,
+      externalId: channelProducts.externalId,
+      name: channelProducts.name,
+      sku: channelProducts.sku,
+      type: channelProducts.type,
+      stockQuantity: channelProducts.stockQuantity,
+      rawData: channelProducts.rawData,
+      lastSyncedAt: channelProducts.lastSyncedAt,
+    })
+    .from(channelProducts)
+    .innerJoin(channels, eq(channelProducts.channelId, channels.id))
+    .where(and(eq(channelProducts.id, id), eq(channels.userId, userId)))
+    .limit(1);
+
+  return row ?? null;
 }

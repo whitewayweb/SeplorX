@@ -69,7 +69,7 @@ src/
 │   │   ├── channel-mapping-trigger.tsx      # "Auto-Map (AI)" button per channel
 │   │   └── channel-mapping-approval-card.tsx
 │   ├── apps/                # App integration components
-│   ├── channels/            # Channel UI components (list, status badge, add wizard)
+│   ├── channels/            # Channel UI components (list, status badge, add wizard, channel-products-table)
 │   ├── companies/           # Company UI components
 │   ├── layout/              # Layout components (sidebar)
 │   ├── products/            # Product UI components

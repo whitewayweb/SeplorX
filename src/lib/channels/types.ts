@@ -161,5 +161,15 @@ export interface ChannelHandler {
     topic: string,
     secret: string,
   ): WebhookStockChange[];
+
+  /**
+   * Fetch a single catalog item by its external ID (e.g. ASIN for Amazon).
+   * Returns the item details as an ExternalProduct, or throws if not found.
+   */
+  getCatalogItem?(
+    storeUrl: string,
+    credentials: Record<string, string>,
+    externalId: string,
+  ): Promise<ExternalProduct>;
 }
 

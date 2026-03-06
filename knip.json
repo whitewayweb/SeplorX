@@ -1,11 +1,22 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "project": ["src/**/*.{ts,tsx}"],
-  "entry": ["src/db/index.ts", "src/lib/env.ts", "src/lib/apps/index.ts", "src/lib/crypto.ts"],
+  "project": [
+    "src/**/*.{ts,tsx}"
+  ],
+  "entry": [
+    "src/db/index.ts",
+    "src/lib/env.ts",
+    "src/lib/apps/index.ts",
+    "src/lib/crypto.ts"
+  ],
   "ignoreDependencies": [
     "tailwindcss-animate",
     "tailwindcss"
   ],
   "ignoreExportsUsedInFile": true,
-  "ignore": ["src/components/ui/**"]
+  "ignore": [
+    "src/components/ui/**",
+    "src/lib/channels/amazon/api/types/**",
+    "scripts/**"
+  ]
 }
