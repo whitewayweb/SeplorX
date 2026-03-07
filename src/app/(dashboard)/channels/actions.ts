@@ -20,8 +20,7 @@ import {
   clearChannelProductsService,
   getCatalogItemService,
 } from "@/lib/channels/services";
-
-const CURRENT_USER_ID = 1;
+import { getAuthenticatedUserId } from "@/lib/auth-utils";
 
 export async function createChannel(_prevState: unknown, formData: FormData) {
   const parsed = CreateChannelSchema.safeParse({
@@ -39,6 +38,7 @@ export async function createChannel(_prevState: unknown, formData: FormData) {
   }
 
   try {
+    const userId = await getAuthenticatedUserId();
     const channelDef = getChannelById(parsed.data.channelType as ChannelType);
     const rawConfig: Record<string, string> = {};
 
@@ -51,7 +51,7 @@ export async function createChannel(_prevState: unknown, formData: FormData) {
       }
     }
 
-    const channelId = await createChannelService(CURRENT_USER_ID, parsed.data, rawConfig);
+    const channelId = await createChannelService(userId, parsed.data, rawConfig);
     revalidatePath("/channels");
     return { success: true, channelId };
   } catch (err) {
@@ -75,12 +75,13 @@ export async function updateChannel(_prevState: unknown, formData: FormData) {
   }
 
   try {
+    const userId = await getAuthenticatedUserId();
     const rawConfig: Record<string, string> = {};
     for (const [key, value] of formData.entries()) {
       if (typeof value === "string") rawConfig[key] = value;
     }
 
-    await updateChannelService(CURRENT_USER_ID, parsed.data.id, parsed.data, rawConfig);
+    await updateChannelService(userId, parsed.data.id, parsed.data, rawConfig);
     revalidatePath("/channels");
     return { success: true };
   } catch (err) {
@@ -94,10 +95,11 @@ export async function getChannelConfig(channelId: number) {
   if (!parsed.success) return { error: "Invalid channel ID." };
 
   try {
+    const userId = await getAuthenticatedUserId();
     const existing = await db
       .select({ channelType: channels.channelType, storeUrl: channels.storeUrl, credentials: channels.credentials })
       .from(channels)
-      .where(and(eq(channels.id, channelId), eq(channels.userId, CURRENT_USER_ID)))
+      .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
       .limit(1);
 
     if (existing.length === 0) return { error: "Not found" };
@@ -128,7 +130,8 @@ export async function resetChannelStatus(channelId: number) {
   if (!parsed.success) return { error: "Invalid channel ID." };
 
   try {
-    const row = await resetChannelStatusService(CURRENT_USER_ID, channelId);
+    const userId = await getAuthenticatedUserId();
+    const row = await resetChannelStatusService(userId, channelId);
     revalidatePath("/channels");
     return { success: true, channelId: row.id, storeUrl: row.storeUrl };
   } catch (err) {
@@ -142,7 +145,8 @@ export async function disconnectChannel(_prevState: unknown, formData: FormData)
   if (!parsed.success) return { error: "Invalid channel ID." };
 
   try {
-    await disconnectChannelService(CURRENT_USER_ID, parsed.data.id);
+    const userId = await getAuthenticatedUserId();
+    await disconnectChannelService(userId, parsed.data.id);
     revalidatePath("/channels");
     return { success: true };
   } catch (err) {
@@ -156,7 +160,8 @@ export async function deleteChannel(_prevState: unknown, formData: FormData) {
   if (!parsed.success) return { error: "Invalid channel ID." };
 
   try {
-    await deleteChannelService(CURRENT_USER_ID, parsed.data.id);
+    const userId = await getAuthenticatedUserId();
+    await deleteChannelService(userId, parsed.data.id);
     revalidatePath("/channels");
     return { success: true };
   } catch (err) {
@@ -167,7 +172,8 @@ export async function deleteChannel(_prevState: unknown, formData: FormData) {
 
 export async function registerChannelWebhooks(channelId: number) {
   try {
-    await registerChannelWebhooksService(CURRENT_USER_ID, channelId);
+    const userId = await getAuthenticatedUserId();
+    await registerChannelWebhooksService(userId, channelId);
     revalidatePath("/channels");
     return { success: true };
   } catch (err) {
@@ -181,7 +187,8 @@ export async function syncChannelProducts(channelId: number) {
   if (!parsed.success) return { error: "Invalid channel ID." };
 
   try {
-    const count = await syncChannelProductsService(CURRENT_USER_ID, parsed.data.id);
+    const userId = await getAuthenticatedUserId();
+    const count = await syncChannelProductsService(userId, parsed.data.id);
     revalidatePath("/channels");
     return { success: true, count };
   } catch (err) {
@@ -195,7 +202,8 @@ export async function clearChannelProducts(channelId: number) {
   if (!parsed.success) return { error: "Invalid channel ID." };
 
   try {
-    await clearChannelProductsService(CURRENT_USER_ID, parsed.data.id);
+    const userId = await getAuthenticatedUserId();
+    await clearChannelProductsService(userId, parsed.data.id);
     revalidatePath("/channels");
     revalidatePath(`/products/channels/${parsed.data.id}`);
     return { success: true };
@@ -213,7 +221,8 @@ export async function getCatalogItem(channelId: number, asin: string) {
   if (!parsedAsin.success) return { error: "A valid ASIN is required." };
 
   try {
-    const product = await getCatalogItemService(CURRENT_USER_ID, parsedId.data.id, parsedAsin.data);
+    const userId = await getAuthenticatedUserId();
+    const product = await getCatalogItemService(userId, parsedId.data.id, parsedAsin.data);
     revalidatePath("/channels");
     revalidatePath(`/products/channels/${parsedId.data.id}`);
     return { success: true, product };
@@ -228,8 +237,9 @@ export async function getChannelProduct(productId: number) {
   if (!parsed.success) return { error: "Invalid product ID." };
 
   try {
+    const userId = await getAuthenticatedUserId();
     const { getChannelProductByIdForUser } = await import("@/lib/channels/queries");
-    const product = await getChannelProductByIdForUser(CURRENT_USER_ID, parsed.data);
+    const product = await getChannelProductByIdForUser(userId, parsed.data);
     if (!product) return { error: "Product not found." };
     return { success: true, product };
   } catch (err) {

@@ -109,7 +109,7 @@ src/
 - **Agent registry:** Agent definitions in TypeScript (`src/lib/agents/registry.ts`), `enabled` flag controls visibility. See `docs/agents.md`
 - **Dynamic validation:** Zod schemas built at runtime from registry `configFields`
 - **Server actions:** Mutations via `"use server"` actions with `useActionState` on client
-- **Auth pattern:** Uses `better-auth` for authentication (`src/lib/auth.ts` and `src/lib/auth-client.ts`). The `src/proxy.ts` edge middleware handles routing limits, redirecting unauthenticated users to `/login`. Uses the `emailAndPassword` plugin for native login, tightly integrated with Drizzle ORM PostgreSQL. All dashboard routes are grouped inside `src/app/(dashboard)`.
+- **Auth pattern:** Uses `better-auth` for authentication. Server config in `src/lib/auth.ts`, client hooks in `src/lib/auth-client.ts`. The `src/middleware.ts` Edge middleware validates session tokens against the Better Auth API (not just cookie presence) and redirects unauthenticated users to `/login`. The shared helper `src/lib/auth-utils.ts` (`getAuthenticatedUserId()`) is used in all Server Components and Server Actions to obtain the authenticated user's ID — never hardcode user IDs. Uses `emailAndPassword` plugin for native login. All dashboard routes are grouped inside `src/app/(dashboard)/`.
 - **Agent pattern:** Agents are reasoning-only (read-only DB tools); writes happen via existing Server Actions after human approval. Two-phase serverless-safe flow.
 
 ## Database

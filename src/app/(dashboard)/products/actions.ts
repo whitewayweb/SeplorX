@@ -17,9 +17,7 @@ import {
   saveChannelMappingsService,
   type ChannelProductWithState,
 } from "@/lib/products/services";
-
-// TODO: replace with auth() when auth is re-added
-const CURRENT_USER_ID = 1;
+import { getAuthenticatedUserId } from "@/lib/auth-utils";
 
 export async function createProduct(_prevState: unknown, formData: FormData) {
   const parsed = CreateProductSchema.safeParse({
@@ -61,9 +59,9 @@ export async function createProduct(_prevState: unknown, formData: FormData) {
         .from(products)
         .where(eq(products.sku, rest.sku || ""))
         .limit(1);
-      return { 
-        error: "A product with this SKU already exists.", 
-        existingProduct: existing.length > 0 ? existing[0] : null 
+      return {
+        error: "A product with this SKU already exists.",
+        existingProduct: existing.length > 0 ? existing[0] : null
       };
     }
     return { error: "Failed to create product. Please try again." };
@@ -243,6 +241,7 @@ export async function adjustStock(_prevState: unknown, formData: FormData) {
   const { productId, quantity, notes } = parsed.data;
 
   try {
+    const userId = await getAuthenticatedUserId();
     // Use a transaction to ensure stock check + update + log are atomic
     await db.transaction(async (tx) => {
       // Check product exists
@@ -276,7 +275,7 @@ export async function adjustStock(_prevState: unknown, formData: FormData) {
         quantity,
         referenceType: "manual",
         notes: notes || null,
-        createdBy: CURRENT_USER_ID,
+        createdBy: userId,
       });
     });
   } catch (err) {
@@ -305,6 +304,7 @@ export async function deleteChannelMapping(_prevState: unknown, formData: FormDa
   if (!parsed.success) return { error: "Invalid mapping ID." };
 
   try {
+    const userId = await getAuthenticatedUserId();
     // Verify ownership via join
     const rows = await db
       .select({ productId: channelProductMappings.productId })
@@ -313,7 +313,7 @@ export async function deleteChannelMapping(_prevState: unknown, formData: FormDa
       .where(
         and(
           eq(channelProductMappings.id, parsed.data.id),
-          eq(channels.userId, CURRENT_USER_ID),
+          eq(channels.userId, userId),
         ),
       )
       .limit(1);
@@ -340,7 +340,8 @@ export async function deleteChannelMapping(_prevState: unknown, formData: FormDa
  */
 export async function pushProductStockToChannels(productId: number) {
   try {
-    const result = await pushProductStockToChannelsService(CURRENT_USER_ID, productId);
+    const userId = await getAuthenticatedUserId();
+    const result = await pushProductStockToChannelsService(userId, productId);
     return result;
   } catch (err) {
     console.error("[pushProductStockToChannels]", { productId, error: String(err) });
@@ -358,7 +359,8 @@ export async function fetchChannelProducts(
   search?: string,
 ): Promise<ChannelProductWithState[] | { error: string }> {
   try {
-    const products = await fetchChannelProductsService(CURRENT_USER_ID, channelId, productId, search);
+    const userId = await getAuthenticatedUserId();
+    const products = await fetchChannelProductsService(userId, channelId, productId, search);
     return products;
   } catch (err) {
     console.error("[fetchChannelProducts]", { channelId, error: String(err) });
@@ -380,7 +382,8 @@ export async function saveChannelMappings(
   items: { externalProductId: string; label: string }[],
 ): Promise<{ added: number; skipped: number } | { error: string }> {
   try {
-    const result = await saveChannelMappingsService(CURRENT_USER_ID, productId, channelId, items);
+    const userId = await getAuthenticatedUserId();
+    const result = await saveChannelMappingsService(userId, productId, channelId, items);
     revalidatePath(`/products/${productId}`);
     return result;
   } catch (err) {

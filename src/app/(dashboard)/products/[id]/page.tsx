@@ -21,10 +21,9 @@ import { Button } from "@/components/ui/button";
 import { ProductDialog } from "@/components/products/product-dialog";
 import { StockAdjustmentDialog } from "@/components/products/stock-adjustment-dialog";
 import { ChannelSyncCard } from "@/components/products/channel-sync-card";
+import { getAuthenticatedUserId } from "@/lib/auth-utils";
 
 export const dynamic = "force-dynamic";
-
-const CURRENT_USER_ID = 1;
 
 interface ProductDetailPageProps {
   params: Promise<{ id: string }>;
@@ -66,10 +65,12 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
 
   const product = result[0];
 
+  const userId = await getAuthenticatedUserId();
+
   const connectedChannels = await db
     .select({ id: channels.id, channelType: channels.channelType, name: channels.name })
     .from(channels)
-    .where(and(eq(channels.userId, CURRENT_USER_ID), eq(channels.status, "connected")));
+    .where(and(eq(channels.userId, userId), eq(channels.status, "connected")));
 
   const mappings = await db
     .select({

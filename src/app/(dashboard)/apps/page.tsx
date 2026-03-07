@@ -6,18 +6,18 @@ import { eq } from "drizzle-orm";
 import { appRegistry, getCategories, categoryLabels } from "@/lib/apps";
 import type { AppWithStatus } from "@/lib/apps";
 import { CategoryTabs } from "@/components/apps/category-tabs";
+import { getAuthenticatedUserId } from "@/lib/auth-utils";
 
 /** Sentinel shown in UI for password fields that have a stored (encrypted) value */
 const MASKED_VALUE = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
 
-// TODO: replace with auth() when auth is re-added
-const CURRENT_USER_ID = 1;
-
 export default async function AppsPage() {
+  const userId = await getAuthenticatedUserId();
+
   const installations = await db
     .select()
     .from(appInstallations)
-    .where(eq(appInstallations.userId, CURRENT_USER_ID));
+    .where(eq(appInstallations.userId, userId));
 
   const installationMap = new Map(
     installations.map((inst) => [inst.appId, inst])

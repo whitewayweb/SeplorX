@@ -7,9 +7,7 @@ import { revalidatePath } from "next/cache";
 import { getAppById } from "@/lib/apps";
 import { InstallAppSchema, UninstallAppSchema, buildAppConfigSchema } from "@/lib/validations/apps";
 import { encrypt } from "@/lib/crypto";
-
-// TODO: replace with auth() when auth is re-added
-const CURRENT_USER_ID = 1;
+import { getAuthenticatedUserId } from "@/lib/auth-utils";
 
 /** Sentinel value sent by the client when a masked password field was not changed */
 const MASKED_SENTINEL = "••••••••";
@@ -30,10 +28,11 @@ export async function installApp(_prevState: unknown, formData: FormData) {
   }
 
   try {
+    const userId = await getAuthenticatedUserId();
     const existing = await db
       .select({ id: appInstallations.id })
       .from(appInstallations)
-      .where(and(eq(appInstallations.userId, CURRENT_USER_ID), eq(appInstallations.appId, appId)))
+      .where(and(eq(appInstallations.userId, userId), eq(appInstallations.appId, appId)))
       .limit(1);
 
     if (existing.length > 0) {
@@ -41,7 +40,7 @@ export async function installApp(_prevState: unknown, formData: FormData) {
     }
 
     await db.insert(appInstallations).values({
-      userId: CURRENT_USER_ID,
+      userId,
       appId,
       status: "installed",
       config: {},
@@ -71,11 +70,12 @@ export async function configureApp(_prevState: unknown, formData: FormData) {
   }
 
   try {
+    const userId = await getAuthenticatedUserId();
     // Verify installation exists before updating
     const existing = await db
       .select({ id: appInstallations.id, config: appInstallations.config })
       .from(appInstallations)
-      .where(and(eq(appInstallations.userId, CURRENT_USER_ID), eq(appInstallations.appId, appId)))
+      .where(and(eq(appInstallations.userId, userId), eq(appInstallations.appId, appId)))
       .limit(1);
 
     if (existing.length === 0) {
@@ -132,7 +132,7 @@ export async function configureApp(_prevState: unknown, formData: FormData) {
         status: allRequiredFilled ? "configured" : "installed",
         updatedAt: new Date(),
       })
-      .where(and(eq(appInstallations.userId, CURRENT_USER_ID), eq(appInstallations.appId, appId)));
+      .where(and(eq(appInstallations.userId, userId), eq(appInstallations.appId, appId)));
   } catch (err) {
     console.error("configureApp error:", err);
     return { error: "Failed to save configuration. Please try again." };
@@ -154,11 +154,12 @@ export async function uninstallApp(_prevState: unknown, formData: FormData) {
   const { appId } = parsed.data;
 
   try {
+    const userId = await getAuthenticatedUserId();
     // Verify installation exists before deleting
     const existing = await db
       .select({ id: appInstallations.id })
       .from(appInstallations)
-      .where(and(eq(appInstallations.userId, CURRENT_USER_ID), eq(appInstallations.appId, appId)))
+      .where(and(eq(appInstallations.userId, userId), eq(appInstallations.appId, appId)))
       .limit(1);
 
     if (existing.length === 0) {
@@ -167,7 +168,7 @@ export async function uninstallApp(_prevState: unknown, formData: FormData) {
 
     await db
       .delete(appInstallations)
-      .where(and(eq(appInstallations.userId, CURRENT_USER_ID), eq(appInstallations.appId, appId)));
+      .where(and(eq(appInstallations.userId, userId), eq(appInstallations.appId, appId)));
   } catch (err) {
     console.error("uninstallApp error:", err);
     return { error: "Failed to uninstall app. Please try again." };

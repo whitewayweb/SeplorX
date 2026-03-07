@@ -9,10 +9,7 @@ import {
   UpdateCompanySchema,
   CompanyIdSchema,
 } from "@/lib/validations/companies";
-
-// TODO: replace with auth() when auth is re-added
-const CURRENT_USER_ID = 1;
-void CURRENT_USER_ID; // reserved for future createdBy tracking
+import { getAuthenticatedUserId } from "@/lib/auth-utils";
 
 export async function createCompany(_prevState: unknown, formData: FormData) {
   const parsed = CreateCompanySchema.safeParse({

@@ -11,8 +11,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { products, channels, channelProductMappings, agentActions, channelProducts } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
-
-const CURRENT_USER_ID = 1;
+import { getAuthenticatedUserId } from "@/lib/auth-utils";
 
 // ─── Shared plan types (exported for use in approval card + action) ────────────
 
@@ -70,6 +69,7 @@ export const getChannelProducts = tool({
     }),
   ),
   execute: async ({ channelId }) => {
+    const userId = await getAuthenticatedUserId();
     // Load channel row
     const channelRows = await db
       .select({
@@ -81,7 +81,7 @@ export const getChannelProducts = tool({
         status: channels.status,
       })
       .from(channels)
-      .where(and(eq(channels.id, channelId), eq(channels.userId, CURRENT_USER_ID)))
+      .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
       .limit(1);
 
     if (channelRows.length === 0) {
