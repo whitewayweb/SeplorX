@@ -369,7 +369,7 @@ export function ChannelProductsTable({
 
             {/* ── Product Detail Drawer ────────────────────────────────────────── */}
             <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
-                <SheetContent side="right" className="sm:max-w-[60vw] w-full overflow-y-auto w-[60vw]">
+                <SheetContent side="right" className="sm:max-w-[80vw] w-full overflow-y-auto w-[80vw]">
                     {loadingDetail ? (
                         <div className="flex items-center justify-center h-full">
                             <SheetTitle className="sr-only">Loading product details...</SheetTitle>

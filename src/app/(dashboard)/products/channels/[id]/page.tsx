@@ -1,11 +1,12 @@
 import { notFound } from "next/navigation";
 import { TableSearch } from "@/components/ui/table-search";
 import { TablePagination } from "@/components/ui/table-pagination";
-import { getChannel, getChannelProductsWithVariations } from "@/lib/channels/queries";
+import { getChannel, getChannelProductsWithVariations, getBrandsForChannel } from "@/lib/channels/queries";
 import { parsePaginationParams } from "@/lib/utils/pagination";
 import { ClearProductsButton } from "@/components/organisms/channels/clear-products-button";
 import { ChannelProductsTable } from "@/components/organisms/channels/channel-products-table";
 import { getChannelHandler } from "@/lib/channels/handlers";
+import { BrandFilter } from "@/components/organisms/channels/brand-filter";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,7 @@ export default async function ChannelProductsPage({
 
   const resolvedSearchParams = await searchParams;
   const { query, page, limit, offset } = parsePaginationParams(resolvedSearchParams);
+  const brand = typeof resolvedSearchParams?.brand === "string" ? resolvedSearchParams.brand : undefined;
 
   if (isNaN(channelId)) {
     notFound();
@@ -32,8 +34,14 @@ export default async function ChannelProductsPage({
     notFound();
   }
 
-  const { products: productsList, variations: variationsList, totalCount: count } =
-    await getChannelProductsWithVariations(channelId, { query, limit, offset });
+  // Run both queries in parallel — brands list is independent of the product page.
+  const [
+    { products: productsList, variations: variationsList, totalCount: count },
+    brands,
+  ] = await Promise.all([
+    getChannelProductsWithVariations(channelId, { query, brand, limit, offset }),
+    getBrandsForChannel(channelId),
+  ]);
 
   const handler = getChannelHandler(channel.channelType);
   const canRefetchItem = !!handler?.getCatalogItem;
@@ -47,8 +55,9 @@ export default async function ChannelProductsPage({
             Browse all products fetched from {channel.name}. Total: {count}
           </p>
         </div>
-        <div className="flex items-center gap-4">
-          <TableSearch placeholder="Search by name, SKU, or ID..." />
+        <div className="flex items-center gap-3">
+          <BrandFilter brands={brands} />
+          <TableSearch placeholder="Search by name, SKU..." />
           {count > 0 && <ClearProductsButton channelId={channelId} />}
         </div>
       </div>

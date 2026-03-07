@@ -68,7 +68,7 @@ export class AmazonAPIClient {
 
     const url = new URL(`${this.endpoint}/catalog/2022-04-01/items/${encodeURIComponent(asin)}`);
     url.searchParams.set("marketplaceIds", this.marketplaceId);
-    url.searchParams.set("includedData", "summaries");
+    url.searchParams.set("includedData", "summaries,images,identifiers,attributes,dimensions");
 
     const res = await fetch(url.toString(), {
       headers: {
@@ -234,8 +234,7 @@ export class AmazonAPIClient {
 
   private async pollReportStatus(accessToken: string, reportId: string): Promise<string> {
     // Use exponential backoff (3 s → 6 s → 12 s … capped at 15 s per interval).
-    // Hard wall-clock deadline of 55 s keeps the total under typical serverless limits.
-    const DEADLINE_MS = 55_000;
+    const DEADLINE_MS = 180_000; // 3 minutes deadline for Amazon report generation
     const deadline = Date.now() + DEADLINE_MS;
     let intervalMs = 3_000;
 
@@ -267,7 +266,7 @@ export class AmazonAPIClient {
       }
     }
 
-    throw new Error("Amazon report timed out while generating (exceeded 55 s deadline).");
+    throw new Error(`Amazon report timed out while generating (exceeded ${Math.round(DEADLINE_MS / 1000)}s deadline).`);
   }
 
   private async getReportDocumentUrl(accessToken: string, reportDocumentId: string): Promise<{ url: string; compressionAlgorithm?: string }> {
@@ -358,6 +357,52 @@ export class AmazonAPIClient {
         stockQuantity: isNaN(stockQuantity) ? undefined : stockQuantity,
         rawPayload,
       });
+    }
+
+    // Now, batch fetch the actual catalog brand names via the Catalog Items API.
+    // Amazon allows up to 20 internal identifiers (ASIN/SKU) per request.
+    // The rate limit for search is 2 requests per second.
+    try {
+      const accessToken = await this.getAccessToken();
+      const BATCH_SIZE = 20;
+
+      for (let i = 0; i < externalProducts.length; i += BATCH_SIZE) {
+        const batch = externalProducts.slice(i, i + BATCH_SIZE);
+        const asins = batch.map((p) => p.id);
+        if (asins.length === 0) continue;
+
+        const url = new URL(`${this.endpoint}/catalog/2022-04-01/items`);
+        url.searchParams.set("marketplaceIds", this.marketplaceId);
+        url.searchParams.set("identifiersType", "ASIN");
+        url.searchParams.set("identifiers", asins.join(","));
+        url.searchParams.set("includedData", "summaries,images,identifiers,attributes,dimensions");
+
+        const res = await fetch(url.toString(), {
+          headers: { Accept: "application/json", "x-amz-access-token": accessToken },
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          // Map catalog items back onto the products by ASIN
+          const items = data.items || [];
+          for (const item of items) {
+            const product = batch.find((p) => p.id === item.asin);
+            if (product) {
+              if (item.summaries) (product.rawPayload as any).summaries = item.summaries;
+              if (item.images) (product.rawPayload as any).images = item.images;
+              if (item.identifiers) (product.rawPayload as any).identifiers = item.identifiers;
+              if (item.attributes) (product.rawPayload as any).attributes = item.attributes;
+              if (item.dimensions) (product.rawPayload as any).dimensions = item.dimensions;
+            }
+          }
+        }
+
+        // Wait 500ms to respect the 2 requests per second rate limit
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    } catch (err) {
+      console.error("[Amazon SP-API] Failed batch fetching catalog brands:", err);
+      // Suppress full failure, rely on existing report data if catalog fails partially.
     }
 
     return externalProducts;

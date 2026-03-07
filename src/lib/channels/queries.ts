@@ -33,12 +33,32 @@ export async function getChannel(id: number) {
   return channel;
 }
 
+// A robust JSONB expression that extracts the brand name from a channel product.
+// 1. Tries Amazon nested summaries ('summaries[0].brand' from catalog-item API)
+// 2. Tries WooCommerce attributes array (where attribute name is 'brand')
+const brandExpr = sql<string>`COALESCE(
+  NULLIF(${channelProducts.rawData}->'summaries'->0->>'brand', ''),
+  (
+    SELECT NULLIF(a->>'option', '')
+    FROM jsonb_array_elements(
+      CASE 
+        WHEN jsonb_typeof(${channelProducts.rawData}->'attributes') = 'array' 
+        THEN ${channelProducts.rawData}->'attributes' 
+        ELSE '[]'::jsonb 
+      END
+    ) a
+    WHERE a->>'name' ILIKE 'brand'
+    LIMIT 1
+  )
+)`;
+
 export async function getChannelProductsWithVariations(channelId: number, options: {
   query?: string;
+  brand?: string;
   limit: number;
   offset: number;
 }) {
-  const { query, limit, offset } = options;
+  const { query, brand, limit, offset } = options;
 
   const baseCondition = and(
     eq(channelProducts.channelId, channelId),
@@ -64,7 +84,11 @@ export async function getChannelProductsWithVariations(channelId: number, option
     )
     : undefined;
 
-  const whereCondition = and(baseCondition, queryCondition);
+  const brandCondition = brand
+    ? sql`${brandExpr} = ${brand}`
+    : undefined;
+
+  const whereCondition = and(baseCondition, queryCondition, brandCondition);
 
   // 1. Get total count for pagination
   const [{ count }] = await db
@@ -73,8 +97,6 @@ export async function getChannelProductsWithVariations(channelId: number, option
     .where(whereCondition);
 
   // 2. Get the paginated parent products
-  // Defense-in-depth: clamp limit and offset so this function is safe
-  // regardless of what its callers pass in.
   const safeLimit = Math.min(Math.max(1, limit), 100);
   const safeOffset = Math.max(0, offset);
 
@@ -129,6 +151,30 @@ export async function getChannelProductsWithVariations(channelId: number, option
     variations: variationsList,
     totalCount: count,
   };
+}
+
+/**
+ * Returns a sorted list of distinct, non-empty brand names for the given channel.
+ */
+export async function getBrandsForChannel(channelId: number): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({
+      brand: brandExpr,
+    })
+    .from(channelProducts)
+    .where(
+      and(
+        eq(channelProducts.channelId, channelId),
+        // Only parent / standalone products
+        or(ne(channelProducts.type, "variation"), isNull(channelProducts.type)),
+        // Exclude rows where brand is null / empty
+        sql`${brandExpr} IS NOT NULL AND ${brandExpr} != ''`,
+      )
+    )
+    .orderBy(sql`${brandExpr} ASC`);
+
+  // the query returns strings correctly because of sql<string>
+  return rows.map((r) => r.brand).filter(Boolean);
 }
 
 export async function upsertChannelProducts(products: {
