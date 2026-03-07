@@ -68,7 +68,7 @@ export class AmazonAPIClient {
 
     const url = new URL(`${this.endpoint}/catalog/2022-04-01/items/${encodeURIComponent(asin)}`);
     url.searchParams.set("marketplaceIds", this.marketplaceId);
-    url.searchParams.set("includedData", "summaries,images,identifiers,attributes,dimensions");
+    url.searchParams.set("includedData", "summaries,images,identifiers,attributes,dimensions,relationships");
 
     const res = await fetch(url.toString(), {
       headers: {
@@ -375,7 +375,7 @@ export class AmazonAPIClient {
         url.searchParams.set("marketplaceIds", this.marketplaceId);
         url.searchParams.set("identifiersType", "ASIN");
         url.searchParams.set("identifiers", asins.join(","));
-        url.searchParams.set("includedData", "summaries,images,identifiers,attributes,dimensions");
+        url.searchParams.set("includedData", "summaries,images,identifiers,attributes,dimensions,relationships");
 
         const res = await fetch(url.toString(), {
           headers: { Accept: "application/json", "x-amz-access-token": accessToken },
@@ -388,17 +388,53 @@ export class AmazonAPIClient {
           for (const item of items) {
             const product = batch.find((p) => p.id === item.asin);
             if (product) {
-              if (item.summaries) (product.rawPayload as any).summaries = item.summaries;
-              if (item.images) (product.rawPayload as any).images = item.images;
-              if (item.identifiers) (product.rawPayload as any).identifiers = item.identifiers;
-              if (item.attributes) (product.rawPayload as any).attributes = item.attributes;
-              if (item.dimensions) (product.rawPayload as any).dimensions = item.dimensions;
+              const payload = product.rawPayload as Record<string, unknown>;
+              if (item.summaries) payload.summaries = item.summaries;
+              if (item.images) payload.images = item.images;
+              if (item.identifiers) payload.identifiers = item.identifiers;
+              if (item.attributes) payload.attributes = item.attributes;
+              if (item.dimensions) payload.dimensions = item.dimensions;
+
+              // Amazon's batch searchCatalogItems truncates relationships.
+              // If we see it's a parent / has relationships, fetch the full item using getCatalogItem.
+              let fullRelationships = item.relationships;
+
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const hasChildren = item.relationships?.some((r: any) =>
+                r.relationships?.some((rel: any) => rel.childAsins && rel.childAsins.length > 0)
+              );
+
+              if (hasChildren) {
+                try {
+                  const fullItemUrl = new URL(`${this.endpoint}/catalog/2022-04-01/items/${encodeURIComponent(item.asin)}`);
+                  fullItemUrl.searchParams.set("marketplaceIds", this.marketplaceId);
+                  fullItemUrl.searchParams.set("includedData", "relationships");
+
+                  const singleRes = await fetch(fullItemUrl.toString(), {
+                    headers: { Accept: "application/json", "x-amz-access-token": accessToken },
+                  });
+                  if (singleRes.ok) {
+                    const singleData = await singleRes.json();
+                    if (singleData.relationships) {
+                      fullRelationships = singleData.relationships;
+                    }
+                  }
+                  // Respect rate limits for individual item fetch (2 req/s)
+                  await new Promise((r) => setTimeout(r, 550));
+                } catch (e) {
+                  console.warn(`[Amazon SP-API] Failed to fetch full relationships for parent ASIN ${item.asin}`, e);
+                }
+              }
+
+              if (fullRelationships) {
+                payload.relationships = fullRelationships;
+              }
             }
           }
         }
 
-        // Wait 500ms to respect the 2 requests per second rate limit
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        // Wait 500ms to respect the 2 requests per second rate limit for batch search
+        await new Promise((resolve) => setTimeout(resolve, 550));
       }
     } catch (err) {
       console.error("[Amazon SP-API] Failed batch fetching catalog brands:", err);

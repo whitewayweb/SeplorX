@@ -24,6 +24,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getCatalogItem, getChannelProduct } from "@/app/(dashboard)/channels/actions";
+import { ProductDetailTabs } from "./product-detail-tabs";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Types
@@ -139,81 +140,7 @@ export function ChannelProductsTable({
 
     const colSpan = canRefetchItem ? 6 : 5;
 
-    function flattenObject(obj: unknown, prefix = ''): { key: string, value: unknown }[] {
-        if (obj === null || obj === undefined || obj === "") return [];
 
-        if (typeof obj !== "object") {
-            return [{ key: prefix, value: obj }];
-        }
-
-        let result: { key: string, value: unknown }[] = [];
-
-        if (Array.isArray(obj)) {
-            if (obj.length === 0) {
-                return [{ key: prefix, value: "[]" }];
-            }
-            for (let i = 0; i < obj.length; i++) {
-                const newPrefix = prefix ? `${prefix}[${i}]` : `[${i}]`;
-                result = result.concat(flattenObject(obj[i], newPrefix));
-            }
-        } else {
-            const entries = Object.entries(obj as Record<string, unknown>).filter(
-                ([, v]) => v !== null && v !== undefined && v !== ""
-            );
-            if (entries.length === 0) {
-                return [{ key: prefix, value: "{}" }];
-            }
-            for (const [k, v] of entries) {
-                const newPrefix = prefix ? `${prefix}.${k}` : k;
-                result = result.concat(flattenObject(v, newPrefix));
-            }
-        }
-        return result;
-    }
-
-    function renderRawData(data: Record<string, unknown>) {
-        const topLevelEntries = Object.entries(data).filter(
-            ([, v]) => v !== null && v !== undefined && v !== ""
-        );
-
-        if (topLevelEntries.length === 0) {
-            return <p className="text-muted-foreground text-sm">No raw data available.</p>;
-        }
-
-        return (
-            <div className="space-y-6">
-                {topLevelEntries.map(([sectionKey, sectionData]) => {
-                    const flattened = flattenObject(sectionData);
-
-                    return (
-                        <div key={sectionKey} className="space-y-2">
-                            <h4 className="text-sm font-semibold text-foreground border-b pb-1">
-                                {sectionKey}
-                            </h4>
-                            <div className="bg-muted/10 rounded-md border text-sm overflow-hidden">
-                                {flattened.length === 0 ? (
-                                    <div className="p-3 text-muted-foreground text-xs">—</div>
-                                ) : (
-                                    <div className="divide-y divide-muted/30">
-                                        {flattened.map(({ key, value }, idx) => (
-                                            <div key={idx} className="grid grid-cols-[minmax(150px,_35%)_1fr] gap-4 p-2.5 items-start px-3 hover:bg-muted/20 transition-colors">
-                                                <div className="text-xs font-medium text-muted-foreground break-all" title={key || sectionKey}>
-                                                    {key || "value"}
-                                                </div>
-                                                <div className="text-xs font-mono break-words text-foreground">
-                                                    {String(value)}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    );
-                })}
-            </div>
-        );
-    }
 
     // ── Render ──────────────────────────────────────────────────────────────
 
@@ -386,43 +313,8 @@ export function ChannelProductsTable({
                                     {selectedProduct.sku && ` · ${selectedProduct.sku}`}
                                 </SheetDescription>
                             </SheetHeader>
-
-                            <div className="px-4 pb-6 space-y-5">
-                                {/* Summary cards */}
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div className="rounded-lg border bg-muted/30 p-3">
-                                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                                            Type
-                                        </div>
-                                        <div className="mt-1 text-sm font-medium capitalize">
-                                            {selectedProduct.type || "—"}
-                                        </div>
-                                    </div>
-                                    <div className="rounded-lg border bg-muted/30 p-3">
-                                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                                            Stock
-                                        </div>
-                                        <div className="mt-1 text-sm font-medium">
-                                            {selectedProduct.stockQuantity ?? "—"}
-                                        </div>
-                                    </div>
-                                    <div className="rounded-lg border bg-muted/30 p-3 col-span-2">
-                                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                                            Last Synced
-                                        </div>
-                                        <div className="mt-1 text-sm font-medium">
-                                            {selectedProduct.lastSyncedAt
-                                                ? new Date(selectedProduct.lastSyncedAt).toISOString().replace("T", " ").slice(0, 19) + " UTC"
-                                                : "—"}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Raw data */}
-                                <div>
-                                    <h3 className="text-sm font-semibold mb-3">All Product Data</h3>
-                                    {renderRawData(selectedProduct.rawData)}
-                                </div>
+                            <div className="flex-1 w-full pb-0 flex flex-col items-start px-0">
+                                <ProductDetailTabs product={selectedProduct} />
                             </div>
                         </>
                     ) : null}
