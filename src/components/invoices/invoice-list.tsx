@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { deleteInvoice } from "@/app/invoices/actions";
+import { deleteInvoice } from "@/app/(dashboard)/invoices/actions";
 import { Trash2 } from "lucide-react";
 
 type Invoice = {

@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { updateChannel, getChannelConfig } from "@/app/channels/actions";
+import { updateChannel, getChannelConfig } from "@/app/(dashboard)/channels/actions";
 import { getChannelById } from "@/lib/channels/registry";
 import type { ChannelType } from "@/lib/channels/types";
 import type { ChannelInstance } from "@/lib/channels/types";

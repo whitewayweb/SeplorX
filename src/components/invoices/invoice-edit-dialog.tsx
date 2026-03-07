@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { updateInvoice } from "@/app/invoices/actions";
+import { updateInvoice } from "@/app/(dashboard)/invoices/actions";
 import { useState } from "react";
 import { Pencil } from "lucide-react";
 

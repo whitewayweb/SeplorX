@@ -6,8 +6,6 @@ import { sql } from "drizzle-orm";
 import { decrypt } from "@/lib/crypto";
 import { getChannelHandler } from "@/lib/channels/handlers";
 
-const CURRENT_USER_ID = 1;
-
 /**
  * Generic webhook receiver for channel order events.
  * URL: POST /api/channels/{type}/webhook/{channelId}
@@ -43,11 +41,12 @@ export async function POST(
   const channelRows = await db
     .select({
       id: channels.id,
+      userId: channels.userId,
       credentials: channels.credentials,
       status: channels.status,
     })
     .from(channels)
-    .where(and(eq(channels.id, channelId), eq(channels.userId, CURRENT_USER_ID)))
+    .where(eq(channels.id, channelId))
     .limit(1);
 
   if (channelRows.length === 0 || channelRows[0].status !== "connected") {
@@ -152,7 +151,7 @@ export async function POST(
           quantity: change.quantity,
           referenceType: change.referenceType,
           referenceId: change.referenceId,
-          createdBy: CURRENT_USER_ID,
+          createdBy: channelRows[0].userId,
           notes: `Auto-synced from ${type} webhook (order ${change.referenceId})`,
         });
       });

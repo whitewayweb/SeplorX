@@ -17,8 +17,8 @@ import {
 import {
   fetchChannelProducts,
   saveChannelMappings,
-} from "@/app/products/actions";
-import type { ChannelProductWithState } from "@/app/products/actions";
+} from "@/app/(dashboard)/products/actions";
+import type { ChannelProductWithState } from "@/app/(dashboard)/products/actions";
 
 interface AddMappingDialogProps {
   productId: number;

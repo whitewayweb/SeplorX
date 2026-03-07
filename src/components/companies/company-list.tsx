@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { CompanyStatusBadge } from "@/components/companies/company-status-badge";
 import { CompanyTypeBadge } from "@/components/companies/company-type-badge";
 import { CompanyDialog } from "@/components/companies/company-dialog";
-import { toggleCompanyActive, deleteCompany } from "@/app/companies/actions";
+import { toggleCompanyActive, deleteCompany } from "@/app/(dashboard)/companies/actions";
 import { Power, Trash2 } from "lucide-react";
 
 type Company = {

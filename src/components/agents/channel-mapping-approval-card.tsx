@@ -13,7 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { CheckCircle, XCircle, Bot, ChevronDown, ChevronUp, Info } from "lucide-react";
-import { approveChannelMappings, dismissAgentTask } from "@/app/agents/actions";
+import { approveChannelMappings, dismissAgentTask } from "@/app/(dashboard)/agents/actions";
 import type { ChannelMappingPlan } from "@/lib/agents/tools/channel-mapping-tools";
 
 type Props = {

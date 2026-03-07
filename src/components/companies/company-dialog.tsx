@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { createCompany, updateCompany } from "@/app/companies/actions";
+import { createCompany, updateCompany } from "@/app/(dashboard)/companies/actions";
 import { useState } from "react";
 import { Plus, Pencil } from "lucide-react";
 

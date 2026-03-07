@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
-import { deletePayment } from "@/app/invoices/actions";
+import { deletePayment } from "@/app/(dashboard)/invoices/actions";
 import { Trash2 } from "lucide-react";
 
 interface DeletePaymentButtonProps {

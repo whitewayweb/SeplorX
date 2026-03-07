@@ -18,9 +18,7 @@ import {
   PaymentIdSchema,
 } from "@/lib/validations/invoices";
 import type { LineItemInput } from "@/lib/validations/invoices";
-
-// TODO: replace with auth() when auth is re-added
-const CURRENT_USER_ID = 1;
+import { getAuthenticatedUserId } from "@/lib/auth";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -92,6 +90,7 @@ export async function createInvoice(_prevState: unknown, formData: FormData) {
   const totals = computeInvoiceTotals(items, discountAmount);
 
   try {
+    const userId = await getAuthenticatedUserId();
     await db.transaction(async (tx) => {
       // 1. Insert the invoice
       const [invoice] = await tx
@@ -105,7 +104,7 @@ export async function createInvoice(_prevState: unknown, formData: FormData) {
           taxAmount: totals.taxAmount,
           totalAmount: totals.totalAmount,
           amountPaid: "0",
-          createdBy: CURRENT_USER_ID,
+          createdBy: userId,
         })
         .returning({ id: purchaseInvoices.id });
 
@@ -145,7 +144,7 @@ export async function createInvoice(_prevState: unknown, formData: FormData) {
               referenceType: "purchase_invoice",
               referenceId: invoice.id,
               notes: `Invoice #${invoiceData.invoiceNumber}`,
-              createdBy: CURRENT_USER_ID,
+              createdBy: userId,
             });
           }
         }
@@ -310,6 +309,7 @@ export async function addPayment(_prevState: unknown, formData: FormData) {
   const { invoiceId, amount, paymentDate, paymentMode, reference, notes } = parsed.data;
 
   try {
+    const userId = await getAuthenticatedUserId();
     await db.transaction(async (tx) => {
       // 1. Get current invoice state
       const [invoice] = await tx
@@ -347,7 +347,7 @@ export async function addPayment(_prevState: unknown, formData: FormData) {
         paymentMode,
         reference: reference || null,
         notes: notes || null,
-        createdBy: CURRENT_USER_ID,
+        createdBy: userId,
       });
 
       // 3. Atomically update amount_paid and auto-set status

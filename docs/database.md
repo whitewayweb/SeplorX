@@ -21,11 +21,68 @@ Existing table for user accounts.
 | Column | Type | Constraints |
 |--------|------|-------------|
 | id | serial | PK |
-| name | varchar(255) | nullable |
+| name | varchar(255) | NOT NULL |
 | email | varchar(255) | NOT NULL, UNIQUE |
+| email_verified | boolean | NOT NULL, default false |
+| image | text | nullable |
 | password | varchar(255) | nullable |
 | role | enum("admin","customer","vendor") | NOT NULL, default "customer" |
-| created_at | timestamp | default now() |
+| created_at | timestamp | NOT NULL, default now() |
+| updated_at | timestamp | NOT NULL, default now() |
+
+### sessions
+
+Managed by Better Auth for session tracking.
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | text | PK |
+| user_id | integer | NOT NULL, FK → users.id (CASCADE) |
+| token | text | NOT NULL, UNIQUE |
+| expires_at | timestamp | NOT NULL |
+| ip_address | text | nullable |
+| user_agent | text | nullable |
+| created_at | timestamp | NOT NULL, default now() |
+| updated_at | timestamp | NOT NULL, default now() |
+
+**Index**: `(user_id)`
+
+### accounts
+
+Managed by Better Auth for OAuth and credentials linking.
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | text | PK |
+| user_id | integer | NOT NULL, FK → users.id (CASCADE) |
+| account_id | text | NOT NULL |
+| provider_id | text | NOT NULL |
+| access_token | text | nullable |
+| refresh_token | text | nullable |
+| id_token | text | nullable |
+| access_token_expires_at | timestamp | nullable |
+| refresh_token_expires_at | timestamp | nullable |
+| scope | text | nullable |
+| password | text | nullable |
+| created_at | timestamp | NOT NULL, default now() |
+| updated_at | timestamp | NOT NULL, default now() |
+
+**Index**: `(user_id)`
+
+### verifications
+
+Managed by Better Auth for email/OTP verification.
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | text | PK |
+| identifier | text | NOT NULL |
+| value | text | NOT NULL |
+| expires_at | timestamp | NOT NULL |
+| created_at | timestamp | NOT NULL, default now() |
+| updated_at | timestamp | NOT NULL, default now() |
+
+**Index**: `(identifier)`
 
 ### app_installations
 

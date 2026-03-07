@@ -12,7 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { installApp, configureApp, uninstallApp } from "@/app/apps/actions";
+import { installApp, configureApp, uninstallApp } from "@/app/(dashboard)/apps/actions";
 import type { AppWithStatus } from "@/lib/apps";
 
 /** Must match the sentinel in actions.ts and page.tsx */

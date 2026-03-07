@@ -15,9 +15,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Bot, CheckCircle, XCircle, AlertCircle, AlertTriangle, ChevronRight, ChevronLeft, Loader2 } from "lucide-react";
-import { approveOcrInvoice, dismissAgentTask } from "@/app/agents/actions";
-import { createCompany } from "@/app/companies/actions";
-import { createProduct } from "@/app/products/actions";
+import { approveOcrInvoice, dismissAgentTask } from "@/app/(dashboard)/agents/actions";
+import { createCompany } from "@/app/(dashboard)/companies/actions";
+import { createProduct } from "@/app/(dashboard)/products/actions";
 import type { ExtractedInvoice } from "@/lib/agents/ocr-agent";
 import { cn } from "@/lib/utils";
 

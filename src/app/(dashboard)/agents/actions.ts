@@ -14,9 +14,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import type { ReorderPlan } from "@/lib/agents/tools/inventory-tools";
 import type { ChannelMappingPlan } from "@/lib/agents/tools/channel-mapping-tools";
-
-// TODO: replace with auth() when auth is re-added
-const CURRENT_USER_ID = 1;
+import { getAuthenticatedUserId } from "@/lib/auth";
 
 const AgentTaskIdSchema = z.object({
   taskId: z.coerce.number().int().positive(),
@@ -43,12 +41,13 @@ export async function approveReorderPlan(_prevState: unknown, formData: FormData
   const invoiceNumber = `AI-PO-${dateStr}-${taskId}`;
 
   try {
+    const userId = await getAuthenticatedUserId();
     await db.transaction(async (tx) => {
       // 1. Atomically claim the task — only succeeds when status is still pending_approval.
       //    A concurrent approval will find 0 rows here and throw, rolling back cleanly.
       const [claimed] = await tx
         .update(agentActions)
-        .set({ status: "executed", resolvedBy: CURRENT_USER_ID, resolvedAt: new Date() })
+        .set({ status: "executed", resolvedBy: userId, resolvedAt: new Date() })
         .where(and(eq(agentActions.id, taskId), eq(agentActions.status, "pending_approval")))
         .returning({ id: agentActions.id, plan: agentActions.plan });
 
@@ -84,7 +83,7 @@ export async function approveReorderPlan(_prevState: unknown, formData: FormData
           totalAmount: subtotalStr,
           amountPaid: "0",
           notes: `Draft created by AI Reorder Agent. Reasoning: ${plan.reasoning}`,
-          createdBy: CURRENT_USER_ID,
+          createdBy: userId,
         })
         .returning({ id: purchaseInvoices.id });
 
@@ -241,11 +240,12 @@ export async function approveOcrInvoice(_prevState: unknown, formData: FormData)
   }
 
   try {
+    const userId = await getAuthenticatedUserId();
     await db.transaction(async (tx) => {
       // 3. Atomically claim the task — prevents double-approval
       const [claimed] = await tx
         .update(agentActions)
-        .set({ status: "executed", resolvedBy: CURRENT_USER_ID, resolvedAt: new Date() })
+        .set({ status: "executed", resolvedBy: userId, resolvedAt: new Date() })
         .where(and(eq(agentActions.id, taskId), eq(agentActions.status, "pending_approval")))
         .returning({ id: agentActions.id });
 
@@ -315,8 +315,8 @@ export async function approveOcrInvoice(_prevState: unknown, formData: FormData)
           const newTotal = parseFloat(totals.totalAmount);
           const newStatus =
             amountPaid >= newTotal && newTotal > 0 ? ("paid" as const)
-            : amountPaid > 0 ? ("partial" as const)
-            : ("received" as const);
+              : amountPaid > 0 ? ("partial" as const)
+                : ("received" as const);
 
           // Update invoice header in place (keeps invoice ID, payments, and history intact)
           await tx
@@ -351,7 +351,7 @@ export async function approveOcrInvoice(_prevState: unknown, formData: FormData)
               totalAmount: totals.totalAmount,
               amountPaid: "0",
               notes: noteText,
-              createdBy: CURRENT_USER_ID,
+              createdBy: userId,
             })
             .returning({ id: purchaseInvoices.id });
           invoiceId = invoice.id;
@@ -372,7 +372,7 @@ export async function approveOcrInvoice(_prevState: unknown, formData: FormData)
             totalAmount: totals.totalAmount,
             amountPaid: "0",
             notes: noteText,
-            createdBy: CURRENT_USER_ID,
+            createdBy: userId,
           })
           .returning({ id: purchaseInvoices.id });
         invoiceId = invoice.id;
@@ -416,7 +416,7 @@ export async function approveOcrInvoice(_prevState: unknown, formData: FormData)
             referenceType: "purchase_invoice",
             referenceId: invoiceId,
             notes: `Invoice #${headerData.invoiceNumber}`,
-            createdBy: CURRENT_USER_ID,
+            createdBy: userId,
           });
         }
       }
@@ -454,11 +454,12 @@ export async function dismissAgentTask(_prevState: unknown, formData: FormData) 
   const { taskId } = parsed.data;
 
   try {
+    const userId = await getAuthenticatedUserId();
     const result = await db
       .update(agentActions)
       .set({
         status: "dismissed",
-        resolvedBy: CURRENT_USER_ID,
+        resolvedBy: userId,
         resolvedAt: new Date(),
       })
       .where(eq(agentActions.id, taskId))
@@ -491,6 +492,7 @@ export async function approveChannelMappings(_prevState: unknown, formData: Form
   const { taskId } = parsed.data;
 
   try {
+    const userId = await getAuthenticatedUserId();
     let mapped = 0;
     let skipped = 0;
 
@@ -498,7 +500,7 @@ export async function approveChannelMappings(_prevState: unknown, formData: Form
       // 1. Atomically claim the task
       const [claimed] = await tx
         .update(agentActions)
-        .set({ status: "executed", resolvedBy: CURRENT_USER_ID, resolvedAt: new Date() })
+        .set({ status: "executed", resolvedBy: userId, resolvedAt: new Date() })
         .where(and(eq(agentActions.id, taskId), eq(agentActions.status, "pending_approval")))
         .returning({ id: agentActions.id, plan: agentActions.plan });
 

@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ProductDialog } from "@/components/products/product-dialog";
 import { StockAdjustmentDialog } from "@/components/products/stock-adjustment-dialog";
-import { toggleProductActive, deleteProduct } from "@/app/products/actions";
+import { toggleProductActive, deleteProduct } from "@/app/(dashboard)/products/actions";
 import { Power, Trash2 } from "lucide-react";
 
 type Product = {

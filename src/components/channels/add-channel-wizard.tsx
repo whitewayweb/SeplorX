@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { createChannel } from "@/app/channels/actions";
+import { createChannel } from "@/app/(dashboard)/channels/actions";
 import { channelRegistry } from "@/lib/channels/registry";
 import type { ChannelType, ChannelDefinition } from "@/lib/channels/types";
 

@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getCatalogItem, getChannelProduct } from "@/app/channels/actions";
+import { getCatalogItem, getChannelProduct } from "@/app/(dashboard)/channels/actions";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Types

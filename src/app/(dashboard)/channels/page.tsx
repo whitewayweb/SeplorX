@@ -9,8 +9,7 @@ import { ChannelMappingApprovalCard } from "@/components/agents/channel-mapping-
 import type { ChannelInstance } from "@/lib/channels/types";
 import type { ChannelMappingPlan } from "@/lib/agents/tools/channel-mapping-tools";
 import { getCachedProductCountsByChannel } from "@/lib/channels/queries";
-
-const CURRENT_USER_ID = 1;
+import { getAuthenticatedUserId } from "@/lib/auth";
 
 export default async function ChannelsPage({
   searchParams,
@@ -18,6 +17,7 @@ export default async function ChannelsPage({
   searchParams: Promise<{ connected?: string }>;
 }) {
   const { connected } = await searchParams;
+  const userId = await getAuthenticatedUserId();
 
   // Fetch credentials only to derive hasWebhooks — never sent to the client
   const rows = await db
@@ -32,7 +32,7 @@ export default async function ChannelsPage({
       credentials: channels.credentials,
     })
     .from(channels)
-    .where(eq(channels.userId, CURRENT_USER_ID))
+    .where(eq(channels.userId, userId))
     .orderBy(channels.createdAt);
 
   const channelInstances: ChannelInstance[] = rows.map(({ credentials, ...row }) => ({
