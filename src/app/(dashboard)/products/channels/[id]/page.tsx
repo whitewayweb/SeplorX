@@ -3,8 +3,8 @@ import { TableSearch } from "@/components/ui/table-search";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { getChannel, getChannelProductsWithVariations } from "@/lib/channels/queries";
 import { parsePaginationParams } from "@/lib/utils/pagination";
-import { ClearProductsButton } from "@/components/channels/clear-products-button";
-import { ChannelProductsTable } from "@/components/channels/channel-products-table";
+import { ClearProductsButton } from "@/components/organisms/channels/clear-products-button";
+import { ChannelProductsTable } from "@/components/organisms/channels/channel-products-table";
 import { getChannelHandler } from "@/lib/channels/handlers";
 
 export const dynamic = "force-dynamic";

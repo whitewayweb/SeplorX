@@ -1,8 +1,8 @@
 import { db } from "@/db";
 import { companies } from "@/db/schema";
 import { desc } from "drizzle-orm";
-import { CompanyList } from "@/components/companies/company-list";
-import { CompanyDialog } from "@/components/companies/company-dialog";
+import { CompanyList } from "@/components/organisms/companies/company-list";
+import { CompanyDialog } from "@/components/organisms/companies/company-dialog";
 
 export const dynamic = "force-dynamic";
 

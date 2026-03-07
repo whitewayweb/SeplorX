@@ -5,7 +5,7 @@ import { appInstallations } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { appRegistry, getCategories, categoryLabels } from "@/lib/apps";
 import type { AppWithStatus } from "@/lib/apps";
-import { CategoryTabs } from "@/components/apps/category-tabs";
+import { CategoryTabs } from "@/components/organisms/apps/category-tabs";
 import { getAuthenticatedUserId } from "@/lib/auth";
 
 /** Sentinel shown in UI for password fields that have a stored (encrypted) value */

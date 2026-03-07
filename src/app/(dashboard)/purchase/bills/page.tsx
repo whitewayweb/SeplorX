@@ -2,8 +2,8 @@ import { db } from "@/db";
 import { agentActions, companies, products, purchaseInvoices } from "@/db/schema";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { AGENT_REGISTRY } from "@/lib/agents/registry";
-import { OcrUploadTrigger } from "@/components/agents/ocr-upload-trigger";
-import { OcrApprovalCard } from "@/components/agents/ocr-approval-card";
+import { OcrUploadTrigger } from "@/components/organisms/agents/ocr-upload-trigger";
+import { OcrApprovalCard } from "@/components/organisms/agents/ocr-approval-card";
 import type { ExtractedInvoice } from "@/lib/agents/ocr-agent";
 
 export const dynamic = "force-dynamic";

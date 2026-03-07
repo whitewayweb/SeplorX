@@ -63,19 +63,19 @@ src/
 │   ├── layout.tsx           # Root layout with sidebar
 │   └── error.tsx            # Global error boundary
 ├── components/
-│   ├── agents/              # Agent UI components
-│   │   ├── reorder-trigger.tsx
-│   │   ├── reorder-approval-card.tsx
-│   │   ├── channel-mapping-trigger.tsx      # "Auto-Map (AI)" button per channel
-│   │   └── channel-mapping-approval-card.tsx
-│   ├── apps/                # App integration components
-│   ├── channels/            # Channel UI components (list, status badge, add wizard, channel-products-table)
-│   ├── companies/           # Company UI components
-│   ├── layout/              # Layout components (sidebar)
-│   ├── products/            # Product UI components
-│   │   ├── channel-sync-card.tsx            # Per-product WC mapping card
-│   │   └── add-mapping-dialog.tsx           # 3-state multi-select WC product dialog
-│   └── ui/                  # shadcn/ui primitives
+│   ├── atoms/               # Custom UI primitives, providers, icons
+│   │   └── providers.tsx    # Global providers (TanStack Query, Jotai)
+│   ├── ui/                  # shadcn/ui primitives
+│   ├── molecules/           # Simple functional groupings
+│   ├── organisms/           # High-visibility feature blocks
+│   │   ├── agents/          # Agent components (approval cards, etc)
+│   │   ├── apps/            # App integration components
+│   │   ├── channels/        # Channel components (products table, wizard)
+│   │   ├── companies/       # Company UI components
+│   │   ├── invoices/        # Invoice UI components
+│   │   ├── products/        # Product mapping & catalogs
+│   │   └── layout/          # Sidebar & app shell components
+│   └── templates/           # Layout shells without data hooks
 ├── db/
 │   ├── schema.ts            # Drizzle schema (all tables incl. agent_actions)
 │   └── index.ts             # DB connection (globalForDb pattern)

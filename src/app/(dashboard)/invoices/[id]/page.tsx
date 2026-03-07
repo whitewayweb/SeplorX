@@ -21,9 +21,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { PaymentDialog } from "@/components/invoices/payment-dialog";
-import { DeletePaymentButton } from "@/components/invoices/delete-payment-button";
-import { InvoiceEditDialog } from "@/components/invoices/invoice-edit-dialog";
+import { PaymentDialog } from "@/components/organisms/invoices/payment-dialog";
+import { DeletePaymentButton } from "@/components/organisms/invoices/delete-payment-button";
+import { InvoiceEditDialog } from "@/components/organisms/invoices/invoice-edit-dialog";
 
 export const dynamic = "force-dynamic";
 

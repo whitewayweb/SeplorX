@@ -1,8 +1,8 @@
 import { db } from "@/db";
 import { purchaseInvoices, companies, products } from "@/db/schema";
 import { desc, eq } from "drizzle-orm";
-import { InvoiceList } from "@/components/invoices/invoice-list";
-import { InvoiceDialog } from "@/components/invoices/invoice-dialog";
+import { InvoiceList } from "@/components/organisms/invoices/invoice-list";
+import { InvoiceDialog } from "@/components/organisms/invoices/invoice-dialog";
 
 export const dynamic = "force-dynamic";
 

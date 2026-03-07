@@ -24,7 +24,7 @@ import {
 } from "@/app/(dashboard)/channels/actions";
 import { getChannelById } from "@/lib/channels/registry";
 import type { ChannelInstance } from "@/lib/channels/types";
-import { ChannelMappingTrigger } from "@/components/agents/channel-mapping-trigger";
+import { ChannelMappingTrigger } from "@/components/organisms/agents/channel-mapping-trigger";
 import { AGENT_REGISTRY } from "@/lib/agents/registry";
 import { EditChannelDialog } from "./edit-channel-dialog";
 

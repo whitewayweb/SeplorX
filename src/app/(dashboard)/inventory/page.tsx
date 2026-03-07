@@ -14,8 +14,8 @@ import {
 } from "@/components/ui/table";
 import { Package, AlertTriangle, PackageX } from "lucide-react";
 import { AGENT_REGISTRY } from "@/lib/agents/registry";
-import { ReorderTrigger } from "@/components/agents/reorder-trigger";
-import { ReorderApprovalCard } from "@/components/agents/reorder-approval-card";
+import { ReorderTrigger } from "@/components/organisms/agents/reorder-trigger";
+import { ReorderApprovalCard } from "@/components/organisms/agents/reorder-approval-card";
 import type { ReorderPlan } from "@/lib/agents/tools/inventory-tools";
 
 export const dynamic = "force-dynamic";

@@ -227,23 +227,19 @@ src/
 │   ├── layout.tsx              # Root layout with sidebar
 │   └── globals.css             # Tailwind + design tokens
 ├── components/
-│   ├── agents/                 # Agent UI components
-│   │   ├── reorder-trigger.tsx # "AI Reorder Check" button
-│   │   └── reorder-approval-card.tsx # Pending recommendation card
-│   ├── apps/                   # App-specific components
-│   │   ├── app-card.tsx        # Individual app card
-│   │   ├── app-grid.tsx        # Responsive card grid
-│   │   ├── app-config-dialog.tsx # Config form dialog
-│   │   ├── app-icon.tsx        # Dynamic Lucide icon
-│   │   ├── app-status-badge.tsx # Status badge
-│   │   └── category-tabs.tsx   # Category tab navigation
-│   ├── channels/               # Channel-specific components
-│   │   ├── channel-list.tsx    # Table of connected channels
-│   │   ├── channel-status-badge.tsx # pending/connected/disconnected badge
-│   │   └── add-channel-wizard.tsx  # 4-step Dialog (select→name→prefs→connect)
-│   ├── layout/                 # Layout components
-│   │   └── app-sidebar.tsx     # Sidebar navigation
-│   └── ui/                     # shadcn/ui primitives
+│   ├── atoms/                  # Custom UI primitives, providers, icons
+│   │   └── providers.tsx       # Global providers (TanStack Query, Jotai)
+│   ├── ui/                     # shadcn/ui primitives
+│   ├── molecules/              # Simple functional groupings
+│   ├── organisms/              # High-visibility feature blocks
+│   │   ├── agents/             # Agent components (approval cards, etc)
+│   │   ├── apps/               # App integration components
+│   │   ├── channels/           # Channel components (products table, wizard)
+│   │   ├── companies/          # Company UI components
+│   │   ├── invoices/           # Invoice UI components
+│   │   ├── products/           # Product mapping & catalogs
+│   │   └── layout/             # Sidebar & app shell components
+│   └── templates/              # Layout shells without data hooks
 ├── db/
 │   ├── schema.ts               # Drizzle schema (all tables)
 │   └── index.ts                # DB connection + health check

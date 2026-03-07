@@ -20,7 +20,7 @@ export const metadata: Metadata = {
   description: "SeplorX Dashboard",
 };
 
-import { Providers } from "@/components/providers";
+import { Providers } from "@/components/atoms/providers";
 
 export default function RootLayout({
   children,
