@@ -1,10 +1,13 @@
 import { getUserChannels } from "@/lib/channels/queries";
 import { AppSidebarClient } from "./app-sidebar-client";
-import { getSession } from "@/lib/auth/session";
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
 
 export async function AppSidebar() {
-  const session = await getSession();
-  const userId = session?.userId || 1;
+  const sessionData = await auth.api.getSession({
+    headers: await headers()
+  });
+  const userId = Number(sessionData?.user?.id) || 1;
 
   // Database logic is abstracted into the Data Access Layer
   const userChannels = await getUserChannels(userId);

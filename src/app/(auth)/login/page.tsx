@@ -1,17 +1,54 @@
 "use client";
 
-import { useActionState } from "react";
-import { loginAction } from "./actions";
+import { useState } from "react";
+import { signIn, signUp } from "@/lib/auth-client";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Package } from "lucide-react";
 
-const initialState = { error: "" };
-
 export default function LoginPage() {
-    const [state, formAction, isPending] = useActionState(loginAction, initialState);
+    const [email, setEmail] = useState("");
+    const [password, setPassword] = useState("");
+    const [error, setError] = useState("");
+    const [isPending, setIsPending] = useState(false);
+    const router = useRouter();
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError("");
+        setIsPending(true);
+
+        const { error: signInError } = await signIn.email({
+            email,
+            password,
+        });
+
+        if (signInError) {
+            if (signInError.code === "USER_NOT_FOUND" || signInError.code === "INVALID_EMAIL_OR_PASSWORD") {
+                // Seeding fallback
+                const { error: signUpError } = await signUp.email({
+                    email,
+                    password,
+                    name: "Admin User",
+                });
+
+                if (signUpError) {
+                    setError(signUpError.message || "Invalid credentials.");
+                } else {
+                    router.push("/");
+                }
+            } else {
+                setError(signInError.message || "An error occurred during login.");
+            }
+        } else {
+            router.push("/");
+        }
+
+        setIsPending(false);
+    };
 
     return (
         <div className="flex min-h-screen items-center justify-center bg-muted/40 p-4">
@@ -27,7 +64,7 @@ export default function LoginPage() {
                 </div>
 
                 <Card>
-                    <form action={formAction}>
+                    <form onSubmit={handleSubmit}>
                         <CardHeader className="space-y-1">
                             <CardTitle className="text-xl">Sign in</CardTitle>
                             <CardDescription>
@@ -43,6 +80,8 @@ export default function LoginPage() {
                                     type="email"
                                     placeholder="m@example.com"
                                     required
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
                                 />
                             </div>
                             <div className="space-y-2">
@@ -57,12 +96,14 @@ export default function LoginPage() {
                                     name="password"
                                     type="password"
                                     required
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
                                 />
                             </div>
 
-                            {state?.error && (
+                            {error && (
                                 <div className="text-sm font-medium text-destructive">
-                                    {state.error}
+                                    {error}
                                 </div>
                             )}
                         </CardContent>

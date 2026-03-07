@@ -247,6 +247,15 @@ src/
 ├── db/
 │   ├── schema.ts               # Drizzle schema (all tables)
 │   └── index.ts                # DB connection + health check
+### Auth Architecture
+
+SeplorX uses **Better Auth** for secure session management and authentication.
+
+- **Server-Side**: Configured in `src/lib/auth.ts` using the Drizzle adapter.
+- **Client-Side**: React hooks provided in `src/lib/auth-client.ts`.
+- **Middleware**: `src/proxy.ts` performs Edge-side session validation to protect dashboard routes.
+- **Database**: Tightly coupled with the PostreSQL schema (`users`, `sessions`, `accounts`, `verifications`).
+
 └── lib/
     ├── agents/                 # Agent system
     │   ├── registry.ts         # Agent definitions + enabled flags

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { logoutAction } from "@/app/(auth)/logout/actions";
+import { signOut } from "@/lib/auth-client";
 import {
   LayoutDashboard,
   Building2,
@@ -138,12 +138,12 @@ export function AppSidebarClient({
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <form action={logoutAction}>
-                  <SidebarMenuButton type="submit">
-                    <LogOut />
-                    <span>Log Out</span>
-                  </SidebarMenuButton>
-                </form>
+                <SidebarMenuButton onClick={async () => {
+                  await signOut({ fetchOptions: { onSuccess: () => { window.location.href = '/login'; } } })
+                }}>
+                  <LogOut />
+                  <span>Log Out</span>
+                </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>

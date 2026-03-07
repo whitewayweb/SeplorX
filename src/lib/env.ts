@@ -17,8 +17,14 @@ function getEnv() {
   // GOOGLE_GENERATIVE_AI_API_KEY: Google Gemini API key for AI agents (optional — agents won't run without it)
   const googleAiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 
+  // BETTER_AUTH_SECRET: Secret for Better Auth session signing
+  const betterAuthSecret = process.env.BETTER_AUTH_SECRET;
+
+  // BETTER_AUTH_URL: Base URL for Better Auth redirects
+  const betterAuthUrl = process.env.BETTER_AUTH_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+
   // NEXT_PUBLIC_APP_URL: public base URL for building webhook callback URLs (optional)
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || betterAuthUrl;
 
   const optionalEnvVars = {
     NODE_ENV: process.env.NODE_ENV || 'development',
@@ -30,6 +36,7 @@ function getEnv() {
 
     if (!databaseUrl) missing.push('DATABASE_URL (or POSTGRES_URL)');
     if (!encryptionKey) missing.push('ENCRYPTION_KEY');
+    if (!betterAuthSecret) missing.push('BETTER_AUTH_SECRET');
 
     if (missing.length > 0) {
       const errorMessage =
@@ -47,6 +54,8 @@ function getEnv() {
   return {
     DATABASE_URL: databaseUrl as string,
     ENCRYPTION_KEY: encryptionKey as string,
+    BETTER_AUTH_SECRET: betterAuthSecret as string,
+    BETTER_AUTH_URL: betterAuthUrl,
     GOOGLE_GENERATIVE_AI_API_KEY: googleAiKey,
     NEXT_PUBLIC_APP_URL: appUrl,
     ...optionalEnvVars,
