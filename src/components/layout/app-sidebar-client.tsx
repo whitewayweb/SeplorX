@@ -14,6 +14,7 @@ import {
   Receipt,
   Store,
   LogOut,
+  User,
 } from "lucide-react";
 import {
   Sidebar,
@@ -137,6 +138,17 @@ export function AppSidebarClient({
           <SidebarGroupLabel>Account</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/profile"}
+                >
+                  <Link href="/profile">
+                    <User />
+                    <span>Profile</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton onClick={async () => {
                   await signOut({ fetchOptions: { onSuccess: () => { window.location.href = '/login'; } } })

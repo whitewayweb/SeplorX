@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { signIn, signUp } from "@/lib/auth-client";
+import { signIn } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -27,22 +27,7 @@ export default function LoginPage() {
         });
 
         if (signInError) {
-            if (signInError.code === "USER_NOT_FOUND" || signInError.code === "INVALID_EMAIL_OR_PASSWORD") {
-                // Seeding fallback
-                const { error: signUpError } = await signUp.email({
-                    email,
-                    password,
-                    name: "Admin User",
-                });
-
-                if (signUpError) {
-                    setError(signUpError.message || "Invalid credentials.");
-                } else {
-                    router.push("/");
-                }
-            } else {
-                setError(signInError.message || "An error occurred during login.");
-            }
+            setError(signInError.message || "Invalid credentials.");
         } else {
             router.push("/");
         }

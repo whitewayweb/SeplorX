@@ -3,18 +3,18 @@ import type { NextRequest } from "next/server";
 
 const publicRoutes = ["/login"];
 
-export function proxy(request: NextRequest) {
+export default function middleware(request: NextRequest) {
     const { pathname } = request.nextUrl;
 
     const isPublicRoute = publicRoutes.includes(pathname);
-    const sessionCookie = request.cookies.get("better-auth.session_token") || request.cookies.get("__Secure-better-auth.session_token");
+    const sessionCookie = request.cookies.get("better-auth.session_token") ||
+        request.cookies.get("__Secure-better-auth.session_token");
 
     if (!isPublicRoute && !sessionCookie) {
         return NextResponse.redirect(new URL("/login", request.url));
     }
 
     if (isPublicRoute && sessionCookie) {
-        // Basic redirect, true validity checked by server components
         return NextResponse.redirect(new URL("/", request.url));
     }
 
