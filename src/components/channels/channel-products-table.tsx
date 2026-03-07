@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useTransition, useCallback, Fragment } from "react";
+import { useState, useCallback, Fragment } from "react";
 import { CornerDownRight, RefreshCw, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import { atom, useAtom } from "jotai";
+import { useQuery } from "@tanstack/react-query";
 import {
     Table,
     TableBody,
@@ -61,6 +63,13 @@ interface ChannelProductsTableProps {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// State Atoms
+// ────────────────────────────────────────────────────────────────────────────
+
+const drawerOpenAtom = atom(false);
+const selectedProductIdAtom = atom<number | null>(null);
+
+// ────────────────────────────────────────────────────────────────────────────
 // Component
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -71,26 +80,32 @@ export function ChannelProductsTable({
     canRefetchItem,
 }: ChannelProductsTableProps) {
     const router = useRouter();
-    const [drawerOpen, setDrawerOpen] = useState(false);
-    const [selectedProduct, setSelectedProduct] = useState<ChannelProductDetail | null>(null);
-    const [loadingDetail, startLoadingDetail] = useTransition();
+    const [drawerOpen, setDrawerOpen] = useAtom(drawerOpenAtom);
+    const [selectedProductId, setSelectedProductId] = useAtom(selectedProductIdAtom);
     const [refetchingId, setRefetchingId] = useState<string | null>(null);
+
+    const { data: selectedProduct, isFetching: loadingDetail } = useQuery({
+        queryKey: ["channelProduct", selectedProductId],
+        queryFn: async () => {
+            if (!selectedProductId) return null;
+            const result = await getChannelProduct(selectedProductId);
+            if (result.error || !result.product) {
+                toast.error("Failed to load product details", { description: result.error });
+                return null;
+            }
+            return result.product as ChannelProductDetail;
+        },
+        enabled: drawerOpen && selectedProductId !== null,
+    });
 
     // ── Open detail drawer ──────────────────────────────────────────────────
 
     const handleRowClick = useCallback(
         (productId: number) => {
-            startLoadingDetail(async () => {
-                const result = await getChannelProduct(productId);
-                if (result.error || !result.product) {
-                    toast.error("Failed to load product details", { description: result.error });
-                    return;
-                }
-                setSelectedProduct(result.product as ChannelProductDetail);
-                setDrawerOpen(true);
-            });
+            setSelectedProductId(productId);
+            setDrawerOpen(true);
         },
-        [],
+        [setSelectedProductId, setDrawerOpen],
     );
 
     // ── Refetch single product ──────────────────────────────────────────────
