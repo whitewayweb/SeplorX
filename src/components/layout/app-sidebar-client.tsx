@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signOut } from "@/lib/auth-client";
+import { signOut } from "@/lib/auth/client";
 import {
   LayoutDashboard,
   Building2,

@@ -9,7 +9,7 @@ import { ChannelMappingApprovalCard } from "@/components/agents/channel-mapping-
 import type { ChannelInstance } from "@/lib/channels/types";
 import type { ChannelMappingPlan } from "@/lib/agents/tools/channel-mapping-tools";
 import { getCachedProductCountsByChannel } from "@/lib/channels/queries";
-import { getAuthenticatedUserId } from "@/lib/auth-utils";
+import { getAuthenticatedUserId } from "@/lib/auth";
 
 export default async function ChannelsPage({
   searchParams,

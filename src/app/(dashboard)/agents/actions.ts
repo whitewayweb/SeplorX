@@ -14,7 +14,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import type { ReorderPlan } from "@/lib/agents/tools/inventory-tools";
 import type { ChannelMappingPlan } from "@/lib/agents/tools/channel-mapping-tools";
-import { getAuthenticatedUserId } from "@/lib/auth-utils";
+import { getAuthenticatedUserId } from "@/lib/auth";
 
 const AgentTaskIdSchema = z.object({
   taskId: z.coerce.number().int().positive(),

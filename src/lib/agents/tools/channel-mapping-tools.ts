@@ -11,7 +11,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { products, channels, channelProductMappings, agentActions, channelProducts } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
-import { getAuthenticatedUserId } from "@/lib/auth-utils";
+import { getAuthenticatedUserId } from "@/lib/auth";
 
 // ─── Shared plan types (exported for use in approval card + action) ────────────
 

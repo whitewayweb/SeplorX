@@ -251,10 +251,10 @@ src/
 
 SeplorX uses **Better Auth** for secure session management and authentication.
 
-- **Server-Side**: Configured in `src/lib/auth.ts` using the Drizzle adapter.
-- **Client-Side**: React hooks provided in `src/lib/auth-client.ts`.
-- **Middleware**: `src/middleware.ts` performs Edge-side session validation against the Better Auth API (not just cookie presence checks) to protect dashboard routes.
-- **Auth Helper**: `src/lib/auth-utils.ts` exports `getAuthenticatedUserId()` — used in all Server Components and Server Actions to obtain the authenticated user’s ID. Never hardcode user IDs.
+- **Server-Side**: Configured in `src/lib/auth/index.ts` using the Drizzle adapter.
+- **Client-Side**: React hooks provided in `src/lib/auth/client.ts`.
+- **Proxy Middleware**: `src/proxy.ts` performs Edge-side session validation against the Better Auth API (not just cookie presence checks) to protect dashboard routes. Middleware Deprecation Warning: Next.js 16 deprecated the old middleware file convention in favor of proxy.ts
+- **Auth Helper**: `src/lib/auth/index.ts` exports `getAuthenticatedUserId()` and `getAuthenticatedSession()` — used in all Server Components and Server Actions to obtain the authenticated user context. Never hardcode user IDs.
 - **Database**: Tightly coupled with the PostgreSQL schema (`users`, `sessions`, `accounts`, `verifications`).
 - **Profile Mutations**: Profile name and password updates use dedicated Server Actions in `src/app/(dashboard)/profile/actions.ts` with Zod validation.
 

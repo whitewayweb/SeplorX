@@ -9,7 +9,6 @@ import {
   UpdateCompanySchema,
   CompanyIdSchema,
 } from "@/lib/validations/companies";
-import { getAuthenticatedUserId } from "@/lib/auth-utils";
 
 export async function createCompany(_prevState: unknown, formData: FormData) {
   const parsed = CreateCompanySchema.safeParse({

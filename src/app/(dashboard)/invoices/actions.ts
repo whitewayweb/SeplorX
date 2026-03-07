@@ -18,7 +18,7 @@ import {
   PaymentIdSchema,
 } from "@/lib/validations/invoices";
 import type { LineItemInput } from "@/lib/validations/invoices";
-import { getAuthenticatedUserId } from "@/lib/auth-utils";
+import { getAuthenticatedUserId } from "@/lib/auth";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 

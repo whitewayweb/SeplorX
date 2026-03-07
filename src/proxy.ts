@@ -10,7 +10,7 @@ const PUBLIC_ROUTES = ["/login"];
  * call Better Auth's get-session endpoint server-side to confirm the
  * session is genuine and not expired.
  */
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
     const { pathname } = request.nextUrl;
     const isPublicRoute = PUBLIC_ROUTES.includes(pathname);
 

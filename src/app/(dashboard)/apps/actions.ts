@@ -7,7 +7,7 @@ import { revalidatePath } from "next/cache";
 import { getAppById } from "@/lib/apps";
 import { InstallAppSchema, UninstallAppSchema, buildAppConfigSchema } from "@/lib/validations/apps";
 import { encrypt } from "@/lib/crypto";
-import { getAuthenticatedUserId } from "@/lib/auth-utils";
+import { getAuthenticatedUserId } from "@/lib/auth";
 
 /** Sentinel value sent by the client when a masked password field was not changed */
 const MASKED_SENTINEL = "••••••••";

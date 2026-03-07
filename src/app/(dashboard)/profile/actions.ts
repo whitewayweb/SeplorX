@@ -1,9 +1,12 @@
 "use server";
 
 import { z } from "zod";
-import { auth } from "@/lib/auth";
+import { auth, getAuthenticatedUserId, getAuthenticatedSession } from "@/lib/auth";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
+import { db } from "@/db";
+import { users } from "@/db/schema";
+import { eq } from "drizzle-orm";
 
 const UpdateNameSchema = z.object({
     name: z.string().trim().min(1, "Name is required").max(100, "Name is too long"),
@@ -19,8 +22,8 @@ const ChangePasswordSchema = z.object({
 });
 
 export async function updateProfileName(_prevState: unknown, formData: FormData) {
-    const session = await auth.api.getSession({ headers: await headers() });
-    if (!session) {
+    const userId = await getAuthenticatedUserId();
+    if (!userId) {
         return { error: "Not authenticated." };
     }
 
@@ -36,12 +39,9 @@ export async function updateProfileName(_prevState: unknown, formData: FormData)
     }
 
     try {
-        await auth.api.updateUser({
-            headers: await headers(),
-            body: { name: parsed.data.name },
-        });
+        await db.update(users).set({ name: parsed.data.name }).where(eq(users.id, userId));
     } catch (err) {
-        console.error("[updateProfileName]", { userId: session.user.id, error: String(err) });
+        console.error("[updateProfileName]", { userId, error: String(err) });
         return { error: "Failed to update profile name." };
     }
 
@@ -50,7 +50,7 @@ export async function updateProfileName(_prevState: unknown, formData: FormData)
 }
 
 export async function updateProfilePassword(_prevState: unknown, formData: FormData) {
-    const session = await auth.api.getSession({ headers: await headers() });
+    const session = await getAuthenticatedSession();
     if (!session) {
         return { error: "Not authenticated." };
     }

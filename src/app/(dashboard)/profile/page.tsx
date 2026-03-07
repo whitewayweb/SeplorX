@@ -1,16 +1,8 @@
-import { redirect } from "next/navigation";
-import { headers } from "next/headers";
-import { auth } from "@/lib/auth";
+import { getAuthenticatedSession } from "@/lib/auth";
 import { ProfileForm } from "./profile-form";
 
 export default async function ProfilePage() {
-    const session = await auth.api.getSession({
-        headers: await headers(),
-    });
-
-    if (!session) {
-        redirect("/login");
-    }
+    const session = await getAuthenticatedSession();
 
     return (
         <ProfileForm

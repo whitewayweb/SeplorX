@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { appRegistry, getCategories, categoryLabels } from "@/lib/apps";
 import type { AppWithStatus } from "@/lib/apps";
 import { CategoryTabs } from "@/components/apps/category-tabs";
-import { getAuthenticatedUserId } from "@/lib/auth-utils";
+import { getAuthenticatedUserId } from "@/lib/auth";
 
 /** Sentinel shown in UI for password fields that have a stored (encrypted) value */
 const MASKED_VALUE = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";

@@ -17,7 +17,7 @@ import {
   saveChannelMappingsService,
   type ChannelProductWithState,
 } from "@/lib/products/services";
-import { getAuthenticatedUserId } from "@/lib/auth-utils";
+import { getAuthenticatedUserId } from "@/lib/auth";
 
 export async function createProduct(_prevState: unknown, formData: FormData) {
   const parsed = CreateProductSchema.safeParse({

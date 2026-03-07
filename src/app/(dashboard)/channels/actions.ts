@@ -20,7 +20,7 @@ import {
   clearChannelProductsService,
   getCatalogItemService,
 } from "@/lib/channels/services";
-import { getAuthenticatedUserId } from "@/lib/auth-utils";
+import { getAuthenticatedUserId } from "@/lib/auth";
 
 export async function createChannel(_prevState: unknown, formData: FormData) {
   const parsed = CreateChannelSchema.safeParse({
