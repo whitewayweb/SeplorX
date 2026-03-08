@@ -5,7 +5,7 @@ import { encrypt } from "@/lib/crypto";
 import { getChannelById } from "@/lib/channels/registry";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
-import { upsertChannelProducts } from "@/lib/channels/queries";
+import { upsertChannelProducts, updateChildVariationsParent } from "@/lib/channels/queries";
 import type { ChannelType } from "@/lib/channels/types";
 import { env } from "@/lib/env";
 
@@ -300,6 +300,41 @@ export async function getCatalogItemService(userId: number, channelId: number, a
     type: product.type || null,
     rawData: { ...product.rawPayload, parentId: product.parentId },
   }]);
+
+  // ── Extract and map child variations ─────────────────────────────────────
+  // Amazon stores child ASINs in rawPayload.relationships. We collect all unique
+  // childAsins from VARIATION relationships and natively update their existing DB rows
+  // to set type="variation" and parentId, bypassing extra API fetches.
+  try {
+    const relationships = product.rawPayload?.relationships as Array<{
+      marketplaceId?: string;
+      relationships?: Array<{ type?: string; childAsins?: string[] }>;
+    }> | undefined;
+
+    const childAsinSet = new Set<string>();
+    if (Array.isArray(relationships)) {
+      for (const byMarketplace of relationships) {
+        if (!Array.isArray(byMarketplace.relationships)) continue;
+        for (const rel of byMarketplace.relationships) {
+          if (rel.type === "VARIATION" && Array.isArray(rel.childAsins)) {
+            for (const childAsin of rel.childAsins) {
+              if (childAsin && childAsin !== asin) {
+                childAsinSet.add(childAsin);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    const childAsins = [...childAsinSet];
+    if (childAsins.length > 0) {
+      await updateChildVariationsParent(channelId, asin, childAsins);
+    }
+  } catch (err) {
+    // Don't fail the whole operation if child variation mapping fails
+    console.warn("[getCatalogItemService] Failed to map child variations:", String(err));
+  }
 
   return product;
 }

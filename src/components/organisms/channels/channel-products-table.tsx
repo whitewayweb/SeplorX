@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, Fragment } from "react";
-import { CornerDownRight, RefreshCw, Loader2 } from "lucide-react";
+import { CornerDownRight, RefreshCw, Loader2, ChevronRight, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { atom, useAtom } from "jotai";
@@ -84,6 +84,20 @@ export function ChannelProductsTable({
     const [drawerOpen, setDrawerOpen] = useAtom(drawerOpenAtom);
     const [selectedProductId, setSelectedProductId] = useAtom(selectedProductIdAtom);
     const [refetchingId, setRefetchingId] = useState<string | null>(null);
+    const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
+
+    const toggleExpand = useCallback((e: React.MouseEvent, externalId: string) => {
+        e.stopPropagation();
+        setExpandedParents((prev) => {
+            const next = new Set(prev);
+            if (next.has(externalId)) {
+                next.delete(externalId);
+            } else {
+                next.add(externalId);
+            }
+            return next;
+        });
+    }, []);
 
     const { data: selectedProduct, isFetching: loadingDetail } = useQuery({
         queryKey: ["channelProduct", selectedProductId],
@@ -176,11 +190,27 @@ export function ChannelProductsTable({
                                     return (
                                         <Fragment key={product.id}>
                                             <TableRow
-                                                className={`cursor-pointer hover:bg-muted/50 transition-colors ${productVariations.length > 0 ? "border-b-0" : ""}`}
+                                                className={`cursor-pointer hover:bg-muted/50 transition-colors ${productVariations.length > 0 && expandedParents.has(product.externalId) ? "border-b-0" : ""}`}
                                                 onClick={() => handleRowClick(product.id)}
                                             >
                                                 <TableCell className="whitespace-nowrap">
-                                                    <div className="font-mono text-sm">
+                                                    <div className="flex items-center gap-2 font-mono text-sm">
+                                                        {productVariations.length > 0 ? (
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-6 w-6 shrink-0 -ml-2"
+                                                                onClick={(e) => toggleExpand(e, product.externalId)}
+                                                            >
+                                                                {expandedParents.has(product.externalId) ? (
+                                                                    <ChevronDown className="h-4 w-4" />
+                                                                ) : (
+                                                                    <ChevronRight className="h-4 w-4" />
+                                                                )}
+                                                            </Button>
+                                                        ) : (
+                                                            <div className="w-4 shrink-0 -ml-2" />
+                                                        )}
                                                         {product.externalId}
                                                     </div>
                                                 </TableCell>
@@ -234,7 +264,7 @@ export function ChannelProductsTable({
                                                 )}
                                             </TableRow>
 
-                                            {productVariations.map((variation) => (
+                                            {expandedParents.has(product.externalId) && productVariations.map((variation) => (
                                                 <TableRow
                                                     key={variation.id}
                                                     className="bg-muted/30 hover:bg-muted/40 transition-colors cursor-pointer"

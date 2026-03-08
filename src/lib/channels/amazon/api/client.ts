@@ -100,9 +100,31 @@ export class AmazonAPIClient {
       summaries[0]?.itemName ??
       asin;
 
+    // Determine product type:
+    //   VARIATION_PARENT → "variable" (has children)
+    //   default          → undefined (simple / unknown)
+    const itemClassification =
+      summaries.find((s) => s.marketplaceId === this.marketplaceId)?.itemClassification ??
+      summaries[0]?.itemClassification;
+
+    let productType: "variable" | "variation" | "simple" | undefined = itemClassification === "VARIATION_PARENT" ? "variable" : undefined;
+
+    if (!productType && Array.isArray(data.relationships)) {
+      for (const byMarketplace of data.relationships) {
+        if (!Array.isArray(byMarketplace.relationships)) continue;
+        for (const rel of byMarketplace.relationships) {
+          if (rel.type === "VARIATION" && Array.isArray(rel.childAsins)) {
+            productType = "variable";
+            break;
+          }
+        }
+      }
+    }
+
     return {
       id: data.asin ?? asin,
       name: itemName,
+      type: productType,
       rawPayload: {
         ...data,
         pricing: pricingData,
@@ -399,9 +421,8 @@ export class AmazonAPIClient {
               // If we see it's a parent / has relationships, fetch the full item using getCatalogItem.
               let fullRelationships = item.relationships;
 
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const hasChildren = item.relationships?.some((r: any) =>
-                r.relationships?.some((rel: any) => rel.childAsins && rel.childAsins.length > 0)
+              const hasChildren = item.relationships?.some((r: { relationships?: Array<{ childAsins?: string[] }> }) =>
+                r.relationships?.some((rel) => rel.childAsins && rel.childAsins.length > 0)
               );
 
               if (hasChildren) {
@@ -436,6 +457,45 @@ export class AmazonAPIClient {
         // Wait 500ms to respect the 2 requests per second rate limit for batch search
         await new Promise((resolve) => setTimeout(resolve, 550));
       }
+
+      // ── Process relationships to identify parents and children ──
+      // This is necessary so the data structure matches SeplorX's DB schema correctly on first sync.
+      for (const product of externalProducts) {
+        const payload = product.rawPayload as Record<string, unknown>;
+
+        const summaries = payload.summaries as Array<{ marketplaceId?: string; itemClassification?: string }> | undefined;
+        const itemClassification =
+          summaries?.find((s) => s.marketplaceId === this.marketplaceId)?.itemClassification ??
+          summaries?.[0]?.itemClassification;
+
+        if (itemClassification === "VARIATION_PARENT") {
+          product.type = "variable";
+        }
+
+        if (Array.isArray(payload.relationships)) {
+          for (const byMarketplace of payload.relationships) {
+            if (!Array.isArray(byMarketplace.relationships)) continue;
+            for (const rel of byMarketplace.relationships) {
+              if (rel.type === "VARIATION" && Array.isArray(rel.childAsins)) {
+                product.type = "variable";
+                for (const childAsin of rel.childAsins) {
+                  if (childAsin && childAsin !== product.id) {
+                    const childObj = externalProducts.find((p) => p.id === childAsin);
+                    if (childObj) {
+                      childObj.type = "variation";
+                      childObj.parentId = product.id;
+                      if (childObj.rawPayload) {
+                        childObj.rawPayload.parentId = product.id;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
     } catch (err) {
       console.error("[Amazon SP-API] Failed batch fetching catalog brands:", err);
       // Suppress full failure, rely on existing report data if catalog fails partially.

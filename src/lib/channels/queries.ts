@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { channelProducts, channels } from "@/db/schema";
-import { and, count, desc, eq, ilike, isNull, ne, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, ilike, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
 /**
  * Data Access Layer (DAL) for channels.
@@ -197,14 +197,41 @@ export async function upsertChannelProducts(products: {
     .onConflictDoUpdate({
       target: [channelProducts.channelId, channelProducts.externalId],
       set: {
-        name: sql`EXCLUDED.name`,
-        sku: sql`EXCLUDED.sku`,
-        stockQuantity: sql`EXCLUDED.stock_quantity`,
-        type: sql`EXCLUDED.type`,
+        name: sql`COALESCE(EXCLUDED.name, ${channelProducts.name})`,
+        sku: sql`COALESCE(EXCLUDED.sku, ${channelProducts.sku})`,
+        stockQuantity: sql`COALESCE(EXCLUDED.stock_quantity, ${channelProducts.stockQuantity})`,
+        type: sql`COALESCE(EXCLUDED.type, ${channelProducts.type})`,
         rawData: sql`EXCLUDED.raw_data`,
         lastSyncedAt: sql`EXCLUDED.last_synced_at`,
       },
     });
+}
+
+/**
+ * Updates existing child rows by setting type = "variation" and patching rawData
+ * to include parentId. Used when fetching catalog items with Amazon SP-API.
+ */
+export async function updateChildVariationsParent(
+  channelId: number,
+  parentAsin: string,
+  childAsins: string[]
+) {
+  if (childAsins.length === 0) return;
+
+  // We patch the existing raw_data JSONB: { ...raw_data, "parentId": parentAsin }
+  await db
+    .update(channelProducts)
+    .set({
+      type: "variation",
+      rawData: sql`${channelProducts.rawData} || jsonb_build_object('parentId', ${parentAsin}::text)`,
+      lastSyncedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(channelProducts.channelId, channelId),
+        inArray(channelProducts.externalId, childAsins)
+      )
+    );
 }
 /**
  * Returns a Map of channelId → number of cached products.
