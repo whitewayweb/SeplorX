@@ -4,8 +4,6 @@ import { useState, useCallback, Fragment } from "react";
 import { CornerDownRight, RefreshCw, Loader2, ChevronRight, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { atom, useAtom } from "jotai";
-import { useQuery } from "@tanstack/react-query";
 import {
     Table,
     TableBody,
@@ -63,17 +61,6 @@ interface ChannelProductsTableProps {
     canRefetchItem: boolean;
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// State Atoms
-// ────────────────────────────────────────────────────────────────────────────
-
-const drawerOpenAtom = atom(false);
-const selectedProductIdAtom = atom<number | null>(null);
-
-// ────────────────────────────────────────────────────────────────────────────
-// Component
-// ────────────────────────────────────────────────────────────────────────────
-
 export function ChannelProductsTable({
     channelId,
     products,
@@ -81,8 +68,8 @@ export function ChannelProductsTable({
     canRefetchItem,
 }: ChannelProductsTableProps) {
     const router = useRouter();
-    const [drawerOpen, setDrawerOpen] = useAtom(drawerOpenAtom);
-    const [selectedProductId, setSelectedProductId] = useAtom(selectedProductIdAtom);
+    const [drawerOpen, setDrawerOpen] = useState(false);
+    const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
     const [refetchingId, setRefetchingId] = useState<string | null>(null);
     const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
 
@@ -99,28 +86,35 @@ export function ChannelProductsTable({
         });
     }, []);
 
-    const { data: selectedProduct, isFetching: loadingDetail } = useQuery({
-        queryKey: ["channelProduct", selectedProductId],
-        queryFn: async () => {
-            if (!selectedProductId) return null;
-            const result = await getChannelProduct(selectedProductId);
-            if (result.error || !result.product) {
-                toast.error("Failed to load product details", { description: result.error });
-                return null;
-            }
-            return result.product as ChannelProductDetail;
-        },
-        enabled: drawerOpen && selectedProductId !== null,
-    });
+    const [productCache, setProductCache] = useState<Map<number, ChannelProductDetail>>(new Map());
+    const [selectedProduct, setSelectedProduct] = useState<ChannelProductDetail | null>(null);
+    const [loadingDetail, setLoadingDetail] = useState(false);
 
     // ── Open detail drawer ──────────────────────────────────────────────────
 
     const handleRowClick = useCallback(
-        (productId: number) => {
+        async (productId: number) => {
             setSelectedProductId(productId);
             setDrawerOpen(true);
+
+            // Check cache first
+            if (productCache.has(productId)) {
+                setSelectedProduct(productCache.get(productId)!);
+                return;
+            }
+
+            setLoadingDetail(true);
+            const result = await getChannelProduct(productId);
+            if (result.error || !result.product) {
+                toast.error("Failed to load product details", { description: result.error });
+            } else {
+                const product = result.product as ChannelProductDetail;
+                setSelectedProduct(product);
+                setProductCache((prev) => new Map(prev).set(productId, product));
+            }
+            setLoadingDetail(false);
         },
-        [setSelectedProductId, setDrawerOpen],
+        [productCache],
     );
 
     // ── Refetch single product ──────────────────────────────────────────────
@@ -138,6 +132,15 @@ export function ChannelProductsTable({
                         toast.success("Product refreshed", {
                             description: `"${result.product?.name ?? externalId}" has been updated.`,
                         });
+                        // Clear from cache if exists to force re-fetch on next drawer open
+                        const productId = result.product?.id;
+                        if (productId && typeof productId === "number") {
+                            setProductCache((prev) => {
+                                const next = new Map(prev);
+                                next.delete(productId);
+                                return next;
+                            });
+                        }
                         router.refresh();
                     }
                 } catch (err) {

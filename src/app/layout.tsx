@@ -20,8 +20,6 @@ export const metadata: Metadata = {
   description: "SeplorX Dashboard",
 };
 
-import { Providers } from "@/components/atoms/providers";
-
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -32,12 +30,10 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <Providers>
-          {children}
-          <Toaster richColors position="top-right" />
-          <SpeedInsights />
-          <Analytics />
-        </Providers>
+        {children}
+        <Toaster richColors position="top-right" />
+        <SpeedInsights />
+        <Analytics />
       </body>
     </html>
   );

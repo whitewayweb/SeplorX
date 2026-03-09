@@ -38,18 +38,14 @@ export async function getChannel(id: number) {
 // 2. Tries WooCommerce attributes array (where attribute name is 'brand')
 const brandExpr = sql<string>`COALESCE(
   NULLIF(${channelProducts.rawData}->'summaries'->0->>'brand', ''),
-  (
-    SELECT NULLIF(a->>'option', '')
-    FROM jsonb_array_elements(
-      CASE 
-        WHEN jsonb_typeof(${channelProducts.rawData}->'attributes') = 'array' 
-        THEN ${channelProducts.rawData}->'attributes' 
-        ELSE '[]'::jsonb 
-      END
-    ) a
-    WHERE a->>'name' ILIKE 'brand'
-    LIMIT 1
-  )
+  NULLIF(jsonb_path_query_first(
+    CASE 
+      WHEN jsonb_typeof(${channelProducts.rawData}->'attributes') = 'array' 
+      THEN ${channelProducts.rawData}->'attributes' 
+      ELSE '[]'::jsonb 
+    END,
+    '$[*] ? (@.name == "brand" || @.name == "Brand").option'
+  )#>>'{}', '')
 )`;
 
 export async function getChannelProductsWithVariations(channelId: number, options: {
@@ -157,23 +153,26 @@ export async function getChannelProductsWithVariations(channelId: number, option
  * Returns a sorted list of distinct, non-empty brand names for the given channel.
  */
 export async function getBrandsForChannel(channelId: number): Promise<string[]> {
-  const rows = await db
-    .selectDistinct({
-      brand: brandExpr,
+  const sq = db
+    .select({
+      brand: brandExpr.as("brand"),
     })
     .from(channelProducts)
     .where(
       and(
         eq(channelProducts.channelId, channelId),
         // Only parent / standalone products
-        or(ne(channelProducts.type, "variation"), isNull(channelProducts.type)),
-        // Exclude rows where brand is null / empty
-        sql`${brandExpr} IS NOT NULL AND ${brandExpr} != ''`,
+        or(ne(channelProducts.type, "variation"), isNull(channelProducts.type))
       )
     )
-    .orderBy(sql`${brandExpr} ASC`);
+    .as("brands_subquery");
 
-  // the query returns strings correctly because of sql<string>
+  const rows = await db
+    .selectDistinct({ brand: sq.brand })
+    .from(sq)
+    .where(sql`${sq.brand} IS NOT NULL AND ${sq.brand} != ''`)
+    .orderBy(sql`${sq.brand} ASC`);
+
   return rows.map((r) => r.brand).filter(Boolean);
 }
 
@@ -198,19 +197,15 @@ export async function upsertChannelProducts(products: {
       target: [channelProducts.channelId, channelProducts.externalId],
       set: {
         name: sql`COALESCE(EXCLUDED.name, ${channelProducts.name})`,
-        sku: sql`COALESCE(EXCLUDED.sku, ${channelProducts.sku})`,
-        stockQuantity: sql`COALESCE(EXCLUDED.stock_quantity, ${channelProducts.stockQuantity})`,
-        type: sql`COALESCE(EXCLUDED.type, ${channelProducts.type})`,
+        sku: sql`EXCLUDED.sku`,
+        stockQuantity: sql`EXCLUDED.stock_quantity`,
+        type: sql`EXCLUDED.type`,
         rawData: sql`EXCLUDED.raw_data`,
         lastSyncedAt: sql`EXCLUDED.last_synced_at`,
       },
     });
 }
 
-/**
- * Updates existing child rows by setting type = "variation" and patching rawData
- * to include parentId. Used when fetching catalog items with Amazon SP-API.
- */
 export async function updateChildVariationsParent(
   channelId: number,
   parentAsin: string,
@@ -218,7 +213,6 @@ export async function updateChildVariationsParent(
 ) {
   if (childAsins.length === 0) return;
 
-  // We patch the existing raw_data JSONB: { ...raw_data, "parentId": parentAsin }
   await db
     .update(channelProducts)
     .set({
@@ -232,6 +226,52 @@ export async function updateChildVariationsParent(
         inArray(channelProducts.externalId, childAsins)
       )
     );
+}
+
+export async function upsertProductWithVariationsTx(
+  product: {
+    channelId: number;
+    externalId: string;
+    name: string;
+    sku: string | null;
+    stockQuantity: number | null;
+    type: string | null;
+    rawData: unknown;
+  },
+  childAsins: string[]
+) {
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(channelProducts)
+      .values({ ...product, lastSyncedAt: new Date() })
+      .onConflictDoUpdate({
+        target: [channelProducts.channelId, channelProducts.externalId],
+        set: {
+          name: sql`EXCLUDED.name`,
+          sku: sql`EXCLUDED.sku`,
+          stockQuantity: sql`EXCLUDED.stock_quantity`,
+          type: sql`EXCLUDED.type`,
+          rawData: sql`EXCLUDED.raw_data`,
+          lastSyncedAt: sql`EXCLUDED.last_synced_at`,
+        },
+      });
+
+    if (childAsins.length > 0) {
+      await tx
+        .update(channelProducts)
+        .set({
+          type: "variation",
+          rawData: sql`${channelProducts.rawData} || jsonb_build_object('parentId', ${product.externalId}::text)`,
+          lastSyncedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(channelProducts.channelId, product.channelId),
+            inArray(channelProducts.externalId, childAsins)
+          )
+        );
+    }
+  });
 }
 /**
  * Returns a Map of channelId → number of cached products.

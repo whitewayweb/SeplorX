@@ -52,9 +52,11 @@ export function ProductDetailTabs({ product }: { product: ChannelProductDetail }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const getDim = (dimObj: any, key: string) => {
         if (!dimObj || !dimObj[key]) return "";
-        const val = dimObj[key].value || dimObj[key];
+        const val = dimObj[key].value !== undefined ? dimObj[key].value : dimObj[key];
         const unit = dimObj[key].unit || "";
-        return `${Number(val).toFixed(2)} ${unit}`.trim();
+        const num = Number(val);
+        if (isNaN(num)) return "";
+        return `${num.toFixed(2)} ${unit}`.trim();
     };
 
     const pkgWeight = getDim(dimensions, "package") || getDim(dimensions?.package, "weight");

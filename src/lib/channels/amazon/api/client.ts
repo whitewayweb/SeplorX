@@ -256,7 +256,7 @@ export class AmazonAPIClient {
 
   private async pollReportStatus(accessToken: string, reportId: string): Promise<string> {
     // Use exponential backoff (3 s → 6 s → 12 s … capped at 15 s per interval).
-    const DEADLINE_MS = 180_000; // 3 minutes deadline for Amazon report generation
+    const DEADLINE_MS = 40_000; // 40 seconds to prevent serverless function timeout
     const deadline = Date.now() + DEADLINE_MS;
     let intervalMs = 3_000;
 
@@ -401,6 +401,7 @@ export class AmazonAPIClient {
 
         const res = await fetch(url.toString(), {
           headers: { Accept: "application/json", "x-amz-access-token": accessToken },
+          signal: AbortSignal.timeout(15_000),
         });
 
         if (res.ok) {
@@ -433,6 +434,7 @@ export class AmazonAPIClient {
 
                   const singleRes = await fetch(fullItemUrl.toString(), {
                     headers: { Accept: "application/json", "x-amz-access-token": accessToken },
+                    signal: AbortSignal.timeout(15_000),
                   });
                   if (singleRes.ok) {
                     const singleData = await singleRes.json();
@@ -497,7 +499,7 @@ export class AmazonAPIClient {
       }
 
     } catch (err) {
-      console.error("[Amazon SP-API] Failed batch fetching catalog brands:", err);
+      console.error("[Amazon SP-API] Failed batch fetching catalog brands", { action: "batchFetchCatalogBrands", error: String(err) });
       // Suppress full failure, rely on existing report data if catalog fails partially.
     }
 
