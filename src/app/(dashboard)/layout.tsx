@@ -1,5 +1,5 @@
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/layout/app-sidebar";
+import { AppSidebar } from "@/components/organisms/layout/app-sidebar";
 import { Separator } from "@/components/ui/separator";
 
 export default function DashboardLayout({

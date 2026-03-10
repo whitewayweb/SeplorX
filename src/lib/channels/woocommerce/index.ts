@@ -116,7 +116,7 @@ export const woocommerceHandler: ChannelHandler = {
       results.push({
         id: String(p.id),
         name: p.name,
-        sku: p.sku || undefined,
+        sku: p.sku,
         stockQuantity: p.stock_quantity ?? undefined,
         type: productType,
         rawPayload: p as unknown as Record<string, unknown>,

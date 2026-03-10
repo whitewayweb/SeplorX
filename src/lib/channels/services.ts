@@ -5,7 +5,7 @@ import { encrypt } from "@/lib/crypto";
 import { getChannelById } from "@/lib/channels/registry";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
-import { upsertChannelProducts } from "@/lib/channels/queries";
+import { upsertChannelProducts, upsertProductWithVariationsTx } from "@/lib/channels/queries";
 import type { ChannelType } from "@/lib/channels/types";
 import { env } from "@/lib/env";
 
@@ -234,9 +234,9 @@ export async function syncChannelProductsService(userId: number, channelId: numb
         channelId,
         externalId: p.id,
         name: p.name,
-        sku: p.sku || null,
+        sku: p.sku ?? null,
         stockQuantity: p.stockQuantity ?? null,
-        type: p.type || null,
+        type: p.type ?? null,
         rawData: { ...p.rawPayload, parentId: p.parentId },
       }));
 
@@ -287,11 +287,40 @@ export async function getCatalogItemService(userId: number, channelId: number, a
 
   const product = await handler.getCatalogItem(channel.storeUrl, decryptedCreds, asin);
 
-  // Upsert into channel_products cache
-  // Use the input `asin` (from the existing externalId) as the upsert key
-  // to guarantee ON CONFLICT matches the existing row, even if the API
-  // response contains a subtly different ASIN format.
-  await upsertChannelProducts([{
+  // ── Extract and map child variations ─────────────────────────────────────
+  // Amazon stores child ASINs in rawPayload.relationships. We collect all unique
+  // childAsins from VARIATION relationships and natively update their existing DB rows
+  // to set type="variation" and parentId, bypassing extra API fetches.
+  const childAsinSet = new Set<string>();
+  try {
+    const relationships = product.rawPayload?.relationships as Array<{
+      marketplaceId?: string;
+      relationships?: Array<{ type?: string; childAsins?: string[] }>;
+    }> | undefined;
+
+    if (Array.isArray(relationships)) {
+      for (const byMarketplace of relationships) {
+        if (!Array.isArray(byMarketplace.relationships)) continue;
+        for (const rel of byMarketplace.relationships) {
+          if (rel.type === "VARIATION" && Array.isArray(rel.childAsins)) {
+            for (const childAsin of rel.childAsins) {
+              if (childAsin && childAsin !== asin) {
+                childAsinSet.add(childAsin);
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    // Don't fail the whole operation if child variation mapping fails
+    console.warn("[getCatalogItemService] Failed to map child variations", { action: "mapChildVariations", error: String(err) });
+  }
+
+  const childAsins = [...childAsinSet];
+
+  // Upsert into channel_products cache in a transaction
+  await upsertProductWithVariationsTx({
     channelId,
     externalId: asin,
     name: product.name,
@@ -299,7 +328,7 @@ export async function getCatalogItemService(userId: number, channelId: number, a
     stockQuantity: product.stockQuantity ?? null,
     type: product.type || null,
     rawData: { ...product.rawPayload, parentId: product.parentId },
-  }]);
+  }, childAsins);
 
   return product;
 }

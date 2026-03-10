@@ -6,9 +6,9 @@ import Link from "next/link";
 import { ArrowLeft, Mail, Phone, MapPin, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CompanyStatusBadge } from "@/components/companies/company-status-badge";
-import { CompanyTypeBadge } from "@/components/companies/company-type-badge";
-import { CompanyDialog } from "@/components/companies/company-dialog";
+import { CompanyStatusBadge } from "@/components/organisms/companies/company-status-badge";
+import { CompanyTypeBadge } from "@/components/organisms/companies/company-type-badge";
+import { CompanyDialog } from "@/components/organisms/companies/company-dialog";
 
 export const dynamic = "force-dynamic";
 

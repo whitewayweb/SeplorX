@@ -18,9 +18,9 @@ import {
   CalendarDays,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ProductDialog } from "@/components/products/product-dialog";
-import { StockAdjustmentDialog } from "@/components/products/stock-adjustment-dialog";
-import { ChannelSyncCard } from "@/components/products/channel-sync-card";
+import { ProductDialog } from "@/components/organisms/products/product-dialog";
+import { StockAdjustmentDialog } from "@/components/organisms/products/stock-adjustment-dialog";
+import { ChannelSyncCard } from "@/components/organisms/products/channel-sync-card";
 import { getAuthenticatedUserId } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";

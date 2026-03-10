@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useTransition, useCallback, Fragment } from "react";
-import { CornerDownRight, RefreshCw, Loader2 } from "lucide-react";
+import { useState, useCallback, Fragment } from "react";
+import { CornerDownRight, RefreshCw, Loader2, ChevronRight, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import {
@@ -21,7 +21,9 @@ import {
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getCatalogItem, getChannelProduct } from "@/app/(dashboard)/channels/actions";
+import { getCatalogItem } from "@/app/(dashboard)/channels/actions";
+import { ProductDetailTabs } from "./product-detail-tabs";
+import { useChannelProductDetail } from "@/lib/channels/hooks/use-channel-product-detail";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Types
@@ -39,18 +41,6 @@ interface ProductRow {
 
 interface VariationRow extends ProductRow {
     parentId?: string;
-}
-
-interface ChannelProductDetail {
-    id: number;
-    channelId: number;
-    externalId: string;
-    name: string;
-    sku: string | null;
-    type: string | null;
-    stockQuantity: number | null;
-    rawData: Record<string, unknown>;
-    lastSyncedAt: Date | null;
 }
 
 interface ChannelProductsTableProps {
@@ -72,32 +62,37 @@ export function ChannelProductsTable({
 }: ChannelProductsTableProps) {
     const router = useRouter();
     const [drawerOpen, setDrawerOpen] = useState(false);
-    const [selectedProduct, setSelectedProduct] = useState<ChannelProductDetail | null>(null);
-    const [loadingDetail, startLoadingDetail] = useTransition();
     const [refetchingId, setRefetchingId] = useState<string | null>(null);
+    const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
 
-    // ── Open detail drawer ──────────────────────────────────────────────────
+    const { selectedProduct, isLoading, openProduct, invalidate } = useChannelProductDetail();
+
+    const toggleExpand = useCallback((e: React.MouseEvent, externalId: string) => {
+        e.stopPropagation();
+        setExpandedParents((prev) => {
+            const next = new Set(prev);
+            if (next.has(externalId)) {
+                next.delete(externalId);
+            } else {
+                next.add(externalId);
+            }
+            return next;
+        });
+    }, []);
+
+    // ── Interaction Handlers ────────────────────────────────────────────────
 
     const handleRowClick = useCallback(
         (productId: number) => {
-            startLoadingDetail(async () => {
-                const result = await getChannelProduct(productId);
-                if (result.error || !result.product) {
-                    toast.error("Failed to load product details", { description: result.error });
-                    return;
-                }
-                setSelectedProduct(result.product as ChannelProductDetail);
-                setDrawerOpen(true);
-            });
+            setDrawerOpen(true);
+            openProduct(productId);
         },
-        [],
+        [openProduct],
     );
-
-    // ── Refetch single product ──────────────────────────────────────────────
 
     const handleRefetch = useCallback(
         (e: React.MouseEvent, externalId: string) => {
-            e.stopPropagation(); // Don't open the drawer
+            e.stopPropagation();
             setRefetchingId(externalId);
             (async () => {
                 try {
@@ -108,6 +103,11 @@ export function ChannelProductsTable({
                         toast.success("Product refreshed", {
                             description: `"${result.product?.name ?? externalId}" has been updated.`,
                         });
+
+                        const productId = result.product?.id;
+                        if (productId && typeof productId === "number") {
+                            invalidate(productId);
+                        }
                         router.refresh();
                     }
                 } catch (err) {
@@ -117,88 +117,14 @@ export function ChannelProductsTable({
                 }
             })();
         },
-        [channelId, router],
+        [channelId, router, invalidate],
     );
 
     // ── Helpers ─────────────────────────────────────────────────────────────
 
     const colSpan = canRefetchItem ? 6 : 5;
 
-    function flattenObject(obj: unknown, prefix = ''): { key: string, value: unknown }[] {
-        if (obj === null || obj === undefined || obj === "") return [];
 
-        if (typeof obj !== "object") {
-            return [{ key: prefix, value: obj }];
-        }
-
-        let result: { key: string, value: unknown }[] = [];
-
-        if (Array.isArray(obj)) {
-            if (obj.length === 0) {
-                return [{ key: prefix, value: "[]" }];
-            }
-            for (let i = 0; i < obj.length; i++) {
-                const newPrefix = prefix ? `${prefix}[${i}]` : `[${i}]`;
-                result = result.concat(flattenObject(obj[i], newPrefix));
-            }
-        } else {
-            const entries = Object.entries(obj as Record<string, unknown>).filter(
-                ([, v]) => v !== null && v !== undefined && v !== ""
-            );
-            if (entries.length === 0) {
-                return [{ key: prefix, value: "{}" }];
-            }
-            for (const [k, v] of entries) {
-                const newPrefix = prefix ? `${prefix}.${k}` : k;
-                result = result.concat(flattenObject(v, newPrefix));
-            }
-        }
-        return result;
-    }
-
-    function renderRawData(data: Record<string, unknown>) {
-        const topLevelEntries = Object.entries(data).filter(
-            ([, v]) => v !== null && v !== undefined && v !== ""
-        );
-
-        if (topLevelEntries.length === 0) {
-            return <p className="text-muted-foreground text-sm">No raw data available.</p>;
-        }
-
-        return (
-            <div className="space-y-6">
-                {topLevelEntries.map(([sectionKey, sectionData]) => {
-                    const flattened = flattenObject(sectionData);
-
-                    return (
-                        <div key={sectionKey} className="space-y-2">
-                            <h4 className="text-sm font-semibold text-foreground border-b pb-1">
-                                {sectionKey}
-                            </h4>
-                            <div className="bg-muted/10 rounded-md border text-sm overflow-hidden">
-                                {flattened.length === 0 ? (
-                                    <div className="p-3 text-muted-foreground text-xs">—</div>
-                                ) : (
-                                    <div className="divide-y divide-muted/30">
-                                        {flattened.map(({ key, value }, idx) => (
-                                            <div key={idx} className="grid grid-cols-[minmax(150px,_35%)_1fr] gap-4 p-2.5 items-start px-3 hover:bg-muted/20 transition-colors">
-                                                <div className="text-xs font-medium text-muted-foreground break-all" title={key || sectionKey}>
-                                                    {key || "value"}
-                                                </div>
-                                                <div className="text-xs font-mono break-words text-foreground">
-                                                    {String(value)}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    );
-                })}
-            </div>
-        );
-    }
 
     // ── Render ──────────────────────────────────────────────────────────────
 
@@ -234,11 +160,27 @@ export function ChannelProductsTable({
                                     return (
                                         <Fragment key={product.id}>
                                             <TableRow
-                                                className={`cursor-pointer hover:bg-muted/50 transition-colors ${productVariations.length > 0 ? "border-b-0" : ""}`}
+                                                className={`cursor-pointer hover:bg-muted/50 transition-colors ${productVariations.length > 0 && expandedParents.has(product.externalId) ? "border-b-0" : ""}`}
                                                 onClick={() => handleRowClick(product.id)}
                                             >
                                                 <TableCell className="whitespace-nowrap">
-                                                    <div className="font-mono text-sm">
+                                                    <div className="flex items-center gap-2 font-mono text-sm">
+                                                        {productVariations.length > 0 ? (
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-6 w-6 shrink-0 -ml-2"
+                                                                onClick={(e) => toggleExpand(e, product.externalId)}
+                                                            >
+                                                                {expandedParents.has(product.externalId) ? (
+                                                                    <ChevronDown className="h-4 w-4" />
+                                                                ) : (
+                                                                    <ChevronRight className="h-4 w-4" />
+                                                                )}
+                                                            </Button>
+                                                        ) : (
+                                                            <div className="w-4 shrink-0 -ml-2" />
+                                                        )}
                                                         {product.externalId}
                                                     </div>
                                                 </TableCell>
@@ -292,7 +234,7 @@ export function ChannelProductsTable({
                                                 )}
                                             </TableRow>
 
-                                            {productVariations.map((variation) => (
+                                            {expandedParents.has(product.externalId) && productVariations.map((variation) => (
                                                 <TableRow
                                                     key={variation.id}
                                                     className="bg-muted/30 hover:bg-muted/40 transition-colors cursor-pointer"
@@ -354,8 +296,8 @@ export function ChannelProductsTable({
 
             {/* ── Product Detail Drawer ────────────────────────────────────────── */}
             <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
-                <SheetContent side="right" className="sm:max-w-[60vw] w-full overflow-y-auto w-[60vw]">
-                    {loadingDetail ? (
+                <SheetContent side="right" className="sm:max-w-[80vw] w-full overflow-y-auto w-[80vw]">
+                    {isLoading ? (
                         <div className="flex items-center justify-center h-full">
                             <SheetTitle className="sr-only">Loading product details...</SheetTitle>
                             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -371,43 +313,8 @@ export function ChannelProductsTable({
                                     {selectedProduct.sku && ` · ${selectedProduct.sku}`}
                                 </SheetDescription>
                             </SheetHeader>
-
-                            <div className="px-4 pb-6 space-y-5">
-                                {/* Summary cards */}
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div className="rounded-lg border bg-muted/30 p-3">
-                                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                                            Type
-                                        </div>
-                                        <div className="mt-1 text-sm font-medium capitalize">
-                                            {selectedProduct.type || "—"}
-                                        </div>
-                                    </div>
-                                    <div className="rounded-lg border bg-muted/30 p-3">
-                                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                                            Stock
-                                        </div>
-                                        <div className="mt-1 text-sm font-medium">
-                                            {selectedProduct.stockQuantity ?? "—"}
-                                        </div>
-                                    </div>
-                                    <div className="rounded-lg border bg-muted/30 p-3 col-span-2">
-                                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                                            Last Synced
-                                        </div>
-                                        <div className="mt-1 text-sm font-medium">
-                                            {selectedProduct.lastSyncedAt
-                                                ? new Date(selectedProduct.lastSyncedAt).toISOString().replace("T", " ").slice(0, 19) + " UTC"
-                                                : "—"}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Raw data */}
-                                <div>
-                                    <h3 className="text-sm font-semibold mb-3">All Product Data</h3>
-                                    {renderRawData(selectedProduct.rawData)}
-                                </div>
+                            <div className="flex-1 w-full pb-0 flex flex-col items-start px-0">
+                                <ProductDetailTabs product={selectedProduct} />
                             </div>
                         </>
                     ) : null}

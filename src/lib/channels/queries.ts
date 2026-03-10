@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { channelProducts, channels } from "@/db/schema";
-import { and, count, desc, eq, ilike, isNull, ne, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, ilike, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
 /**
  * Data Access Layer (DAL) for channels.
@@ -33,12 +33,28 @@ export async function getChannel(id: number) {
   return channel;
 }
 
+// A robust JSONB expression that extracts the brand name from a channel product.
+// 1. Tries Amazon nested summaries ('summaries[0].brand' from catalog-item API)
+// 2. Tries WooCommerce attributes array (where attribute name is 'brand')
+const brandExpr = sql<string>`COALESCE(
+  NULLIF(${channelProducts.rawData}->'summaries'->0->>'brand', ''),
+  NULLIF(jsonb_path_query_first(
+    CASE 
+      WHEN jsonb_typeof(${channelProducts.rawData}->'attributes') = 'array' 
+      THEN ${channelProducts.rawData}->'attributes' 
+      ELSE '[]'::jsonb 
+    END,
+    '$[*] ? (@.name == "brand" || @.name == "Brand").option'
+  )#>>'{}', '')
+)`;
+
 export async function getChannelProductsWithVariations(channelId: number, options: {
   query?: string;
+  brand?: string;
   limit: number;
   offset: number;
 }) {
-  const { query, limit, offset } = options;
+  const { query, brand, limit, offset } = options;
 
   const baseCondition = and(
     eq(channelProducts.channelId, channelId),
@@ -64,7 +80,11 @@ export async function getChannelProductsWithVariations(channelId: number, option
     )
     : undefined;
 
-  const whereCondition = and(baseCondition, queryCondition);
+  const brandCondition = brand
+    ? sql`${brandExpr} = ${brand}`
+    : undefined;
+
+  const whereCondition = and(baseCondition, queryCondition, brandCondition);
 
   // 1. Get total count for pagination
   const [{ count }] = await db
@@ -73,8 +93,6 @@ export async function getChannelProductsWithVariations(channelId: number, option
     .where(whereCondition);
 
   // 2. Get the paginated parent products
-  // Defense-in-depth: clamp limit and offset so this function is safe
-  // regardless of what its callers pass in.
   const safeLimit = Math.min(Math.max(1, limit), 100);
   const safeOffset = Math.max(0, offset);
 
@@ -131,6 +149,33 @@ export async function getChannelProductsWithVariations(channelId: number, option
   };
 }
 
+/**
+ * Returns a sorted list of distinct, non-empty brand names for the given channel.
+ */
+export async function getBrandsForChannel(channelId: number): Promise<string[]> {
+  const sq = db
+    .select({
+      brand: brandExpr.as("brand"),
+    })
+    .from(channelProducts)
+    .where(
+      and(
+        eq(channelProducts.channelId, channelId),
+        // Only parent / standalone products
+        or(ne(channelProducts.type, "variation"), isNull(channelProducts.type))
+      )
+    )
+    .as("brands_subquery");
+
+  const rows = await db
+    .selectDistinct({ brand: sq.brand })
+    .from(sq)
+    .where(sql`${sq.brand} IS NOT NULL AND ${sq.brand} != ''`)
+    .orderBy(sql`${sq.brand} ASC`);
+
+  return rows.map((r) => r.brand).filter(Boolean);
+}
+
 export async function upsertChannelProducts(products: {
   channelId: number;
   externalId: string;
@@ -151,7 +196,7 @@ export async function upsertChannelProducts(products: {
     .onConflictDoUpdate({
       target: [channelProducts.channelId, channelProducts.externalId],
       set: {
-        name: sql`EXCLUDED.name`,
+        name: sql`COALESCE(EXCLUDED.name, ${channelProducts.name})`,
         sku: sql`EXCLUDED.sku`,
         stockQuantity: sql`EXCLUDED.stock_quantity`,
         type: sql`EXCLUDED.type`,
@@ -159,6 +204,52 @@ export async function upsertChannelProducts(products: {
         lastSyncedAt: sql`EXCLUDED.last_synced_at`,
       },
     });
+}
+
+export async function upsertProductWithVariationsTx(
+  product: {
+    channelId: number;
+    externalId: string;
+    name: string;
+    sku: string | null;
+    stockQuantity: number | null;
+    type: string | null;
+    rawData: unknown;
+  },
+  childAsins: string[]
+) {
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(channelProducts)
+      .values({ ...product, lastSyncedAt: new Date() })
+      .onConflictDoUpdate({
+        target: [channelProducts.channelId, channelProducts.externalId],
+        set: {
+          name: sql`EXCLUDED.name`,
+          sku: sql`EXCLUDED.sku`,
+          stockQuantity: sql`EXCLUDED.stock_quantity`,
+          type: sql`EXCLUDED.type`,
+          rawData: sql`EXCLUDED.raw_data`,
+          lastSyncedAt: sql`EXCLUDED.last_synced_at`,
+        },
+      });
+
+    if (childAsins.length > 0) {
+      await tx
+        .update(channelProducts)
+        .set({
+          type: "variation",
+          rawData: sql`${channelProducts.rawData} || jsonb_build_object('parentId', ${product.externalId}::text)`,
+          lastSyncedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(channelProducts.channelId, product.channelId),
+            inArray(channelProducts.externalId, childAsins)
+          )
+        );
+    }
+  });
 }
 /**
  * Returns a Map of channelId → number of cached products.

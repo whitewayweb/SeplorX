@@ -68,7 +68,7 @@ export class AmazonAPIClient {
 
     const url = new URL(`${this.endpoint}/catalog/2022-04-01/items/${encodeURIComponent(asin)}`);
     url.searchParams.set("marketplaceIds", this.marketplaceId);
-    url.searchParams.set("includedData", "summaries");
+    url.searchParams.set("includedData", "summaries,images,identifiers,attributes,dimensions,relationships");
 
     const res = await fetch(url.toString(), {
       headers: {
@@ -100,9 +100,31 @@ export class AmazonAPIClient {
       summaries[0]?.itemName ??
       asin;
 
+    // Determine product type:
+    //   VARIATION_PARENT → "variable" (has children)
+    //   default          → undefined (simple / unknown)
+    const itemClassification =
+      summaries.find((s) => s.marketplaceId === this.marketplaceId)?.itemClassification ??
+      summaries[0]?.itemClassification;
+
+    let productType: "variable" | "variation" | "simple" | undefined = itemClassification === "VARIATION_PARENT" ? "variable" : undefined;
+
+    if (!productType && Array.isArray(data.relationships)) {
+      for (const byMarketplace of data.relationships) {
+        if (!Array.isArray(byMarketplace.relationships)) continue;
+        for (const rel of byMarketplace.relationships) {
+          if (rel.type === "VARIATION" && Array.isArray(rel.childAsins)) {
+            productType = "variable";
+            break;
+          }
+        }
+      }
+    }
+
     return {
       id: data.asin ?? asin,
       name: itemName,
+      type: productType,
       rawPayload: {
         ...data,
         pricing: pricingData,
@@ -234,8 +256,7 @@ export class AmazonAPIClient {
 
   private async pollReportStatus(accessToken: string, reportId: string): Promise<string> {
     // Use exponential backoff (3 s → 6 s → 12 s … capped at 15 s per interval).
-    // Hard wall-clock deadline of 55 s keeps the total under typical serverless limits.
-    const DEADLINE_MS = 55_000;
+    const DEADLINE_MS = 40_000; // 40 seconds to prevent serverless function timeout
     const deadline = Date.now() + DEADLINE_MS;
     let intervalMs = 3_000;
 
@@ -267,7 +288,7 @@ export class AmazonAPIClient {
       }
     }
 
-    throw new Error("Amazon report timed out while generating (exceeded 55 s deadline).");
+    throw new Error(`Amazon report timed out while generating (exceeded ${Math.round(DEADLINE_MS / 1000)}s deadline).`);
   }
 
   private async getReportDocumentUrl(accessToken: string, reportDocumentId: string): Promise<{ url: string; compressionAlgorithm?: string }> {
@@ -358,6 +379,128 @@ export class AmazonAPIClient {
         stockQuantity: isNaN(stockQuantity) ? undefined : stockQuantity,
         rawPayload,
       });
+    }
+
+    // Now, batch fetch the actual catalog brand names via the Catalog Items API.
+    // Amazon allows up to 20 internal identifiers (ASIN/SKU) per request.
+    // The rate limit for search is 2 requests per second.
+    try {
+      const accessToken = await this.getAccessToken();
+      const BATCH_SIZE = 20;
+
+      for (let i = 0; i < externalProducts.length; i += BATCH_SIZE) {
+        const batch = externalProducts.slice(i, i + BATCH_SIZE);
+        const asins = batch.map((p) => p.id);
+        if (asins.length === 0) continue;
+
+        const url = new URL(`${this.endpoint}/catalog/2022-04-01/items`);
+        url.searchParams.set("marketplaceIds", this.marketplaceId);
+        url.searchParams.set("identifiersType", "ASIN");
+        url.searchParams.set("identifiers", asins.join(","));
+        url.searchParams.set("includedData", "summaries,images,identifiers,attributes,dimensions,relationships");
+
+        const res = await fetch(url.toString(), {
+          headers: { Accept: "application/json", "x-amz-access-token": accessToken },
+          signal: AbortSignal.timeout(15_000),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          // Map catalog items back onto the products by ASIN
+          const items = data.items || [];
+          for (const item of items) {
+            const product = batch.find((p) => p.id === item.asin);
+            if (product) {
+              const payload = product.rawPayload as Record<string, unknown>;
+              if (item.summaries) payload.summaries = item.summaries;
+              if (item.images) payload.images = item.images;
+              if (item.identifiers) payload.identifiers = item.identifiers;
+              if (item.attributes) payload.attributes = item.attributes;
+              if (item.dimensions) payload.dimensions = item.dimensions;
+
+              // Amazon's batch searchCatalogItems truncates relationships.
+              // If we see it's a parent / has relationships, fetch the full item using getCatalogItem.
+              let fullRelationships = item.relationships;
+
+              const hasChildren = item.relationships?.some((r: { relationships?: Array<{ childAsins?: string[] }> }) =>
+                r.relationships?.some((rel) => rel.childAsins && rel.childAsins.length > 0)
+              );
+
+              if (hasChildren) {
+                try {
+                  const fullItemUrl = new URL(`${this.endpoint}/catalog/2022-04-01/items/${encodeURIComponent(item.asin)}`);
+                  fullItemUrl.searchParams.set("marketplaceIds", this.marketplaceId);
+                  fullItemUrl.searchParams.set("includedData", "relationships");
+
+                  const singleRes = await fetch(fullItemUrl.toString(), {
+                    headers: { Accept: "application/json", "x-amz-access-token": accessToken },
+                    signal: AbortSignal.timeout(15_000),
+                  });
+                  if (singleRes.ok) {
+                    const singleData = await singleRes.json();
+                    if (singleData.relationships) {
+                      fullRelationships = singleData.relationships;
+                    }
+                  }
+                  // Respect rate limits for individual item fetch (2 req/s)
+                  await new Promise((r) => setTimeout(r, 550));
+                } catch (e) {
+                  console.warn(`[Amazon SP-API] Failed to fetch full relationships for parent ASIN ${item.asin}`, e);
+                }
+              }
+
+              if (fullRelationships) {
+                payload.relationships = fullRelationships;
+              }
+            }
+          }
+        }
+
+        // Wait 500ms to respect the 2 requests per second rate limit for batch search
+        await new Promise((resolve) => setTimeout(resolve, 550));
+      }
+
+      // ── Process relationships to identify parents and children ──
+      // This is necessary so the data structure matches SeplorX's DB schema correctly on first sync.
+      for (const product of externalProducts) {
+        const payload = product.rawPayload as Record<string, unknown>;
+
+        const summaries = payload.summaries as Array<{ marketplaceId?: string; itemClassification?: string }> | undefined;
+        const itemClassification =
+          summaries?.find((s) => s.marketplaceId === this.marketplaceId)?.itemClassification ??
+          summaries?.[0]?.itemClassification;
+
+        if (itemClassification === "VARIATION_PARENT") {
+          product.type = "variable";
+        }
+
+        if (Array.isArray(payload.relationships)) {
+          for (const byMarketplace of payload.relationships) {
+            if (!Array.isArray(byMarketplace.relationships)) continue;
+            for (const rel of byMarketplace.relationships) {
+              if (rel.type === "VARIATION" && Array.isArray(rel.childAsins)) {
+                product.type = "variable";
+                for (const childAsin of rel.childAsins) {
+                  if (childAsin && childAsin !== product.id) {
+                    const childObj = externalProducts.find((p) => p.id === childAsin);
+                    if (childObj) {
+                      childObj.type = "variation";
+                      childObj.parentId = product.id;
+                      if (childObj.rawPayload) {
+                        childObj.rawPayload.parentId = product.id;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+    } catch (err) {
+      console.error("[Amazon SP-API] Failed batch fetching catalog brands", { action: "batchFetchCatalogBrands", error: String(err) });
+      // Suppress full failure, rely on existing report data if catalog fails partially.
     }
 
     return externalProducts;
