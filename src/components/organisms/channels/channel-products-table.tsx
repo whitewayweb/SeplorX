@@ -21,8 +21,9 @@ import {
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getCatalogItem, getChannelProduct } from "@/app/(dashboard)/channels/actions";
+import { getCatalogItem } from "@/app/(dashboard)/channels/actions";
 import { ProductDetailTabs } from "./product-detail-tabs";
+import { useChannelProductDetail } from "@/lib/channels/hooks/use-channel-product-detail";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Types
@@ -42,24 +43,16 @@ interface VariationRow extends ProductRow {
     parentId?: string;
 }
 
-interface ChannelProductDetail {
-    id: number;
-    channelId: number;
-    externalId: string;
-    name: string;
-    sku: string | null;
-    type: string | null;
-    stockQuantity: number | null;
-    rawData: Record<string, unknown>;
-    lastSyncedAt: Date | null;
-}
-
 interface ChannelProductsTableProps {
     channelId: number;
     products: ProductRow[];
     variations: VariationRow[];
     canRefetchItem: boolean;
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Component
+// ────────────────────────────────────────────────────────────────────────────
 
 export function ChannelProductsTable({
     channelId,
@@ -69,9 +62,10 @@ export function ChannelProductsTable({
 }: ChannelProductsTableProps) {
     const router = useRouter();
     const [drawerOpen, setDrawerOpen] = useState(false);
-    const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
     const [refetchingId, setRefetchingId] = useState<string | null>(null);
     const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
+
+    const { selectedProduct, isLoading, openProduct, invalidate } = useChannelProductDetail();
 
     const toggleExpand = useCallback((e: React.MouseEvent, externalId: string) => {
         e.stopPropagation();
@@ -86,42 +80,19 @@ export function ChannelProductsTable({
         });
     }, []);
 
-    const [productCache, setProductCache] = useState<Map<number, ChannelProductDetail>>(new Map());
-    const [selectedProduct, setSelectedProduct] = useState<ChannelProductDetail | null>(null);
-    const [loadingDetail, setLoadingDetail] = useState(false);
-
-    // ── Open detail drawer ──────────────────────────────────────────────────
+    // ── Interaction Handlers ────────────────────────────────────────────────
 
     const handleRowClick = useCallback(
-        async (productId: number) => {
-            setSelectedProductId(productId);
+        (productId: number) => {
             setDrawerOpen(true);
-
-            // Check cache first
-            if (productCache.has(productId)) {
-                setSelectedProduct(productCache.get(productId)!);
-                return;
-            }
-
-            setLoadingDetail(true);
-            const result = await getChannelProduct(productId);
-            if (result.error || !result.product) {
-                toast.error("Failed to load product details", { description: result.error });
-            } else {
-                const product = result.product as ChannelProductDetail;
-                setSelectedProduct(product);
-                setProductCache((prev) => new Map(prev).set(productId, product));
-            }
-            setLoadingDetail(false);
+            openProduct(productId);
         },
-        [productCache],
+        [openProduct],
     );
-
-    // ── Refetch single product ──────────────────────────────────────────────
 
     const handleRefetch = useCallback(
         (e: React.MouseEvent, externalId: string) => {
-            e.stopPropagation(); // Don't open the drawer
+            e.stopPropagation();
             setRefetchingId(externalId);
             (async () => {
                 try {
@@ -132,14 +103,10 @@ export function ChannelProductsTable({
                         toast.success("Product refreshed", {
                             description: `"${result.product?.name ?? externalId}" has been updated.`,
                         });
-                        // Clear from cache if exists to force re-fetch on next drawer open
+
                         const productId = result.product?.id;
                         if (productId && typeof productId === "number") {
-                            setProductCache((prev) => {
-                                const next = new Map(prev);
-                                next.delete(productId);
-                                return next;
-                            });
+                            invalidate(productId);
                         }
                         router.refresh();
                     }
@@ -150,7 +117,7 @@ export function ChannelProductsTable({
                 }
             })();
         },
-        [channelId, router],
+        [channelId, router, invalidate],
     );
 
     // ── Helpers ─────────────────────────────────────────────────────────────
@@ -330,7 +297,7 @@ export function ChannelProductsTable({
             {/* ── Product Detail Drawer ────────────────────────────────────────── */}
             <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
                 <SheetContent side="right" className="sm:max-w-[80vw] w-full overflow-y-auto w-[80vw]">
-                    {loadingDetail ? (
+                    {isLoading ? (
                         <div className="flex items-center justify-center h-full">
                             <SheetTitle className="sr-only">Loading product details...</SheetTitle>
                             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />

@@ -206,28 +206,6 @@ export async function upsertChannelProducts(products: {
     });
 }
 
-export async function updateChildVariationsParent(
-  channelId: number,
-  parentAsin: string,
-  childAsins: string[]
-) {
-  if (childAsins.length === 0) return;
-
-  await db
-    .update(channelProducts)
-    .set({
-      type: "variation",
-      rawData: sql`${channelProducts.rawData} || jsonb_build_object('parentId', ${parentAsin}::text)`,
-      lastSyncedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(channelProducts.channelId, channelId),
-        inArray(channelProducts.externalId, childAsins)
-      )
-    );
-}
-
 export async function upsertProductWithVariationsTx(
   product: {
     channelId: number;

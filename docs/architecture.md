@@ -228,7 +228,6 @@ src/
 │   └── globals.css             # Tailwind + design tokens
 ├── components/
 │   ├── atoms/                  # Custom UI primitives, providers, icons
-│   │   └── providers.tsx       # Global providers (TanStack Query, Jotai)
 │   ├── ui/                     # shadcn/ui primitives
 │   ├── molecules/              # Simple functional groupings
 │   ├── organisms/              # High-visibility feature blocks

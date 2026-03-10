@@ -5,7 +5,7 @@ import { encrypt } from "@/lib/crypto";
 import { getChannelById } from "@/lib/channels/registry";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
-import { upsertChannelProducts, updateChildVariationsParent, upsertProductWithVariationsTx } from "@/lib/channels/queries";
+import { upsertChannelProducts, upsertProductWithVariationsTx } from "@/lib/channels/queries";
 import type { ChannelType } from "@/lib/channels/types";
 import { env } from "@/lib/env";
 
