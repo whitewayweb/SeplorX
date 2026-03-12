@@ -67,6 +67,11 @@ App registry: `src/lib/apps/registry.ts` — see `docs/apps-integration.md`
 Channel registry: `src/lib/channels/registry.ts` — see `docs/channels-integration.md`
 Agent registry: `src/lib/agents/registry.ts` — see `docs/agents.md`
 
+#### Registry-Driven Logic (Pluggable Architecture)
+Beyond metadata, registries in SeplorX are the primary place for **polymorphic logic**.
+- **Rule**: If a feature depends on the *type* of a module (e.g., "How do I build a product link for Amazon vs WooCommerce?"), that logic belongs in the registry definition.
+- **Benefit**: This keeps the UI completely generic. `ChannelProductsTable` doesn't contain a single `if (type === "amazon")`. It simply asks the registry: "Do you have a `getProductUrl` for this item?".
+- **Implementation**: See `src/lib/channels/amazon/config.ts` for an example of a registry implementing complex, marketplace-aware link generation.
 **Apps vs Channels**: Apps (logistics, payment, SMS) allow one installation per user per type, use API key config, and are managed via `app_installations`. Channels (WooCommerce, Shopify, Amazon) allow **multiple instances per type** (multi-store), use OAuth credentials, and are managed via `channels`.
 
 ### 2. Agent Layer (Two-Phase Approval)
@@ -102,9 +107,10 @@ These principles guide all development decisions in SeplorX.
 Next.js App Router enforces a clear separation between server and client code. To ensure maintainability, we introduce a **Data Access Layer (DAL)** pattern.
 
 **Data Access Layer (DAL)** (`src/lib/*/queries.ts`):
-- Pure TypeScript functions containing raw SQL/Drizzle queries
-- Extracts reusable Read logic away from UI components (Server Components) and Server Actions
+- Pure TypeScript functions containing raw SQL/Drizzle queries.
+- Extracts reusable Read logic away from UI components (Server Components) and Server Actions.
 - **CRITICAL**: Server Components configure standard fetch via DAL.
+- **Logic Purity**: The DAL should return data in a "Ready-to-Render" state. For example, if a table needs a product URL, the DAL query should use the Registry to inject that URL before returning the data to the Page. The UI should NEVER manually build channel-specific URLs.
 
 **Service Layer (Business Logic)** (`src/lib/*/services.ts`):
 - **Only necessary for complex features**. Pure TypeScript functions executing mutation business logic.
@@ -182,6 +188,13 @@ function MyComponent() {
   const fields = [{ key: "name", ... }]; // don't do this
 }
 ```
+
+### 6. Strict Type Safety (Avoid `any`)
+
+We maintain a strict **No `any`** policy. 
+- Use `unknown` for data coming from external APIs or generic sources.
+- Use **Type Guards** or **Explicit Casting** to narrow `unknown` into a known interface at the system boundary.
+- If a function signature in an interface is generic (like `getProductUrl`), the parameters should be `unknown` and cast internally by the implementation.
 
 ## Tech Stack
 

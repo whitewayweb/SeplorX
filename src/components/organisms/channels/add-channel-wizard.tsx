@@ -184,9 +184,7 @@ function ConnectStep({
   return (
     <div className="space-y-4">
       <p className="text-muted-foreground text-sm">
-        {channelType === "woocommerce"
-          ? "Enter your WooCommerce store URL. You'll be redirected to your WordPress admin to approve the connection."
-          : "Enter your store details to connect."}
+        {definition?.connectionHint ?? "Enter your store details to connect."}
       </p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

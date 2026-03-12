@@ -41,3 +41,14 @@ export function buildConnectUrl(channelId: number, config: Record<string, string
   });
   return `${storeBase}/wc-auth/v1/authorize?${params}`;
 }
+
+export function getProductUrl(externalId: string, credentials?: Record<string, string>, rawData?: unknown): string | null {
+  const data = rawData as { permalink?: string } | undefined;
+  // 1. Prefer the actual permalink stored in raw_data if it exists
+  if (data?.permalink) return data.permalink;
+
+  // 2. Fallback to storeUrl + query param
+  const storeUrl = credentials?.storeUrl;
+  if (!storeUrl) return null;
+  return `${storeUrl.replace(/\/$/, "")}/?p=${externalId}`;
+}

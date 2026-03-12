@@ -1,6 +1,9 @@
 import { db } from "@/db";
 import { channelProducts, channels } from "@/db/schema";
 import { and, count, desc, eq, ilike, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { getChannelById } from "./registry";
+import { decryptChannelCredentials } from "./utils";
+import { ChannelType } from "./types";
 
 /**
  * Data Access Layer (DAL) for channels.
@@ -25,6 +28,8 @@ export async function getChannel(id: number) {
       name: channels.name,
       channelType: channels.channelType,
       status: channels.status,
+      credentials: channels.credentials,
+      storeUrl: channels.storeUrl,
     })
     .from(channels)
     .where(eq(channels.id, id))
@@ -55,6 +60,9 @@ export async function getChannelProductsWithVariations(channelId: number, option
   offset: number;
 }) {
   const { query, brand, limit, offset } = options;
+
+  const channel = await getChannel(channelId);
+  if (!channel) throw new Error("Channel not found");
 
   const baseCondition = and(
     eq(channelProducts.channelId, channelId),
@@ -105,6 +113,7 @@ export async function getChannelProductsWithVariations(channelId: number, option
       type: channelProducts.type,
       stockQuantity: channelProducts.stockQuantity,
       lastSyncedAt: channelProducts.lastSyncedAt,
+      rawData: channelProducts.rawData,
     })
     .from(channelProducts)
     .where(whereCondition)
@@ -129,6 +138,7 @@ export async function getChannelProductsWithVariations(channelId: number, option
         type: channelProducts.type,
         stockQuantity: channelProducts.stockQuantity,
         lastSyncedAt: channelProducts.lastSyncedAt,
+        rawData: channelProducts.rawData,
         parentId: sql<string>`COALESCE(raw_data->>'parentId', CAST(raw_data->>'parent_id' AS TEXT))`,
       })
       .from(channelProducts)
@@ -142,9 +152,24 @@ export async function getChannelProductsWithVariations(channelId: number, option
       .orderBy(desc(channelProducts.lastSyncedAt));
   }
 
+  // 4. Inject product URLs using the registry
+  const definition = getChannelById(channel.channelType as ChannelType);
+  const getProductUrl = definition?.getProductUrl;
+  const credentials = decryptChannelCredentials(channel.credentials);
+
+  const productsWithUrl = productsList.map((p) => ({
+    ...p,
+    productUrl: getProductUrl?.(p.externalId, credentials, p.rawData),
+  }));
+
+  const variationsWithUrl = variationsList.map((v) => ({
+    ...v,
+    productUrl: getProductUrl?.(v.externalId, credentials, v.rawData),
+  }));
+
   return {
-    products: productsList,
-    variations: variationsList,
+    products: productsWithUrl,
+    variations: variationsWithUrl,
     totalCount: count,
   };
 }
@@ -196,11 +221,11 @@ export async function upsertChannelProducts(products: {
     .onConflictDoUpdate({
       target: [channelProducts.channelId, channelProducts.externalId],
       set: {
-        name: sql`COALESCE(EXCLUDED.name, ${channelProducts.name})`,
-        sku: sql`EXCLUDED.sku`,
-        stockQuantity: sql`EXCLUDED.stock_quantity`,
-        type: sql`EXCLUDED.type`,
-        rawData: sql`EXCLUDED.raw_data`,
+        name: sql`COALESCE(NULLIF(EXCLUDED.name, ''), ${channelProducts.name})`,
+        sku: sql`COALESCE(NULLIF(EXCLUDED.sku, ''), ${channelProducts.sku})`,
+        stockQuantity: sql`COALESCE(EXCLUDED.stock_quantity, ${channelProducts.stockQuantity})`,
+        type: sql`COALESCE(NULLIF(EXCLUDED.type, ''), ${channelProducts.type})`,
+        rawData: sql`COALESCE(${channelProducts.rawData}, '{}'::jsonb) || EXCLUDED.raw_data`,
         lastSyncedAt: sql`EXCLUDED.last_synced_at`,
       },
     });
@@ -225,11 +250,11 @@ export async function upsertProductWithVariationsTx(
       .onConflictDoUpdate({
         target: [channelProducts.channelId, channelProducts.externalId],
         set: {
-          name: sql`EXCLUDED.name`,
-          sku: sql`EXCLUDED.sku`,
-          stockQuantity: sql`EXCLUDED.stock_quantity`,
-          type: sql`EXCLUDED.type`,
-          rawData: sql`EXCLUDED.raw_data`,
+          name: sql`COALESCE(NULLIF(EXCLUDED.name, ''), ${channelProducts.name})`,
+          sku: sql`COALESCE(NULLIF(EXCLUDED.sku, ''), ${channelProducts.sku})`,
+          stockQuantity: sql`COALESCE(EXCLUDED.stock_quantity, ${channelProducts.stockQuantity})`,
+          type: sql`COALESCE(NULLIF(EXCLUDED.type, ''), ${channelProducts.type})`,
+          rawData: sql`COALESCE(${channelProducts.rawData}, '{}'::jsonb) || EXCLUDED.raw_data`,
           lastSyncedAt: sql`EXCLUDED.last_synced_at`,
         },
       });
@@ -303,11 +328,21 @@ export async function getChannelProductByIdForUser(userId: number, id: number) {
       stockQuantity: channelProducts.stockQuantity,
       rawData: channelProducts.rawData,
       lastSyncedAt: channelProducts.lastSyncedAt,
+      channelType: channels.channelType,
+      credentials: channels.credentials,
     })
     .from(channelProducts)
     .innerJoin(channels, eq(channelProducts.channelId, channels.id))
     .where(and(eq(channelProducts.id, id), eq(channels.userId, userId)))
     .limit(1);
 
-  return row ?? null;
+  if (!row) return null;
+
+  const definition = getChannelById(row.channelType as ChannelType);
+  const credentials = decryptChannelCredentials(row.credentials);
+
+  return {
+    ...row,
+    productUrl: definition?.getProductUrl?.(row.externalId, credentials, row.rawData) ?? null
+  };
 }
