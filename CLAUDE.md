@@ -158,12 +158,21 @@ Follow these principles for all code changes (based on sound software architectu
 - Validate at boundaries (server actions receive untrusted FormData)
 - Trust internal code — don't re-validate data between your own functions
 - Use DB error codes (23505 = unique violation, 23503 = FK violation) for user-friendly messages
-- Structured logging: `console.error("[actionName]", { contextId, error: String(err) })`
+- **Structured logging**: `console.error("[actionName]", { contextId, error: String(err) })`
+
+### Performance & Data Integrity
+
+- **Middleware Auth**: Call `auth.api.getSession()` directly from `@/lib/auth`. **NEVER** use `fetch()` to an internal API route inside `src/proxy.ts` (middleware), as it adds ~2s latency and causes re-render loops.
+- **Safe Upserts**: Use the `COALESCE(NULLIF(EXCLUDED.col, ''), table.col)` pattern in `onConflictDoUpdate` to prevent overwriting existing data with empty strings or nulls during partial syncs.
+- **Column Selection**: Always specify columns in `select()` (e.g. `db.select({ id: t.id }).from(t)`). Avoid fetching entire JSONB blobs (`rawData`, `credentials`) unless explicitly needed.
+- **Batched Processing**: Process large external API results (like Amazon reports) in batches (e.g., 100 items) to prevent memory exhaustion and respect DB connection limits.
+- **Case-Insensitive Parsing**: Always map external report headers to lowercase and use fuzzy matching (aliases) for common fields like `sku`, `asin`, or `qty` to ensure compatibility with varying marketplace exports.
 
 ## Lint Rules
 
 - React 19 strict lint: no `setState` inside `useEffect`, no ref access during render
 - Use wrapper pattern in `useActionState` callback to close dialogs on success (see `company-dialog.tsx`)
+
 - Never add `_` to a variable name to bypass ESLint (e.g. `_channelWebhookBaseUrl`). Remove unused variables from the signature unless they are non-trailing and required for position.
 
 ## Design Docs

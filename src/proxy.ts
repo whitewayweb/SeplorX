@@ -1,54 +1,35 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { auth } from "@/lib/auth";
 
 const PUBLIC_ROUTES = ["/login"];
 
 /**
- * Next.js Edge Middleware — protects dashboard routes by validating the
- * session token against the Better Auth API endpoint. Checking cookie
- * presence alone is bypassable with a forged or expired cookie, so we
- * call Better Auth's get-session endpoint server-side to confirm the
- * session is genuine and not expired.
+ * Middleware function that handles route protection and session validation.
  */
 export async function proxy(request: NextRequest) {
     const { pathname } = request.nextUrl;
     const isPublicRoute = PUBLIC_ROUTES.includes(pathname);
 
-    const sessionCookie =
-        request.cookies.get("better-auth.session_token") ||
-        request.cookies.get("__Secure-better-auth.session_token");
+    // Optimized: Check session directly from the Auth API
+    // This avoids internal HTTP fetch overhead (~2s delay) and recursion loops.
+    const sessionResponse = await auth.api.getSession({
+        headers: request.headers,
+    });
+    const session = sessionResponse?.session;
+    const user = sessionResponse?.user;
+    const isAuthenticated = !!(session && user);
 
-    // No cookie at all → redirect to login (fast path, no fetch needed)
-    if (!isPublicRoute && !sessionCookie) {
-        return NextResponse.redirect(new URL("/login", request.url));
-    }
-
-    // Cookie exists → validate it against Better Auth
-    if (sessionCookie) {
-        let isValid = false;
-
-        try {
-            const sessionUrl = new URL("/api/auth/get-session", request.url);
-            const response = await fetch(sessionUrl, {
-                headers: { cookie: request.headers.get("cookie") || "" },
-            });
-
-            if (response.ok) {
-                const session = await response.json();
-                isValid = Boolean(session?.session && session?.user);
-            }
-        } catch {
-            // Network/parsing failure → treat as invalid
-        }
-
-        // Logged-in user on public route → redirect to dashboard
-        if (isPublicRoute && isValid) {
-            return NextResponse.redirect(new URL("/", request.url));
-        }
-
-        // Invalid/expired cookie on protected route → redirect to login
-        if (!isPublicRoute && !isValid) {
+    if (!isPublicRoute) {
+        // Protected route
+        if (!isAuthenticated) {
             return NextResponse.redirect(new URL("/login", request.url));
+        }
+    } else {
+        // Public route (e.g., /login)
+        // If already authenticated, redirect to dashboard
+        if (isAuthenticated) {
+            return NextResponse.redirect(new URL("/", request.url));
         }
     }
 
@@ -57,7 +38,7 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
     matcher: [
-        // Ignore api, _next/static, _next/image, favicon.ico, etc.
+        // Match all routes except api, _next, and static assets
         "/((?!api|_next/static|_next/image|favicon.ico).*)",
     ],
 };
