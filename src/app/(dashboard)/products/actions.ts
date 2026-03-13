@@ -69,6 +69,11 @@ export async function createProduct(_prevState: unknown, formData: FormData) {
 
   revalidatePath("/products");
   revalidatePath("/purchase/bills");
+
+  // If a mapping is created later, it will start as in_sync.
+  // But if the user edits it later, it triggers.
+  // For new products, we don't have mappings yet, so nothing to update here.
+
   return { success: true };
 }
 
@@ -114,6 +119,13 @@ export async function updateProduct(_prevState: unknown, formData: FormData) {
         updatedAt: new Date(),
       })
       .where(eq(products.id, id));
+
+    // Flag all channel mappings for this product as pending_update
+    // so the Amazon Uploads dashboard picks them up for template generation.
+    await db
+      .update(channelProductMappings)
+      .set({ syncStatus: "pending_update" })
+      .where(eq(channelProductMappings.productId, id));
   } catch (err) {
     console.error("[updateProduct]", { productId: id, error: String(err) });
     if (
@@ -277,6 +289,12 @@ export async function adjustStock(_prevState: unknown, formData: FormData) {
         notes: notes || null,
         createdBy: userId,
       });
+
+      // Flag all channel mappings for this product as pending_update
+      await tx
+        .update(channelProductMappings)
+        .set({ syncStatus: "pending_update" })
+        .where(eq(channelProductMappings.productId, productId));
     });
   } catch (err) {
     const message = String(err);

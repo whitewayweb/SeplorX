@@ -78,6 +78,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
       channelId: channelProductMappings.channelId,
       externalProductId: channelProductMappings.externalProductId,
       label: channelProductMappings.label,
+      syncStatus: channelProductMappings.syncStatus,
     })
     .from(channelProductMappings)
     .where(eq(channelProductMappings.productId, productId));

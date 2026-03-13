@@ -1,11 +1,13 @@
 "use client";
 
-import React from "react";
+import React, { useActionState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { updateChannelProductDetails } from "@/app/(dashboard)/channels/actions";
+import { toast } from "sonner";
 
 export interface ChannelProductDetail {
     id: number;
@@ -62,8 +64,29 @@ export function ProductDetailTabs({ product }: { product: ChannelProductDetail }
     const pkgWeight = getDim(dimensions, "package") || getDim(dimensions?.package, "weight");
     const itemWeight = getDim(dimensions, "item") || getDim(dimensions?.item, "weight");
 
+    const [, action, pending] = useActionState(
+        async (prev: unknown, formData: FormData) => {
+            const result = await updateChannelProductDetails(prev, formData);
+            if (result?.success) {
+                toast.success("Channel product updated", {
+                    description: "Updates have been staged for the next provider sync.",
+                });
+            } else if (result?.error) {
+                toast.error("Failed to update product", {
+                    description: result.error,
+                });
+            }
+            return result;
+        },
+        null,
+    );
+
     return (
-        <Tabs defaultValue="details" className="w-full mt-4">
+        <form action={action} className="w-full relative pb-16">
+            <input type="hidden" name="id" value={product.id} />
+            <input type="hidden" name="channelId" value={product.channelId} />
+            <input type="hidden" name="externalId" value={product.externalId} />
+            <Tabs defaultValue="details" className="w-full mt-4">
             <TabsList className="w-full justify-start border-b rounded-none px-4 h-12 bg-transparent">
                 <TabsTrigger value="details" className="data-[state=active]:shadow-none data-[state=active]:bg-transparent data-[state=active]:border-b-2 border-primary rounded-none">Product Details</TabsTrigger>
                 <TabsTrigger value="images" className="data-[state=active]:shadow-none data-[state=active]:bg-transparent data-[state=active]:border-b-2 border-primary rounded-none">Images ({images.length})</TabsTrigger>
@@ -77,46 +100,48 @@ export function ProductDetailTabs({ product }: { product: ChannelProductDetail }
                     <div className="grid grid-cols-2 gap-6">
                         <div className="grid gap-2">
                             <Label>Product Name</Label>
-                            <Input defaultValue={product.name} />
+                            <Input name="name" defaultValue={product.name} />
                         </div>
                         <div className="grid gap-2">
                             <Label>Brand</Label>
-                            <Input defaultValue={brand} />
+                            <Input name="brand" defaultValue={brand} disabled className="bg-muted/50" />
                         </div>
                         <div className="grid gap-2">
                             <Label>Manufacturer</Label>
-                            <Input defaultValue={manufacturer} />
+                            <Input name="manufacturer" defaultValue={manufacturer} disabled className="bg-muted/50" />
                         </div>
                         <div className="grid gap-2">
                             <Label>Part Number</Label>
-                            <Input defaultValue={partNumber} />
+                            <Input name="partNumber" defaultValue={partNumber} disabled className="bg-muted/50" />
                         </div>
                         <div className="grid gap-2">
                             <Label>Color</Label>
-                            <Input defaultValue={color} />
+                            <Input name="color" defaultValue={color} disabled className="bg-muted/50" />
                         </div>
                         <div className="grid gap-2">
                             <Label>Item Type Keyword</Label>
-                            <Input defaultValue={itemTypeKw} />
+                            <Input name="itemTypeKeyword" defaultValue={itemTypeKw} disabled className="bg-muted/50" />
                         </div>
                     </div>
 
                     <div className="grid gap-2">
                         <Label>Product Description</Label>
                         <textarea
+                            name="description"
                             className="min-h-[120px] rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                             defaultValue={description}
+                            disabled
                         />
                     </div>
 
                     <div className="pt-4 border-t grid grid-cols-2 gap-6">
                         <div className="grid gap-2">
                             <Label>Package Weight</Label>
-                            <Input defaultValue={pkgWeight} disabled className="bg-muted/50" />
+                            <Input name="packageWeight" defaultValue={pkgWeight} disabled className="bg-muted/50" />
                         </div>
                         <div className="grid gap-2">
                             <Label>Item Weight</Label>
-                            <Input defaultValue={itemWeight} disabled className="bg-muted/50" />
+                            <Input name="itemWeight" defaultValue={itemWeight} disabled className="bg-muted/50" />
                         </div>
                     </div>
                 </TabsContent>
@@ -158,24 +183,25 @@ export function ProductDetailTabs({ product }: { product: ChannelProductDetail }
                     <div className="grid grid-cols-2 gap-6">
                         <div className="grid gap-2">
                             <Label>Seller SKU</Label>
-                            <Input defaultValue={product.sku || ""} />
+                            <Input name="sku" defaultValue={product.sku || ""} />
                         </div>
                         <div className="grid gap-2">
                             <Label>Price</Label>
-                            <Input defaultValue={rawData.price || ""} type="number" />
+                            <Input name="price" defaultValue={rawData.price || ""} type="number" step="0.01" />
                         </div>
                         <div className="grid gap-2">
                             <Label>Stock Quantity</Label>
-                            <Input defaultValue={product.stockQuantity || 0} type="number" />
+                            <Input name="stockQuantity" defaultValue={product.stockQuantity || 0} type="number" />
                         </div>
                         <div className="grid gap-2">
                             <Label>Condition</Label>
-                            <Input defaultValue={rawData["item-condition"] || "New"} />
+                            <Input name="itemCondition" defaultValue={rawData["item-condition"] || "New"} />
                         </div>
                         <div className="grid gap-2 relative">
                             <Label>Last Synced From Amazon</Label>
                             <Input
-                                defaultValue={product.lastSyncedAt ? new Date(product.lastSyncedAt).toLocaleString() : ""}
+                                readOnly
+                                value={product.lastSyncedAt ? new Date(product.lastSyncedAt).toLocaleString() : ""}
                                 disabled
                                 className="bg-muted/50"
                             />
@@ -224,10 +250,13 @@ export function ProductDetailTabs({ product }: { product: ChannelProductDetail }
                 </TabsContent>
             </div>
 
-            <div className="sticky bottom-0 bg-background/80 backdrop-blur-md p-4 border-t flex justify-end gap-3 px-8 mt-12 w-full">
-                <Button variant="outline">Cancel</Button>
-                <Button>Save Updates to Provider</Button>
+            <div className="absolute bottom-0 left-0 right-0 bg-background border-t p-4 flex justify-end gap-3 z-10 w-full rounded-b-md shadow-[0_-4px_6px_-2px_rgba(0,0,0,0.05)]">
+                <Button type="button" variant="outline">Cancel</Button>
+                <Button type="submit" disabled={pending}>
+                    {pending ? "Saving..." : "Save Updates to Provider"}
+                </Button>
             </div>
         </Tabs>
+        </form>
     );
 }

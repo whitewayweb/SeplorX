@@ -247,3 +247,81 @@ export async function getChannelProduct(productId: number) {
     return { error: "Failed to load product details." };
   }
 }
+
+export async function updateChannelProductDetails(_prevState: unknown, formData: FormData) {
+  const idStr = formData.get("id");
+  const channelIdStr = formData.get("channelId");
+  const externalId = formData.get("externalId") as string;
+  
+  const id = parseInt(String(idStr), 10);
+  const channelId = parseInt(String(channelIdStr), 10);
+
+  if (isNaN(id) || isNaN(channelId) || !externalId) {
+    return { error: "Missing required product identifiers." };
+  }
+
+  try {
+    const userId = await getAuthenticatedUserId();
+
+    // Verify channel ownership
+    const channelRows = await db
+      .select({ id: channels.id })
+      .from(channels)
+      .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
+      .limit(1);
+
+    if (channelRows.length === 0) return { error: "Channel not found or unauthorized." };
+
+    // Fetch existing channel product to merge rawData
+    const { channelProducts, channelProductMappings } = await import("@/db/schema");
+    const existingRows = await db
+      .select({ rawData: channelProducts.rawData })
+      .from(channelProducts)
+      .where(eq(channelProducts.id, id))
+      .limit(1);
+
+    if (existingRows.length === 0) return { error: "Channel product not found." };
+    const existingRawData = (existingRows[0].rawData as Record<string, unknown>) || {};
+
+    const name = (formData.get("name") as string) || "";
+    const sku = (formData.get("sku") as string) || "";
+    const price = (formData.get("price") as string) || "";
+    const stockQuantity = parseInt(String(formData.get("stockQuantity")), 10);
+    const itemCondition = (formData.get("itemCondition") as string) || "";
+    
+    // We update the main columns
+    const updateData: Record<string, unknown> = {
+      name,
+      sku: sku || null,
+      stockQuantity: isNaN(stockQuantity) ? null : stockQuantity,
+    };
+
+    // We also update the rawData so the UI reflects it
+    const updatedRawData = {
+      ...existingRawData,
+      price: price || existingRawData.price,
+      "item-condition": itemCondition || existingRawData["item-condition"],
+    };
+    updateData.rawData = updatedRawData;
+
+    await db.update(channelProducts).set(updateData).where(eq(channelProducts.id, id));
+
+    // Now find if this channel product is mapped to a local product
+    // If it is, mark it as pending_update so the feeds generator picks it up
+    await db
+      .update(channelProductMappings)
+      .set({ syncStatus: "pending_update", lastSyncError: null })
+      .where(
+        and(
+          eq(channelProductMappings.channelId, channelId),
+          eq(channelProductMappings.externalProductId, externalId)
+        )
+      );
+
+    revalidatePath(`/products/channels/${channelId}`);
+    return { success: true };
+  } catch (err) {
+    console.error("[updateChannelProductDetails]", { id, error: String(err) });
+    return { error: "Failed to update channel product details." };
+  }
+}

@@ -7,6 +7,7 @@ const nextConfig: NextConfig = {
   serverExternalPackages: [
     "@ai-sdk/google",
     "ai",
+    "xlsx-populate",
   ],
 };
 

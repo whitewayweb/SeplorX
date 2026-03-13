@@ -6,6 +6,7 @@ import { type SellersSchema } from "./types/sellersSchema";
 import { type CatalogItemsSchema } from "./types/catalogItemsSchema";
 import { type ProductTypesSchema } from "./types/productTypesSchema";
 import { type ListingsItemsSchema } from "./types/listingsItemsSchema";
+import { type FbaInventorySchema } from "./types/fbaInventorySchema";
 
 const gunzipAsync = promisify(zlib.gunzip);
 
@@ -227,6 +228,141 @@ export class AmazonAPIClient {
     }
     return res.json();
   }
+
+  // ── Feeds API ─────────────────────────────────────────────────────────────
+
+  /**
+   * Step 1: Create a feed document. Returns { feedDocumentId, url } where
+   * `url` is the presigned S3 URL to upload the file content to.
+   */
+  public async createFeedDocument(contentType: string): Promise<{ feedDocumentId: string; url: string }> {
+    const accessToken = await this.getAccessToken();
+    const url = new URL(`${this.endpoint}/feeds/2021-06-30/documents`);
+
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-amz-access-token": accessToken,
+      },
+      body: JSON.stringify({ contentType }),
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[Amazon SP-API] createFeedDocument Error:", errText);
+      throw new Error(`Failed to create feed document: ${res.status}`);
+    }
+
+    return res.json();
+  }
+
+  /**
+   * Step 1b: Upload the file data to the presigned URL returned by createFeedDocument.
+   */
+  public async uploadFeedData(presignedUrl: string, data: Uint8Array, contentType: string): Promise<void> {
+    const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+    const blob = new Blob([arrayBuffer], { type: contentType });
+    const res = await fetch(presignedUrl, {
+      method: "PUT",
+      headers: { "Content-Type": contentType },
+      body: blob,
+      signal: AbortSignal.timeout(60_000),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[Amazon SP-API] uploadFeedData Error:", errText);
+      throw new Error(`Failed to upload feed data: ${res.status}`);
+    }
+  }
+
+  /**
+   * Step 2: Create a feed referencing the uploaded document.
+   * Returns { feedId }.
+   */
+  public async createFeed(feedType: string, inputFeedDocumentId: string): Promise<{ feedId: string }> {
+    const accessToken = await this.getAccessToken();
+    const url = new URL(`${this.endpoint}/feeds/2021-06-30/feeds`);
+
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-amz-access-token": accessToken,
+      },
+      body: JSON.stringify({
+        inputFeedDocumentId,
+        feedType,
+        marketplaceIds: [this.marketplaceId],
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[Amazon SP-API] createFeed Error:", errText);
+      throw new Error(`Failed to create feed: ${res.status}`);
+    }
+
+    return res.json();
+  }
+
+  /**
+   * Step 3: Get feed status / details.
+   * processingStatus: CANCELLED | DONE | FATAL | IN_PROGRESS | IN_QUEUE
+   */
+  public async getFeed(feedId: string): Promise<{
+    feedId: string;
+    processingStatus: string;
+    resultFeedDocumentId?: string;
+  }> {
+    const accessToken = await this.getAccessToken();
+    const url = new URL(`${this.endpoint}/feeds/2021-06-30/feeds/${encodeURIComponent(feedId)}`);
+
+    const res = await fetch(url.toString(), {
+      headers: {
+        Accept: "application/json",
+        "x-amz-access-token": accessToken,
+      },
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[Amazon SP-API] getFeed Error:", errText);
+      throw new Error(`Failed to get feed ${feedId}: ${res.status}`);
+    }
+
+    return res.json();
+  }
+
+  /**
+   * Step 4: Get feed processing result document URL.
+   */
+  public async getFeedDocument(feedDocumentId: string): Promise<{ url: string; compressionAlgorithm?: string }> {
+    const accessToken = await this.getAccessToken();
+    const url = new URL(`${this.endpoint}/feeds/2021-06-30/documents/${encodeURIComponent(feedDocumentId)}`);
+
+    const res = await fetch(url.toString(), {
+      headers: {
+        Accept: "application/json",
+        "x-amz-access-token": accessToken,
+      },
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[Amazon SP-API] getFeedDocument Error:", errText);
+      throw new Error(`Failed to get feed document ${feedDocumentId}: ${res.status}`);
+    }
+
+    return res.json();
+  }
+
+  // ── Reports API (existing) ───────────────────────────────────────────────
 
   private async createListingReport(accessToken: string): Promise<string> {
     const createReportUrl = new URL(`${this.endpoint}/reports/2021-06-30/reports`);
@@ -458,6 +594,57 @@ export class AmazonAPIClient {
 
         // Wait 500ms to respect the 2 requests per second rate limit for batch search
         await new Promise((resolve) => setTimeout(resolve, 550));
+      }
+      
+      // ── Fetch FBA Inventory Quantities ──
+      // The GET_MERCHANT_LISTINGS_ALL_DATA report (used above) typically leaves the 'quantity' column
+      // blank or '0' for products that are Fulfilled by Amazon (FBA). To get the correct stock,
+      // we must explicitly query the FBA Inventory API for products that have a SKU.
+      try {
+        const BATCH_SIZE_FBA = 50; // Amazon allows up to 50 SKUs per request
+        const productsWithSku = externalProducts.filter((p) => !!p.sku);
+        
+        for (let i = 0; i < productsWithSku.length; i += BATCH_SIZE_FBA) {
+          const batch = productsWithSku.slice(i, i + BATCH_SIZE_FBA);
+          const skus = batch.map((p) => p.sku as string);
+          if (skus.length === 0) continue;
+
+          const url = new URL(`${this.endpoint}/fba/inventory/v1/summaries`);
+          url.searchParams.set("marketplaceIds", this.marketplaceId);
+          url.searchParams.set("granularityType", "Marketplace");
+          url.searchParams.set("granularityId", this.marketplaceId);
+          url.searchParams.set("sellerSkus", skus.join(","));
+          url.searchParams.set("details", "false"); // Basic details include fulfillableQuantity
+
+          const res = await fetch(url.toString(), {
+            headers: { Accept: "application/json", "x-amz-access-token": accessToken },
+            signal: AbortSignal.timeout(15_000),
+          });
+
+          if (res.ok) {
+            const data = (await res.json()) as FbaInventorySchema["GetInventorySummariesResponse"];
+            const summaries = data.payload?.inventorySummaries || [];
+            
+            for (const summary of summaries) {
+              const product = batch.find((p) => p.sku === summary.sellerSku);
+              if (product) {
+                // If FBA reports a valid fulfillable quantity, override the FBM quantity
+                const fulfillableQty = summary.inventoryDetails?.fulfillableQuantity;
+                if (typeof fulfillableQty === "number") {
+                  product.stockQuantity = fulfillableQty;
+                  
+                  // Also append FBA details to raw payload so it shows in the details tab
+                  if (product.rawPayload) {
+                    (product.rawPayload as Record<string, unknown>).fbaInventory = summary;
+                  }
+                }
+              }
+            }
+          }
+          await new Promise((resolve) => setTimeout(resolve, 550)); // Respect FBA API rate limits
+        }
+      } catch (err) {
+        console.error("[Amazon SP-API] Failed batch fetching FBA inventory", { error: String(err) });
       }
 
       // ── Process relationships to identify parents and children ──

@@ -173,21 +173,28 @@ export async function getChannelProductsWithVariations(channelId: number, option
     storeUrl: channel.storeUrl ?? ""
   };
 
-  const productsWithUrl = productsList.map((p) => {
-    const { rawData, ...safeProduct } = p;
-    return {
-      ...safeProduct,
-      productUrl: sanitizeUrl(getProductUrl?.(p.externalId, credentials, p.rawData)),
-    };
-  });
+  const productsWithUrl = productsList.map((p) => ({
+    id: p.id,
+    externalId: p.externalId,
+    name: p.name,
+    sku: p.sku,
+    type: p.type,
+    stockQuantity: p.stockQuantity,
+    lastSyncedAt: p.lastSyncedAt,
+    productUrl: sanitizeUrl(getProductUrl?.(p.externalId, credentials, p.rawData)),
+  }));
 
-  const variationsWithUrl = variationsList.map((v) => {
-    const { rawData, ...safeVariation } = v;
-    return {
-      ...safeVariation,
-      productUrl: sanitizeUrl(getProductUrl?.(v.externalId, credentials, v.rawData)),
-    };
-  });
+  const variationsWithUrl = variationsList.map((v) => ({
+    id: v.id,
+    externalId: v.externalId,
+    name: v.name,
+    sku: v.sku,
+    type: v.type,
+    stockQuantity: v.stockQuantity,
+    lastSyncedAt: v.lastSyncedAt,
+    parentId: v.parentId,
+    productUrl: sanitizeUrl(getProductUrl?.(v.externalId, credentials, v.rawData)),
+  }));
 
   return {
     products: productsWithUrl,
@@ -367,10 +374,16 @@ export async function getChannelProductByIdForUser(userId: number, id: number) {
     storeUrl: row.storeUrl ?? ""
   };
 
-  const { credentials: _credentials, channelType: _channelType, storeUrl: _storeUrl, ...safeRow } = row;
-
   return {
-    ...safeRow,
+    id: row.id,
+    channelId: row.channelId,
+    externalId: row.externalId,
+    name: row.name,
+    sku: row.sku,
+    type: row.type,
+    stockQuantity: row.stockQuantity,
+    rawData: row.rawData,
+    lastSyncedAt: row.lastSyncedAt,
     productUrl: sanitizeUrl(definition?.getProductUrl?.(row.externalId, credentials, row.rawData))
   };
 }

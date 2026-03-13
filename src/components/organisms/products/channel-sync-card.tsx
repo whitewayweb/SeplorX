@@ -24,7 +24,33 @@ interface MappingRow {
   channelId: number;
   externalProductId: string;
   label: string | null;
+  syncStatus: string;
 }
+
+// ─── Status Config ─────────────────────────────────────────────────────────────
+
+const SYNC_STATUS_UI: Record<string, { label: string; className: string }> = {
+  pending_update: {
+    label: "Pending",
+    className: "bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-300 dark:border-yellow-800/40",
+  },
+  file_generating: {
+    label: "Generating",
+    className: "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800/40",
+  },
+  uploading: {
+    label: "Uploading",
+    className: "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800/40",
+  },
+  processing: {
+    label: "Processing",
+    className: "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800/40",
+  },
+  failed: {
+    label: "Failed",
+    className: "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800/40",
+  },
+};
 
 // ─── Remove Mapping Button ────────────────────────────────────────────────────
 
@@ -194,8 +220,13 @@ export function ChannelSyncCard({
                           {m.externalProductId}
                         </span>
                         {m.label && (
-                          <span className="text-xs text-muted-foreground truncate">
+                          <span className="text-xs text-muted-foreground truncate max-w-[120px]">
                             {m.label}
+                          </span>
+                        )}
+                        {SYNC_STATUS_UI[m.syncStatus] && (
+                          <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-medium border ${SYNC_STATUS_UI[m.syncStatus].className}`}>
+                            {SYNC_STATUS_UI[m.syncStatus].label}
                           </span>
                         )}
                       </div>
