@@ -64,6 +64,8 @@ interface ChannelDefinition {
   capabilities?: ChannelCapabilities;
   validateConfig?: (config: Partial<Record<string, string>>) => string | null;
   buildConnectUrl?: (channelId: number, config: Record<string, string>, appUrl: string) => string;
+  /** Generate a public product link if available (e.g. Amazon DP link) */
+  getProductUrl?: (externalId: string, credentials?: Record<string, string>, rawData?: unknown) => string | null;
 }
 
 type ChannelStatus = "pending" | "connected" | "disconnected";
@@ -205,8 +207,33 @@ interface ChannelHandler {
   processWebhook(body, signature, topic, secret): WebhookStockChange[];
   fetchProducts?(storeUrl, credentials, search?): Promise<ExternalProduct[]>;  // optional
   getCatalogItem?(storeUrl, credentials, externalId): Promise<ExternalProduct>; // optional — single-item fetch
+  getProductUrl?(externalId, credentials, rawData): string | null;            // Polymorphic logic
 }
 ```
+
+### Polymorphic Logic & Registry-Driven Rendering
+Channel-specific behavior should be shifted as far "left" (towards the registry) as possible.
+- **BAD**: Adding `if (channelType === 'amazon')` in a React component.
+- **GOOD**: Defining `getProductUrl` in the Amazon and WooCommerce configs.
+
+This allows the **Data Access Layer (DAL)** to automatically enrich product lists with URLs. UI components like `ChannelProductsTable` remain 100% generic—they only care if a `productUrl` exists, not how it was constructed.
+
+### Cross-Field Validation
+When a channel has configuration fields that depend on each other (e.g., Amazon's **Marketplace** must match the selected **API Endpoint Region**), implement cross-field validation in the registry's `validateConfig` method.
+
+```typescript
+// Example: src/lib/channels/amazon/config.ts
+export function validateConfig(config: Partial<Record<string, string>>): string | null {
+  const { storeUrl, marketplaceId } = config;
+  const marketplace = MARKETPLACE_MAP[marketplaceId!];
+  
+  if (marketplace && storeUrl !== SP_API_ENDPOINTS[marketplace.region]) {
+    return `Incorrect endpoint for ${marketplace.label}. Please select the ${marketplace.region.toUpperCase()} region.`;
+  }
+  return null;
+}
+```
+
 
 **Retrieve a handler (Server-side only):**
 ```typescript

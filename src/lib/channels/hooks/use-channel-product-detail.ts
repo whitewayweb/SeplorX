@@ -14,6 +14,7 @@ export interface ChannelProductDetail {
     stockQuantity: number | null;
     rawData: Record<string, unknown>;
     lastSyncedAt: Date | null;
+    productUrl?: string | null;
 }
 
 /**

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, Fragment } from "react";
-import { CornerDownRight, RefreshCw, Loader2, ChevronRight, ChevronDown } from "lucide-react";
+import { CornerDownRight, RefreshCw, Loader2, ChevronRight, ChevronDown, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import {
@@ -37,6 +37,7 @@ interface ProductRow {
     type: string | null;
     stockQuantity: number | null;
     lastSyncedAt: Date | null;
+    productUrl?: string | null;
 }
 
 interface VariationRow extends ProductRow {
@@ -185,7 +186,21 @@ export function ChannelProductsTable({
                                                     </div>
                                                 </TableCell>
                                                 <TableCell className="font-medium whitespace-normal min-w-[250px] max-w-xl">
-                                                    {product.name}
+                                                    <div className="inline">
+                                                        {product.name}
+                                                        {product.productUrl && (
+                                                            <a
+                                                                href={product.productUrl}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="inline-flex items-center text-blue-600 hover:text-blue-800 transition-colors ml-1.5 align-middle border-0 p-0.5 bg-blue-50 rounded-[3px]"
+                                                                onClick={(e) => e.stopPropagation()}
+                                                                title="View on Store"
+                                                            >
+                                                                <ExternalLink className="h-3 w-3" />
+                                                            </a>
+                                                        )}
+                                                    </div>
                                                     <div className="font-mono text-xs text-muted-foreground/70 mt-0.5">
                                                         {product.sku || "-"}
                                                     </div>
@@ -249,7 +264,21 @@ export function ChannelProductsTable({
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className="font-medium whitespace-normal min-w-[250px] max-w-xl text-sm pl-4">
-                                                        {variation.name.includes(" — ") ? variation.name.split(" — ").pop() : variation.name}
+                                                        <div className="inline">
+                                                            {variation.name.includes(" — ") ? variation.name.split(" — ").pop() : variation.name}
+                                                            {variation.productUrl && (
+                                                                <a
+                                                                    href={variation.productUrl}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="inline-flex items-center text-blue-600 hover:text-blue-800 transition-colors ml-1.5 align-middle border-0 p-0.5 bg-blue-50 rounded-[3px]"
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                    title="View on Store"
+                                                                >
+                                                                    <ExternalLink className="h-2.5 w-2.5" />
+                                                                </a>
+                                                            )}
+                                                        </div>
                                                         <div className="font-mono text-xs text-muted-foreground/70 mt-0.5">
                                                             {variation.sku || "-"}
                                                         </div>
@@ -309,7 +338,18 @@ export function ChannelProductsTable({
                                     {selectedProduct.name}
                                 </SheetTitle>
                                 <SheetDescription>
-                                    {selectedProduct.externalId}
+                                    {selectedProduct.productUrl ? (
+                                        <a
+                                            href={selectedProduct.productUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-blue-600 hover:underline"
+                                        >
+                                            {selectedProduct.externalId}
+                                        </a>
+                                    ) : (
+                                        selectedProduct.externalId
+                                    )}
                                     {selectedProduct.sku && ` · ${selectedProduct.sku}`}
                                 </SheetDescription>
                             </SheetHeader>

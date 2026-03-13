@@ -332,19 +332,19 @@ export class AmazonAPIClient {
     }
 
     const textBase = fileBuffer.toString("utf-8");
-    const lines = textBase.split("\n");
+    const lines = textBase.split(/\r?\n/);
     if (lines.length < 2) return [];
 
-    const headers = lines[0].split("\t").map((h) => h.trim());
-    const asinIdx = headers.indexOf("asin1");
-    const skuIdx = headers.indexOf("seller-sku");
-    const nameIdx = headers.indexOf("item-name");
-    const qtyIdx = headers.indexOf("quantity");
+    const headers = lines[0].split("\t").map((h) => h.trim().toLowerCase());
+    const asinIdx = headers.findIndex(h => h === "asin1" || h === "asin");
+    const skuIdx = headers.findIndex(h => h === "seller-sku" || h === "sku" || h === "merchant-sku");
+    const nameIdx = headers.findIndex(h => h === "item-name" || h === "product-name" || h === "title");
+    const qtyIdx = headers.findIndex(h => h === "quantity" || h === "qty" || h === "stock");
 
     const externalProducts: ExternalProduct[] = [];
     for (let i = 1; i < lines.length; i++) {
       if (!lines[i].trim()) continue;
-      const cols = lines[i].split("\t");
+      const cols = lines[i].split("\t").map(c => c.trim());
 
       const asin = asinIdx >= 0 ? cols[asinIdx] : "";
       const sku = skuIdx >= 0 ? cols[skuIdx] : "";

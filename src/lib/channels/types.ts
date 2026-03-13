@@ -17,6 +17,10 @@ export interface ChannelDefinition {
   capabilities?: ChannelCapabilities;
   validateConfig?: (config: Partial<Record<string, string>>) => string | null;
   buildConnectUrl?: (channelId: number, config: Record<string, string>, appUrl: string) => string;
+  /** Generate a public product link if available (e.g. Amazon DP link) */
+  getProductUrl?: (externalId: string, credentials?: Record<string, string>, rawData?: unknown) => string | null;
+  /** UI Hint for the connection step */
+  connectionHint?: string;
 }
 
 export type ChannelStatus = "pending" | "connected" | "disconnected";
