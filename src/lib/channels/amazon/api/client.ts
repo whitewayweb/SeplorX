@@ -60,7 +60,7 @@ export class AmazonAPIClient {
     return await this.downloadAndParseReport(url, compressionAlgorithm, search);
   }
 
-  public async getCatalogItem(asin: string): Promise<ExternalProduct> {
+  public async getCatalogItem(asin: string, sku?: string, fulfillmentChannel?: string): Promise<ExternalProduct> {
     if (!asin || typeof asin !== "string") {
       throw new Error("A valid ASIN is required.");
     }
@@ -122,10 +122,30 @@ export class AmazonAPIClient {
       }
     }
 
+    // If we have a SKU and the product is FBA, fetch warehouse inventory
+    let stockQuantity: number | undefined = undefined;
+    const isFba = fulfillmentChannel && fulfillmentChannel !== "DEFAULT";
+    
+    if (sku && isFba && data.summaries?.[0]?.itemClassification !== "VARIATION_PARENT") {
+        try {
+            const fbaMap = await this.fetchFbaInventorySummaries(accessToken, [sku]);
+            const fbaSummary = fbaMap.get(sku);
+            if (fbaSummary?.inventoryDetails?.fulfillableQuantity !== undefined) {
+              stockQuantity = fbaSummary.inventoryDetails.fulfillableQuantity;
+              // Inject FBA details for UI
+              (data as Record<string, unknown>).fbaInventory = fbaSummary;
+            }
+        } catch (e) {
+            console.warn(`[Amazon SP-API] Failed to fetch FBA inventory for single item ${asin}`, e);
+        }
+    }
+
     return {
       id: data.asin ?? asin,
       name: itemName,
+      sku: sku || undefined,
       type: productType,
+      stockQuantity,
       rawPayload: {
         ...data,
         pricing: pricingData,
@@ -161,11 +181,6 @@ export class AmazonAPIClient {
     return res.json();
   }
 
-  /**
-   * Sellers API — list all marketplaces the seller participates in.
-   * Useful for validating credentials and auto-discovering marketplace IDs.
-   * GET /sellers/v1/marketplaceParticipations
-   */
   public async getMarketplaceParticipations(): Promise<SellersSchema["GetMarketplaceParticipationsResponse"]> {
     const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}/sellers/v1/marketplaceParticipations`);
@@ -181,11 +196,6 @@ export class AmazonAPIClient {
     return res.json();
   }
 
-  /**
-   * Listings Items API — fetch a single listing by seller SKU.
-   * Complements getCatalogItem (by ASIN) with SKU-based lookup.
-   * GET /listings/2021-08-01/items/:sellerId/:sku
-   */
   public async getListingItem(sellerId: string, sku: string, includedData = "summaries"): Promise<ListingsItemsSchema["Item"]> {
     if (!sellerId || !sku) throw new Error("sellerId and sku are required.");
     const accessToken = await this.getAccessToken();
@@ -206,12 +216,6 @@ export class AmazonAPIClient {
     return res.json();
   }
 
-  /**
-   * Product Type Definitions API — search for Amazon product types.
-   * Returns schemas that define required/optional attributes per product type.
-   * Use keywords (e.g. "car parts") or leave empty to list all.
-   * GET /definitions/2020-09-01/productTypes
-   */
   public async searchProductTypes(keywords?: string): Promise<ProductTypesSchema["ProductTypeList"]> {
     const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}/definitions/2020-09-01/productTypes`);
@@ -229,12 +233,6 @@ export class AmazonAPIClient {
     return res.json();
   }
 
-  // ── Feeds API ─────────────────────────────────────────────────────────────
-
-  /**
-   * Step 1: Create a feed document. Returns { feedDocumentId, url } where
-   * `url` is the presigned S3 URL to upload the file content to.
-   */
   public async createFeedDocument(contentType: string): Promise<{ feedDocumentId: string; url: string }> {
     const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}/feeds/2021-06-30/documents`);
@@ -258,9 +256,6 @@ export class AmazonAPIClient {
     return res.json();
   }
 
-  /**
-   * Step 1b: Upload the file data to the presigned URL returned by createFeedDocument.
-   */
   public async uploadFeedData(presignedUrl: string, data: Uint8Array, contentType: string): Promise<void> {
     const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
     const blob = new Blob([arrayBuffer], { type: contentType });
@@ -278,10 +273,6 @@ export class AmazonAPIClient {
     }
   }
 
-  /**
-   * Step 2: Create a feed referencing the uploaded document.
-   * Returns { feedId }.
-   */
   public async createFeed(feedType: string, inputFeedDocumentId: string): Promise<{ feedId: string }> {
     const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}/feeds/2021-06-30/feeds`);
@@ -309,10 +300,6 @@ export class AmazonAPIClient {
     return res.json();
   }
 
-  /**
-   * Step 3: Get feed status / details.
-   * processingStatus: CANCELLED | DONE | FATAL | IN_PROGRESS | IN_QUEUE
-   */
   public async getFeed(feedId: string): Promise<{
     feedId: string;
     processingStatus: string;
@@ -338,9 +325,6 @@ export class AmazonAPIClient {
     return res.json();
   }
 
-  /**
-   * Step 4: Get feed processing result document URL.
-   */
   public async getFeedDocument(feedDocumentId: string): Promise<{ url: string; compressionAlgorithm?: string }> {
     const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}/feeds/2021-06-30/documents/${encodeURIComponent(feedDocumentId)}`);
@@ -361,8 +345,6 @@ export class AmazonAPIClient {
 
     return res.json();
   }
-
-  // ── Reports API (existing) ───────────────────────────────────────────────
 
   private async createListingReport(accessToken: string): Promise<string> {
     const createReportUrl = new URL(`${this.endpoint}/reports/2021-06-30/reports`);
@@ -391,8 +373,7 @@ export class AmazonAPIClient {
   }
 
   private async pollReportStatus(accessToken: string, reportId: string): Promise<string> {
-    // Use exponential backoff (3 s → 6 s → 12 s … capped at 15 s per interval).
-    const DEADLINE_MS = 40_000; // 40 seconds to prevent serverless function timeout
+    const DEADLINE_MS = 40_000;
     const deadline = Date.now() + DEADLINE_MS;
     let intervalMs = 3_000;
 
@@ -463,7 +444,6 @@ export class AmazonAPIClient {
     let fileBuffer = Buffer.from(arrayBuffer);
 
     if (compressionAlgorithm === "GZIP") {
-      // Use async gunzip — gunzipSync blocks the event loop on large payloads.
       fileBuffer = await gunzipAsync(fileBuffer);
     }
 
@@ -517,24 +497,90 @@ export class AmazonAPIClient {
       });
     }
 
-    // Now, batch fetch the actual catalog brand names via the Catalog Items API.
-    // Amazon allows up to 20 internal identifiers (ASIN/SKU) per request.
-    // The rate limit for search is 2 requests per second.
+    const accessToken = await this.getAccessToken();
+    await this.enrichWithCatalogData(accessToken, externalProducts);
+
     try {
-      const accessToken = await this.getAccessToken();
-      const BATCH_SIZE = 20;
+      const fbaProducts = externalProducts.filter((p) => {
+        const payload = p.rawPayload as Record<string, unknown>;
+        const isFba = payload["fulfillment-channel"] && payload["fulfillment-channel"] !== "DEFAULT";
+        return !!p.sku && isFba;
+      });
+      
+      const skus = fbaProducts.map(p => p.sku as string);
+      if (skus.length > 0) {
+        const fbaMap = await this.fetchFbaInventorySummaries(accessToken, skus);
+        for (const product of fbaProducts) {
+          const summary = fbaMap.get(product.sku!);
+          if (summary?.inventoryDetails?.fulfillableQuantity !== undefined) {
+            product.stockQuantity = summary.inventoryDetails.fulfillableQuantity;
+            if (product.rawPayload) {
+              (product.rawPayload as Record<string, unknown>).fbaInventory = summary;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[Amazon SP-API] Failed fetch FBA inventory", { error: String(err) });
+    }
 
-      for (let i = 0; i < externalProducts.length; i += BATCH_SIZE) {
-        const batch = externalProducts.slice(i, i + BATCH_SIZE);
-        const asins = batch.map((p) => p.id);
-        if (asins.length === 0) continue;
+    this.processProductRelationships(externalProducts);
 
-        const url = new URL(`${this.endpoint}/catalog/2022-04-01/items`);
-        url.searchParams.set("marketplaceIds", this.marketplaceId);
-        url.searchParams.set("identifiersType", "ASIN");
-        url.searchParams.set("identifiers", asins.join(","));
-        url.searchParams.set("includedData", "summaries,images,identifiers,attributes,dimensions,relationships");
+    return externalProducts;
+  }
 
+  private async fetchFbaInventorySummaries(
+    accessToken: string, 
+    skus: string[]
+  ): Promise<Map<string, NonNullable<NonNullable<FbaInventorySchema["GetInventorySummariesResponse"]["payload"]>["inventorySummaries"]>[number]>> {
+    const results = new Map<string, NonNullable<NonNullable<FbaInventorySchema["GetInventorySummariesResponse"]["payload"]>["inventorySummaries"]>[number]>();
+    const BATCH_SIZE = 50;
+
+    for (let i = 0; i < skus.length; i += BATCH_SIZE) {
+      const batch = skus.slice(i, i + BATCH_SIZE);
+      const url = new URL(`${this.endpoint}/fba/inventory/v1/summaries`);
+      url.searchParams.set("marketplaceIds", this.marketplaceId);
+      url.searchParams.set("granularityType", "Marketplace");
+      url.searchParams.set("granularityId", this.marketplaceId);
+      url.searchParams.set("sellerSkus", batch.join(","));
+      url.searchParams.set("details", "true");
+
+      const res = await fetch(url.toString(), {
+        headers: { Accept: "application/json", "x-amz-access-token": accessToken },
+        signal: AbortSignal.timeout(15_000),
+      });
+
+      if (res.ok) {
+        const data = (await res.json()) as FbaInventorySchema["GetInventorySummariesResponse"];
+        const summaries = data.payload?.inventorySummaries || [];
+        for (const summary of summaries) {
+          if (summary.sellerSku) {
+            results.set(summary.sellerSku, summary);
+          }
+        }
+      }
+      
+      if (i + BATCH_SIZE < skus.length) {
+        await new Promise((resolve) => setTimeout(resolve, 550));
+      }
+    }
+    return results;
+  }
+
+  private async enrichWithCatalogData(accessToken: string, products: ExternalProduct[]): Promise<void> {
+    const BATCH_SIZE = 20;
+    for (let i = 0; i < products.length; i += BATCH_SIZE) {
+      const batch = products.slice(i, i + BATCH_SIZE);
+      const asins = batch.map((p) => p.id);
+      if (asins.length === 0) continue;
+
+      const url = new URL(`${this.endpoint}/catalog/2022-04-01/items`);
+      url.searchParams.set("marketplaceIds", this.marketplaceId);
+      url.searchParams.set("identifiersType", "ASIN");
+      url.searchParams.set("identifiers", asins.join(","));
+      url.searchParams.set("includedData", "summaries,images,identifiers,attributes,dimensions,relationships");
+
+      try {
         const res = await fetch(url.toString(), {
           headers: { Accept: "application/json", "x-amz-access-token": accessToken },
           signal: AbortSignal.timeout(15_000),
@@ -542,7 +588,6 @@ export class AmazonAPIClient {
 
         if (res.ok) {
           const data = await res.json();
-          // Map catalog items back onto the products by ASIN
           const items = data.items || [];
           for (const item of items) {
             const product = batch.find((p) => p.id === item.asin);
@@ -554,10 +599,7 @@ export class AmazonAPIClient {
               if (item.attributes) payload.attributes = item.attributes;
               if (item.dimensions) payload.dimensions = item.dimensions;
 
-              // Amazon's batch searchCatalogItems truncates relationships.
-              // If we see it's a parent / has relationships, fetch the full item using getCatalogItem.
               let fullRelationships = item.relationships;
-
               const hasChildren = item.relationships?.some((r: { relationships?: Array<{ childAsins?: string[] }> }) =>
                 r.relationships?.some((rel) => rel.childAsins && rel.childAsins.length > 0)
               );
@@ -578,7 +620,6 @@ export class AmazonAPIClient {
                       fullRelationships = singleData.relationships;
                     }
                   }
-                  // Respect rate limits for individual item fetch (2 req/s)
                   await new Promise((r) => setTimeout(r, 550));
                 } catch (e) {
                   console.warn(`[Amazon SP-API] Failed to fetch full relationships for parent ASIN ${item.asin}`, e);
@@ -591,91 +632,43 @@ export class AmazonAPIClient {
             }
           }
         }
+      } catch (err) {
+        console.error("[Amazon SP-API] Batch catalog enrichment failed", err);
+      }
 
-        // Wait 500ms to respect the 2 requests per second rate limit for batch search
+      if (i + BATCH_SIZE < products.length) {
         await new Promise((resolve) => setTimeout(resolve, 550));
       }
-      
-      // ── Fetch FBA Inventory Quantities ──
-      // The GET_MERCHANT_LISTINGS_ALL_DATA report (used above) typically leaves the 'quantity' column
-      // blank or '0' for products that are Fulfilled by Amazon (FBA). To get the correct stock,
-      // we must explicitly query the FBA Inventory API for products that have a SKU.
-      try {
-        const BATCH_SIZE_FBA = 50; // Amazon allows up to 50 SKUs per request
-        const productsWithSku = externalProducts.filter((p) => !!p.sku);
-        
-        for (let i = 0; i < productsWithSku.length; i += BATCH_SIZE_FBA) {
-          const batch = productsWithSku.slice(i, i + BATCH_SIZE_FBA);
-          const skus = batch.map((p) => p.sku as string);
-          if (skus.length === 0) continue;
+    }
+  }
 
-          const url = new URL(`${this.endpoint}/fba/inventory/v1/summaries`);
-          url.searchParams.set("marketplaceIds", this.marketplaceId);
-          url.searchParams.set("granularityType", "Marketplace");
-          url.searchParams.set("granularityId", this.marketplaceId);
-          url.searchParams.set("sellerSkus", skus.join(","));
-          url.searchParams.set("details", "false"); // Basic details include fulfillableQuantity
+  private processProductRelationships(products: ExternalProduct[]): void {
+    for (const product of products) {
+      const payload = product.rawPayload as Record<string, unknown>;
 
-          const res = await fetch(url.toString(), {
-            headers: { Accept: "application/json", "x-amz-access-token": accessToken },
-            signal: AbortSignal.timeout(15_000),
-          });
+      const summaries = payload.summaries as Array<{ marketplaceId?: string; itemClassification?: string }> | undefined;
+      const itemClassification =
+        summaries?.find((s) => s.marketplaceId === this.marketplaceId)?.itemClassification ??
+        summaries?.[0]?.itemClassification;
 
-          if (res.ok) {
-            const data = (await res.json()) as FbaInventorySchema["GetInventorySummariesResponse"];
-            const summaries = data.payload?.inventorySummaries || [];
-            
-            for (const summary of summaries) {
-              const product = batch.find((p) => p.sku === summary.sellerSku);
-              if (product) {
-                // If FBA reports a valid fulfillable quantity, override the FBM quantity
-                const fulfillableQty = summary.inventoryDetails?.fulfillableQuantity;
-                if (typeof fulfillableQty === "number") {
-                  product.stockQuantity = fulfillableQty;
-                  
-                  // Also append FBA details to raw payload so it shows in the details tab
-                  if (product.rawPayload) {
-                    (product.rawPayload as Record<string, unknown>).fbaInventory = summary;
-                  }
-                }
-              }
-            }
-          }
-          await new Promise((resolve) => setTimeout(resolve, 550)); // Respect FBA API rate limits
-        }
-      } catch (err) {
-        console.error("[Amazon SP-API] Failed batch fetching FBA inventory", { error: String(err) });
+      if (itemClassification === "VARIATION_PARENT") {
+        product.type = "variable";
       }
 
-      // ── Process relationships to identify parents and children ──
-      // This is necessary so the data structure matches SeplorX's DB schema correctly on first sync.
-      for (const product of externalProducts) {
-        const payload = product.rawPayload as Record<string, unknown>;
-
-        const summaries = payload.summaries as Array<{ marketplaceId?: string; itemClassification?: string }> | undefined;
-        const itemClassification =
-          summaries?.find((s) => s.marketplaceId === this.marketplaceId)?.itemClassification ??
-          summaries?.[0]?.itemClassification;
-
-        if (itemClassification === "VARIATION_PARENT") {
-          product.type = "variable";
-        }
-
-        if (Array.isArray(payload.relationships)) {
-          for (const byMarketplace of payload.relationships) {
-            if (!Array.isArray(byMarketplace.relationships)) continue;
-            for (const rel of byMarketplace.relationships) {
-              if (rel.type === "VARIATION" && Array.isArray(rel.childAsins)) {
-                product.type = "variable";
-                for (const childAsin of rel.childAsins) {
-                  if (childAsin && childAsin !== product.id) {
-                    const childObj = externalProducts.find((p) => p.id === childAsin);
-                    if (childObj) {
-                      childObj.type = "variation";
-                      childObj.parentId = product.id;
-                      if (childObj.rawPayload) {
-                        childObj.rawPayload.parentId = product.id;
-                      }
+      if (Array.isArray(payload.relationships)) {
+        for (const byMarketplace of payload.relationships) {
+          if (!Array.isArray(byMarketplace.relationships)) continue;
+          for (const rel of byMarketplace.relationships) {
+            if (rel.type === "VARIATION" && Array.isArray(rel.childAsins)) {
+              product.type = "variable";
+              for (const childAsin of rel.childAsins) {
+                if (childAsin && childAsin !== product.id) {
+                  const childObj = products.find((p) => p.id === childAsin);
+                  if (childObj) {
+                    childObj.type = "variation";
+                    childObj.parentId = product.id;
+                    if (childObj.rawPayload) {
+                      childObj.rawPayload.parentId = product.id;
                     }
                   }
                 }
@@ -684,12 +677,6 @@ export class AmazonAPIClient {
           }
         }
       }
-
-    } catch (err) {
-      console.error("[Amazon SP-API] Failed batch fetching catalog brands", { action: "batchFetchCatalogBrands", error: String(err) });
-      // Suppress full failure, rely on existing report data if catalog fails partially.
     }
-
-    return externalProducts;
   }
 }

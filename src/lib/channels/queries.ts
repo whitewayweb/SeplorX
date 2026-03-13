@@ -387,3 +387,21 @@ export async function getChannelProductByIdForUser(userId: number, id: number) {
     productUrl: sanitizeUrl(definition?.getProductUrl?.(row.externalId, credentials, row.rawData))
   };
 }
+
+/**
+ * Writes a partial update to a single channel_products row.
+ * Only the keys present in `patch` are written; all other columns are untouched.
+ * This is a pure DAL operation — no auth or business-logic checks.
+ */
+export async function updateChannelProductInDb(
+  id: number,
+  patch: {
+    name?: string;
+    sku?: string | null;
+    stockQuantity?: number | null;
+    rawData?: Record<string, unknown>;
+  }
+): Promise<void> {
+  if (Object.keys(patch).length === 0) return;
+  await db.update(channelProducts).set(patch).where(eq(channelProducts.id, id));
+}

@@ -5,7 +5,7 @@ import { encrypt } from "@/lib/crypto";
 import { getChannelById } from "@/lib/channels/registry";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
-import { upsertChannelProducts, upsertProductWithVariationsTx } from "@/lib/channels/queries";
+import { upsertChannelProducts, upsertProductWithVariationsTx, updateChannelProductInDb } from "@/lib/channels/queries";
 import type { ChannelType } from "@/lib/channels/types";
 import { env } from "@/lib/env";
 
@@ -285,7 +285,19 @@ export async function getCatalogItemService(userId: number, channelId: number, a
   const decryptedCreds = decryptChannelCredentials(channel.credentials);
   if (Object.keys(decryptedCreds).length === 0) throw new Error("Channel credentials missing.");
 
-  const product = await handler.getCatalogItem(channel.storeUrl, decryptedCreds, asin);
+  // For Amazon, we need the SKU and fulfillment channel to fetch FBA inventory. 
+  // Let's try to get them from the DB if they're already there.
+  const existingProduct = await db
+    .select({ sku: channelProducts.sku, rawData: channelProducts.rawData })
+    .from(channelProducts)
+    .where(and(eq(channelProducts.channelId, channelId), eq(channelProducts.externalId, asin)))
+    .limit(1);
+    
+  const sku = existingProduct[0]?.sku || undefined;
+  const rawData = existingProduct[0]?.rawData as Record<string, unknown> | undefined;
+  const fulfillmentChannel = (rawData?.["fulfillment-channel"] as string) || undefined;
+
+  const product = await handler.getCatalogItem(channel.storeUrl, decryptedCreds, asin, sku, fulfillmentChannel);
 
   // ── Extract and map child variations ─────────────────────────────────────
   // Amazon stores child ASINs in rawPayload.relationships. We collect all unique
@@ -331,4 +343,100 @@ export async function getCatalogItemService(userId: number, channelId: number, a
   }, childAsins);
 
   return product;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// updateChannelProductService
+// ─────────────────────────────────────────────────────────────────────────────
+// Handles the edit-product-drawer save flow in a channel-agnostic way:
+//   1. Verifies channel ownership (auth guard)
+//   2. Reads the existing rawData from the DB (needed for safe merge)
+//   3. Delegates rawData patching to the channel's own mergeProductUpdate() hook
+//      (keeps channel-specific rawData key names out of the shared service layer)
+//   4. Writes only the submitted fields to channel_products via the DAL
+//   5. Marks any matching channel_product_mappings row as pending_update so
+//      the feeds generator picks it up on next provider sync
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ChannelProductUpdatePatch {
+  /** Only present when the "Product Details" tab was active */
+  name?: string;
+  /** Only present when the "Offer & Inventory" tab was active */
+  sku?: string;
+  stockQuantity?: number | null;
+  price?: string;
+  itemCondition?: string;
+}
+
+export async function updateChannelProductService(
+  userId: number,
+  channelId: number,
+  productId: number,
+  externalId: string,
+  patch: ChannelProductUpdatePatch,
+): Promise<void> {
+  // ── 1. Verify channel ownership ──────────────────────────────────────────
+  const channelRows = await db
+    .select({ id: channels.id, channelType: channels.channelType })
+    .from(channels)
+    .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
+    .limit(1);
+
+  if (channelRows.length === 0) throw new Error("Channel not found or unauthorized.");
+  const channelType = channelRows[0].channelType;
+
+  // ── 2. Read existing rawData (needed so merge doesn't lose existing fields) ─
+  const { channelProducts: cpTable, channelProductMappings } = await import("@/db/schema");
+  const existing = await db
+    .select({ rawData: cpTable.rawData })
+    .from(cpTable)
+    .where(eq(cpTable.id, productId))
+    .limit(1);
+
+  if (existing.length === 0) throw new Error("Channel product not found.");
+  const existingRawData = (existing[0].rawData as Record<string, unknown>) ?? {};
+
+  // ── 3. Build the update payload ──────────────────────────────────────────
+  const dbPatch: Parameters<typeof updateChannelProductInDb>[1] = {};
+
+  if (patch.name !== undefined && patch.name.trim()) {
+    dbPatch.name = patch.name.trim();
+  }
+  if (patch.sku !== undefined) {
+    dbPatch.sku = patch.sku.trim() || null;
+  }
+  if (patch.stockQuantity !== undefined) {
+    dbPatch.stockQuantity = patch.stockQuantity;
+  }
+
+  // ── 4. Delegate rawData merge to the channel handler ─────────────────────
+  // The handler knows its own rawData key conventions (e.g. Amazon uses
+  // "item-condition", WooCommerce might use "sale_price"). If the handler
+  // doesn't implement mergeProductUpdate, rawData is left unchanged.
+  const handler = getChannelHandler(channelType);
+  if (handler?.mergeProductUpdate) {
+    const rawPatch: Record<string, string | undefined> = {};
+    if (patch.price !== undefined) rawPatch.price = patch.price;
+    if (patch.itemCondition !== undefined) rawPatch.itemCondition = patch.itemCondition;
+
+    const rawDataMerge = handler.mergeProductUpdate(existingRawData, rawPatch);
+    if (rawDataMerge && Object.keys(rawDataMerge).length > 0) {
+      dbPatch.rawData = { ...existingRawData, ...rawDataMerge };
+    }
+  }
+
+  // ── 5. Persist — only touches fields that are in dbPatch ─────────────────
+  await updateChannelProductInDb(productId, dbPatch);
+
+  // ── 6. Stage for provider sync ───────────────────────────────────────────
+  // Mark the mapping as pending_update so the feeds generator picks it up.
+  await db
+    .update(channelProductMappings)
+    .set({ syncStatus: "pending_update", lastSyncError: null })
+    .where(
+      and(
+        eq(channelProductMappings.channelId, channelId),
+        eq(channelProductMappings.externalProductId, externalId),
+      ),
+    );
 }
