@@ -11,6 +11,19 @@ import { ChannelType } from "./types";
  * to ensure a clean separation of concerns and reusability.
  */
 
+function sanitizeUrl(urlString: string | null | undefined): string | null {
+  if (!urlString) return null;
+  try {
+    const url = new URL(urlString);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return url.toString();
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
 export async function getUserChannels(userId: number) {
   return await db
     .select({
@@ -155,17 +168,26 @@ export async function getChannelProductsWithVariations(channelId: number, option
   // 4. Inject product URLs using the registry
   const definition = getChannelById(channel.channelType as ChannelType);
   const getProductUrl = definition?.getProductUrl;
-  const credentials = decryptChannelCredentials(channel.credentials);
+  const credentials = {
+    ...decryptChannelCredentials(channel.credentials),
+    storeUrl: channel.storeUrl ?? ""
+  };
 
-  const productsWithUrl = productsList.map((p) => ({
-    ...p,
-    productUrl: getProductUrl?.(p.externalId, credentials, p.rawData),
-  }));
+  const productsWithUrl = productsList.map((p) => {
+    const { rawData, ...safeProduct } = p;
+    return {
+      ...safeProduct,
+      productUrl: sanitizeUrl(getProductUrl?.(p.externalId, credentials, p.rawData)),
+    };
+  });
 
-  const variationsWithUrl = variationsList.map((v) => ({
-    ...v,
-    productUrl: getProductUrl?.(v.externalId, credentials, v.rawData),
-  }));
+  const variationsWithUrl = variationsList.map((v) => {
+    const { rawData, ...safeVariation } = v;
+    return {
+      ...safeVariation,
+      productUrl: sanitizeUrl(getProductUrl?.(v.externalId, credentials, v.rawData)),
+    };
+  });
 
   return {
     products: productsWithUrl,
@@ -225,7 +247,7 @@ export async function upsertChannelProducts(products: {
         sku: sql`COALESCE(NULLIF(EXCLUDED.sku, ''), ${channelProducts.sku})`,
         stockQuantity: sql`COALESCE(EXCLUDED.stock_quantity, ${channelProducts.stockQuantity})`,
         type: sql`COALESCE(NULLIF(EXCLUDED.type, ''), ${channelProducts.type})`,
-        rawData: sql`COALESCE(${channelProducts.rawData}, '{}'::jsonb) || EXCLUDED.raw_data`,
+        rawData: sql`COALESCE(${channelProducts.rawData}, '{}'::jsonb) || COALESCE(EXCLUDED.raw_data, '{}'::jsonb)`,
         lastSyncedAt: sql`EXCLUDED.last_synced_at`,
       },
     });
@@ -254,7 +276,7 @@ export async function upsertProductWithVariationsTx(
           sku: sql`COALESCE(NULLIF(EXCLUDED.sku, ''), ${channelProducts.sku})`,
           stockQuantity: sql`COALESCE(EXCLUDED.stock_quantity, ${channelProducts.stockQuantity})`,
           type: sql`COALESCE(NULLIF(EXCLUDED.type, ''), ${channelProducts.type})`,
-          rawData: sql`COALESCE(${channelProducts.rawData}, '{}'::jsonb) || EXCLUDED.raw_data`,
+          rawData: sql`COALESCE(${channelProducts.rawData}, '{}'::jsonb) || COALESCE(EXCLUDED.raw_data, '{}'::jsonb)`,
           lastSyncedAt: sql`EXCLUDED.last_synced_at`,
         },
       });
@@ -330,6 +352,7 @@ export async function getChannelProductByIdForUser(userId: number, id: number) {
       lastSyncedAt: channelProducts.lastSyncedAt,
       channelType: channels.channelType,
       credentials: channels.credentials,
+      storeUrl: channels.storeUrl,
     })
     .from(channelProducts)
     .innerJoin(channels, eq(channelProducts.channelId, channels.id))
@@ -339,10 +362,15 @@ export async function getChannelProductByIdForUser(userId: number, id: number) {
   if (!row) return null;
 
   const definition = getChannelById(row.channelType as ChannelType);
-  const credentials = decryptChannelCredentials(row.credentials);
+  const credentials = {
+    ...decryptChannelCredentials(row.credentials),
+    storeUrl: row.storeUrl ?? ""
+  };
+
+  const { credentials: _credentials, channelType: _channelType, storeUrl: _storeUrl, ...safeRow } = row;
 
   return {
-    ...row,
-    productUrl: definition?.getProductUrl?.(row.externalId, credentials, row.rawData) ?? null
+    ...safeRow,
+    productUrl: sanitizeUrl(definition?.getProductUrl?.(row.externalId, credentials, row.rawData))
   };
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { auth } from "@/lib/auth";
+import { getSession } from "@/lib/auth/edge";
 
 const PUBLIC_ROUTES = ["/login"];
 
@@ -13,9 +13,12 @@ export async function proxy(request: NextRequest) {
 
     // Optimized: Check session directly from the Auth API
     // This avoids internal HTTP fetch overhead (~2s delay) and recursion loops.
-    const sessionResponse = await auth.api.getSession({
-        headers: request.headers,
-    });
+    let sessionResponse = null;
+    try {
+        sessionResponse = await getSession(request.headers, request.nextUrl.origin);
+    } catch (e) {
+        console.error("Auth session fetch error", e);
+    }
     const session = sessionResponse?.session;
     const user = sessionResponse?.user;
     const isAuthenticated = !!(session && user);

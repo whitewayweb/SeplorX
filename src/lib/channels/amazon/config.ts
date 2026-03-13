@@ -111,18 +111,27 @@ export function validateConfig(config: Partial<Record<string, string>>): string 
 
   // Basic Presence
   if (!storeUrl) return "SP-API Endpoint Region is required";
+  if (!storeUrl.startsWith("https://")) return "SP-API Endpoint must be https";
   if (!marketplaceId) return "Marketplace is required";
   if (!clientId) return "LWA Client ID is required";
   if (!clientSecret) return "LWA Client Secret is required";
   if (!refreshToken) return "LWA Refresh Token is required";
 
-  // Cross-Field validation: Ensure endpoint matches marketplace region
   const marketplace = MARKETPLACE_MAP[marketplaceId];
-  if (marketplace) {
-    const expectedEndpoint = SP_API_ENDPOINTS[marketplace.region];
-    if (storeUrl !== expectedEndpoint) {
-      return `Incorrect endpoint for ${marketplace.label}. Please select the ${marketplace.region.toUpperCase()} endpoint region.`;
-    }
+  if (!marketplace) {
+    return "Unknown or invalid Marketplace ID";
+  }
+
+  // Check if storeUrl is one of the valid SP-API endpoints
+  const validEndpoints = Object.values(SP_API_ENDPOINTS);
+  if (!validEndpoints.includes(storeUrl)) {
+    return "Invalid SP-API Endpoint URL";
+  }
+
+  // Cross-Field validation: Ensure endpoint matches marketplace region
+  const expectedEndpoint = SP_API_ENDPOINTS[marketplace.region];
+  if (storeUrl !== expectedEndpoint) {
+    return `Incorrect endpoint for ${marketplace.label}. Please select the ${marketplace.region.toUpperCase()} endpoint region.`;
   }
 
   return null;
