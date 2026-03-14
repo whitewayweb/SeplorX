@@ -51,6 +51,28 @@ export async function getChannel(id: number) {
   return channel;
 }
 
+/**
+ * Fetch a channel scoped to the authenticated user.
+ * Use this on any sensitive page to prevent IDOR — returns `undefined` if the
+ * channel does not exist or belongs to a different user.
+ */
+export async function getChannelForUser(userId: number, channelId: number) {
+  const [channel] = await db
+    .select({
+      id: channels.id,
+      name: channels.name,
+      channelType: channels.channelType,
+      status: channels.status,
+      credentials: channels.credentials,
+      storeUrl: channels.storeUrl,
+    })
+    .from(channels)
+    .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
+    .limit(1);
+
+  return channel;
+}
+
 // A robust JSONB expression that extracts the brand name from a channel product.
 // 1. Tries Amazon nested summaries ('summaries[0].brand' from catalog-item API)
 // 2. Tries WooCommerce attributes array (where attribute name is 'brand')

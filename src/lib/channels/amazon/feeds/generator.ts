@@ -79,7 +79,10 @@ export async function generateCategoryTemplate(
   for (let col = 1; col <= 200; col++) {
     const cellValue = headerRow.cell(col).value();
     if (cellValue && typeof cellValue === "string") {
-      columnIndex.set(cellValue.trim().toLowerCase(), col);
+      // Normalise: trim, collapse inner whitespace, lowercase — handles minor
+      // header variations across marketplace/template versions.
+      const normalised = cellValue.trim().replace(/\s+/g, " ").toLowerCase();
+      columnIndex.set(normalised, col);
     }
   }
 

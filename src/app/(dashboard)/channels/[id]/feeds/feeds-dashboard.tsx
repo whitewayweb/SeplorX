@@ -135,7 +135,7 @@ export function FeedsDashboard({ channelId, statusMap, feeds }: FeedsDashboardPr
     if (!window.confirm("Are you sure you want to remove this feed record?")) return;
     setDeletingId(feedRowId);
     try {
-      const result = await deleteFeedRecord(feedRowId);
+      const result = await deleteFeedRecord(feedRowId, channelId);
       if ("error" in result) {
         toast.error("Failed to delete record", { description: result.error });
       } else {
@@ -147,7 +147,7 @@ export function FeedsDashboard({ channelId, statusMap, feeds }: FeedsDashboardPr
     } finally {
       setDeletingId(null);
     }
-  }, [router]);
+  }, [channelId, router]);
 
   return (
     <>

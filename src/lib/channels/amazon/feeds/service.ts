@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { channelProductMappings, channelFeeds, channels, products, channelProducts } from "@/db/schema";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import { AmazonAPIClient } from "../api/client";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
 import { generateCategoryTemplate, type TemplateProductRow } from "./generator";
@@ -59,7 +59,7 @@ export async function submitPendingUpdates(
   const decryptedCreds = decryptChannelCredentials(channel.credentials);
   if (Object.keys(decryptedCreds).length === 0) throw new Error("Channel credentials missing.");
 
-  // ── Fetch all pending_update mappings with product data ─────────────────
+  // ── Fetch all pending_update mappings with product data ─────────────────────────
   const pendingMappings = await db
     .select({
       mappingId: channelProductMappings.id,
@@ -73,8 +73,10 @@ export async function submitPendingUpdates(
       quantityOnHand: products.quantityOnHand,
       channelName: channelProducts.name,
       channelSku: channelProducts.sku,
-      channelStock: channelProducts.stockQuantity,
-      channelRawData: channelProducts.rawData,
+      // Only extract the specific subfields we actually use from rawData
+      // to avoid transferring the entire (potentially large) JSONB blob.
+      channelAmazonProductType: sql<string | null>`${channelProducts.rawData}->>'amazonProductType'`,
+      channelPrice: sql<string | null>`${channelProducts.rawData}->>'price'`,
     })
     .from(channelProductMappings)
     .innerJoin(products, eq(channelProductMappings.productId, products.id))
@@ -101,9 +103,7 @@ export async function submitPendingUpdates(
   const byTemplate = new Map<string, TemplateGroup>();
 
   for (const mapping of pendingMappings) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const channelRaw = (mapping.channelRawData as any) || {};
-    const amazonProductType: string | undefined = channelRaw.amazonProductType;
+    const amazonProductType: string | undefined = mapping.channelAmazonProductType ?? undefined;
 
     if (!amazonProductType) {
       throw new Error(
@@ -140,15 +140,21 @@ export async function submitPendingUpdates(
     const category = entry.label;
 
     try {
-      // Build product rows for the template generator
+      // Build product rows for the template generator.
+      // IMPORTANT: Prefer live product values (from the `products` table) so that
+      // a pending_update triggered by editing a product actually uploads the change.
+      // Channel-level overrides (name, sku, cached price) apply only when the
+      // live product field is absent — not the other way around.
       const templateProducts: TemplateProductRow[] = mappings.map((m) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const rawData = (m.channelRawData as any) || {};
         return {
           sku: m.channelSku || m.productSku || m.externalProductId,
-          name: m.channelName || m.productName,
-          price: (rawData.price !== undefined ? rawData.price : m.sellingPrice)?.toString(),
-          quantity: m.channelStock !== null && m.channelStock !== undefined ? m.channelStock : m.quantityOnHand,
+          name: m.productName || m.channelName,
+          // Use the live sellingPrice from products table first; fall back to
+          // any cached channel price stored in rawData.
+          price: (m.sellingPrice !== null && m.sellingPrice !== undefined
+            ? m.sellingPrice
+            : m.channelPrice)?.toString(),
+          quantity: m.quantityOnHand,
           category: entry.label,
         };
       });
@@ -198,7 +204,7 @@ export async function submitPendingUpdates(
       });
     } catch (err) {
       const errorMsg = String(err).replace(/^Error:\s*/, "").substring(0, 500);
-      console.error(`[Amazon Feeds] Failed to submit feed for category "${category}"`, err);
+      console.error("[Amazon Feeds] Failed to submit feed", { action: "submitFeed", category, error: String(err) });
 
       // Mark these mappings as failed
       await db
@@ -223,21 +229,31 @@ export async function submitPendingUpdates(
 
 /**
  * Check the status of an Amazon feed and update the channel_feeds row.
- * Call this periodically or on-demand from the Uploads dashboard.
+ * Scoped to `userId` to prevent IDOR — the query joins through `channels`
+ * and filters by  `channels.userId = userId`.
  */
-export async function pollFeedStatus(feedRowId: number): Promise<{
+export async function pollFeedStatus(userId: number, feedRowId: number): Promise<{
   status: string;
   resultDocumentUrl?: string;
 }> {
+  // Join through channels to scope by ownership
   const feedRows = await db
     .select({
       id: channelFeeds.id,
       feedId: channelFeeds.feedId,
       channelId: channelFeeds.channelId,
       status: channelFeeds.status,
+      storeUrl: channels.storeUrl,
+      credentials: channels.credentials,
     })
     .from(channelFeeds)
-    .where(eq(channelFeeds.id, feedRowId))
+    .innerJoin(channels, eq(channelFeeds.channelId, channels.id))
+    .where(
+      and(
+        eq(channelFeeds.id, feedRowId),
+        eq(channels.userId, userId),
+      ),
+    )
     .limit(1);
 
   if (feedRows.length === 0) throw new Error("Feed record not found.");
@@ -248,21 +264,8 @@ export async function pollFeedStatus(feedRowId: number): Promise<{
     return { status: feedRow.status };
   }
 
-  // Get channel credentials
-  const channelRows = await db
-    .select({
-      storeUrl: channels.storeUrl,
-      credentials: channels.credentials,
-    })
-    .from(channels)
-    .where(eq(channels.id, feedRow.channelId))
-    .limit(1);
-
-  if (channelRows.length === 0) throw new Error("Channel not found.");
-
-  const channel = channelRows[0];
-  const decryptedCreds = decryptChannelCredentials(channel.credentials);
-  const client = new AmazonAPIClient(decryptedCreds, channel.storeUrl || "");
+  const decryptedCreds = decryptChannelCredentials(feedRow.credentials);
+  const client = new AmazonAPIClient(decryptedCreds, feedRow.storeUrl || "");
 
   const feedStatus = await client.getFeed(feedRow.feedId);
 
@@ -341,9 +344,26 @@ export async function pollFeedStatus(feedRowId: number): Promise<{
 }
 
 /**
- * Delete a feed record from the database.
- * This is useful for clearing out failed or stuck feeds.
+ * Delete a feed record from the database, scoped to the owning user to
+ * prevent IDOR. The query verifies the feed belongs to a channel owned by
+ * `userId` before deleting.
  */
-export async function deleteAmazonFeedRecord(feedRowId: number): Promise<void> {
+export async function deleteAmazonFeedRecordForUser(userId: number, feedRowId: number): Promise<void> {
+  // Verify ownership via join before deleting
+  const [feedRow] = await db
+    .select({ id: channelFeeds.id })
+    .from(channelFeeds)
+    .innerJoin(channels, eq(channelFeeds.channelId, channels.id))
+    .where(
+      and(
+        eq(channelFeeds.id, feedRowId),
+        eq(channels.userId, userId),
+      ),
+    )
+    .limit(1);
+
+  if (!feedRow) throw new Error("Feed record not found.");
+
   await db.delete(channelFeeds).where(eq(channelFeeds.id, feedRowId));
 }
+

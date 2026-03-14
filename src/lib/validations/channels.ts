@@ -45,3 +45,10 @@ export const OfferInventoryTabSchema = z.object({
   itemCondition: z.string().trim().max(100, "Condition too long").optional(),
 });
 
+// ── Channel product identifiers — extracted from untrusted FormData ───────────
+// These control which DB rows are mutated and must be validated at the action boundary.
+export const ChannelProductIdentifiersSchema = z.object({
+  id:         z.coerce.number().int().positive("Invalid product ID"),
+  channelId:  z.coerce.number().int().positive("Invalid channel ID"),
+  externalId: z.string().trim().min(1, "External ID is required").max(255),
+});

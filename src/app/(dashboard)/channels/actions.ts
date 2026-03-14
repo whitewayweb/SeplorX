@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { channels } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { CreateChannelSchema, ChannelIdSchema, UpdateChannelSchema, ProductDetailsTabSchema, OfferInventoryTabSchema } from "@/lib/validations/channels";
+import { CreateChannelSchema, ChannelIdSchema, UpdateChannelSchema, ProductDetailsTabSchema, OfferInventoryTabSchema, ChannelProductIdentifiersSchema } from "@/lib/validations/channels";
 import { getChannelById } from "@/lib/channels/registry";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
 import type { ChannelType } from "@/lib/channels/types";
@@ -251,14 +251,18 @@ export async function getChannelProduct(productId: number) {
 }
 
 export async function updateChannelProductDetails(_prevState: unknown, formData: FormData) {
-  const id         = parseInt(String(formData.get("id")), 10);
-  const channelId  = parseInt(String(formData.get("channelId")), 10);
-  const externalId = formData.get("externalId") as string;
+  // Validate untrusted identifiers that control which DB rows are mutated
+  const identifiersParsed = ChannelProductIdentifiersSchema.safeParse({
+    id:         formData.get("id"),
+    channelId:  formData.get("channelId"),
+    externalId: formData.get("externalId"),
+  });
 
-  if (isNaN(id) || isNaN(channelId) || !externalId) {
-    return { error: "Missing required product identifiers." };
+  if (!identifiersParsed.success) {
+    return { error: "Missing or invalid product identifiers.", fieldErrors: identifiersParsed.error.flatten().fieldErrors };
   }
 
+  const { id, channelId, externalId } = identifiersParsed.data;
   // Detect active tab — formData.has() is false for inputs not in the DOM.
   const isDetailsTab = formData.has("name");
   const isOfferTab   = formData.has("stockQuantity") || formData.has("price") || formData.has("sku") || formData.has("itemCondition");

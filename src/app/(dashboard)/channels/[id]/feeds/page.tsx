@@ -2,7 +2,8 @@ import { notFound } from "next/navigation";
 import { db } from "@/db";
 import { channelProductMappings, channelFeeds } from "@/db/schema";
 import { eq, desc, sql } from "drizzle-orm";
-import { getChannel } from "@/lib/channels/queries";
+import { getChannelForUser } from "@/lib/channels/queries";
+import { getAuthenticatedUserId } from "@/lib/auth";
 import { FeedsDashboard } from "./feeds-dashboard";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,15 @@ export default async function ChannelFeedsPage({
   const channelId = parseInt(resolvedParams.id, 10);
   if (isNaN(channelId)) notFound();
 
-  const channel = await getChannel(channelId);
+  // Scope by ownership to prevent IDOR — returns undefined for missing or unauthorized channels
+  let userId: number;
+  try {
+    userId = await getAuthenticatedUserId();
+  } catch {
+    notFound();
+  }
+
+  const channel = await getChannelForUser(userId!, channelId);
   if (!channel) notFound();
   if (channel.channelType !== "amazon") notFound();
 

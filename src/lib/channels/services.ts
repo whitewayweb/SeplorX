@@ -391,11 +391,18 @@ export async function updateChannelProductService(
     throw new Error("Product must be mapped to a SeplorX inventory item before it can be updated.");
   }
 
-  // Read existing rawData for safe merge
+  // Read existing rawData — validated by checking all three identifiers
+  // to prevent an attacker from updating an arbitrary channelProducts row.
   const [existing] = await db
     .select({ rawData: channelProducts.rawData })
     .from(channelProducts)
-    .where(eq(channelProducts.id, productId))
+    .where(
+      and(
+        eq(channelProducts.id, productId),
+        eq(channelProducts.channelId, channelId),
+        eq(channelProducts.externalId, externalId),
+      ),
+    )
     .limit(1);
 
   if (!existing) throw new Error("Channel product not found.");
@@ -427,12 +434,24 @@ export async function updateChannelProductService(
     }
   }
 
-  // Persist local custom overrides (like Amazon optimized name, custom price)
-  await updateChannelProductInDb(productId, dbPatch);
+  // Persist local custom overrides and stage for provider sync atomically
+  await db.transaction(async (tx) => {
+    if (Object.keys(dbPatch).length > 0) {
+      await tx
+        .update(channelProducts)
+        .set(dbPatch)
+        .where(
+          and(
+            eq(channelProducts.id, productId),
+            eq(channelProducts.channelId, channelId),
+            eq(channelProducts.externalId, externalId),
+          ),
+        );
+    }
 
-  // Stage for provider sync
-  await db
-    .update(channelProductMappings)
-    .set({ syncStatus: "pending_update", lastSyncError: null })
-    .where(eq(channelProductMappings.id, mapping.id));
+    await tx
+      .update(channelProductMappings)
+      .set({ syncStatus: "pending_update", lastSyncError: null })
+      .where(eq(channelProductMappings.id, mapping.id));
+  });
 }

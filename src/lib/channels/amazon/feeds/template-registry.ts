@@ -59,7 +59,10 @@ function productTypeToLabel(productType: string): string {
     .join(" ");
 }
 
-function getRegistry(): Map<string, CategoryTemplateEntry> {
+// ── Module-level cache (populated once per process) ───────────────────────────
+let cachedRegistry: Map<string, CategoryTemplateEntry> | null = null;
+
+function buildRegistry(): Map<string, CategoryTemplateEntry> {
   const registry = new Map<string, CategoryTemplateEntry>();
 
   if (!fs.existsSync(TEMPLATES_DIR)) {
@@ -81,8 +84,18 @@ function getRegistry(): Map<string, CategoryTemplateEntry> {
     });
   }
 
-  console.log("[Registry] Loaded entries:", Array.from(registry.keys()));
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[Registry] Loaded entries:", Array.from(registry.keys()));
+  }
+
   return registry;
+}
+
+function getRegistry(): Map<string, CategoryTemplateEntry> {
+  if (!cachedRegistry) {
+    cachedRegistry = buildRegistry();
+  }
+  return cachedRegistry;
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -94,7 +107,6 @@ function getRegistry(): Map<string, CategoryTemplateEntry> {
 export function getTemplateForProductType(amazonProductType: string): CategoryTemplateEntry | null {
   return getRegistry().get(amazonProductType.trim().toUpperCase()) ?? null;
 }
-
 
 /** Get the absolute file path for a template entry. */
 export function getTemplatePath(entry: CategoryTemplateEntry): string {

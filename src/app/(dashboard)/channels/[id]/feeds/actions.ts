@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { submitPendingUpdates, pollFeedStatus } from "@/lib/channels/amazon/feeds";
+import { submitPendingUpdates, pollFeedStatus, deleteAmazonFeedRecordForUser } from "@/lib/channels/amazon/feeds";
 import { getAuthenticatedUserId } from "@/lib/auth";
 
 /**
@@ -39,8 +39,9 @@ export async function checkFeedStatus(feedRowId: number) {
   if (!parsed.success) return { error: "Invalid feed ID." };
 
   try {
-    await getAuthenticatedUserId(); // Auth guard
-    const result = await pollFeedStatus(parsed.data);
+    const userId = await getAuthenticatedUserId();
+    // Pass userId so pollFeedStatus can scope the query by ownership (IDOR prevention)
+    const result = await pollFeedStatus(userId, parsed.data);
 
     return { success: true, ...result };
   } catch (err) {
@@ -51,25 +52,23 @@ export async function checkFeedStatus(feedRowId: number) {
 
 /**
  * Delete a failed/stuck Amazon feed submission record.
+ * Requires the authenticated user to own the feed's channel (IDOR prevention).
+ * Also triggers server-side revalidation so the feeds list stays fresh.
  */
-export async function deleteFeedRecord(feedRowId: number) {
-  const parsed = z.number().int().positive().safeParse(feedRowId);
-  if (!parsed.success) return { error: "Invalid feed ID." };
+export async function deleteFeedRecord(feedRowId: number, channelId: number) {
+  const parsedFeed    = z.number().int().positive().safeParse(feedRowId);
+  const parsedChannel = z.number().int().positive().safeParse(channelId);
+  if (!parsedFeed.success || !parsedChannel.success) return { error: "Invalid feed or channel ID." };
 
   try {
-    await getAuthenticatedUserId(); // Auth guard
+    const userId = await getAuthenticatedUserId();
+    await deleteAmazonFeedRecordForUser(userId, parsedFeed.data);
 
-    // dynamic import since the file exports db functions
-    const { deleteAmazonFeedRecord } = await import("@/lib/channels/amazon/feeds/service");
-    await deleteAmazonFeedRecord(parsed.data);
-
-    // Note: Revalidation should happen in the client component manually
-    // via router.refresh() because this isn't tied to a specific URL path param naturally here 
-    // unless we pass channelId. But router.refresh() works well.
+    revalidatePath(`/channels/${parsedChannel.data}/feeds`);
+    revalidatePath(`/products/channels/${parsedChannel.data}`);
     return { success: true };
   } catch (err) {
     console.error("[deleteFeedRecord]", { feedRowId, error: String(err) });
     return { error: String(err).replace(/^Error:\s*/, "").substring(0, 300) };
   }
 }
-
