@@ -29,3 +29,19 @@ export const UpdateChannelSchema = z.object({
   name: z.string().trim().min(1, "Channel name is required").max(255),
   defaultPickupLocation: z.string().trim().optional().or(z.literal("")),
 });
+
+// ── Channel product update (product-detail-tabs form) ─────────────────────────
+// The form is tabbed; only fields from the active tab are submitted.
+// We validate each tab independently using .partial() so absent fields are OK.
+
+export const ProductDetailsTabSchema = z.object({
+  name: z.string().trim().min(1, "Product name is required").max(500, "Name too long"),
+});
+
+export const OfferInventoryTabSchema = z.object({
+  sku:           z.string().trim().max(100, "SKU too long").optional(),
+  price:         z.string().trim().regex(/^\d+(\.\d{1,2})?$/, "Must be a valid price (e.g. 99.99)").optional().or(z.literal("")),
+  stockQuantity: z.coerce.number().int("Must be a whole number").min(0, "Stock cannot be negative").optional(),
+  itemCondition: z.string().trim().max(100, "Condition too long").optional(),
+});
+

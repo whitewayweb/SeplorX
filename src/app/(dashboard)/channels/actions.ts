@@ -4,10 +4,11 @@ import { db } from "@/db";
 import { channels } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { CreateChannelSchema, ChannelIdSchema, UpdateChannelSchema } from "@/lib/validations/channels";
+import { CreateChannelSchema, ChannelIdSchema, UpdateChannelSchema, ProductDetailsTabSchema, OfferInventoryTabSchema } from "@/lib/validations/channels";
 import { getChannelById } from "@/lib/channels/registry";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
 import type { ChannelType } from "@/lib/channels/types";
+import type { ChannelProductUpdatePatch } from "@/lib/channels/services";
 import { z } from "zod";
 import {
   createChannelService,
@@ -250,41 +251,52 @@ export async function getChannelProduct(productId: number) {
 }
 
 export async function updateChannelProductDetails(_prevState: unknown, formData: FormData) {
-  const id        = parseInt(String(formData.get("id")), 10);
-  const channelId = parseInt(String(formData.get("channelId")), 10);
+  const id         = parseInt(String(formData.get("id")), 10);
+  const channelId  = parseInt(String(formData.get("channelId")), 10);
   const externalId = formData.get("externalId") as string;
 
   if (isNaN(id) || isNaN(channelId) || !externalId) {
     return { error: "Missing required product identifiers." };
   }
 
-  // ── Build a typed patch from only the fields that were rendered/submitted ──
-  // formData.has() returns false for inputs that were NOT in the active tab's DOM.
-  // This prevents fields from other tabs from clobbering existing DB values.
-  const patch: Parameters<typeof updateChannelProductService>[4] = {};
+  // Detect active tab — formData.has() is false for inputs not in the DOM.
+  const isDetailsTab = formData.has("name");
+  const isOfferTab   = formData.has("stockQuantity") || formData.has("price") || formData.has("sku");
 
-  if (formData.has("name")) {
-    patch.name = (formData.get("name") as string).trim();
+  const patch: ChannelProductUpdatePatch = {};
+
+  // Validate + extract "Product Details" tab fields
+  if (isDetailsTab) {
+    const parsed = ProductDetailsTabSchema.safeParse({ name: formData.get("name") });
+    if (!parsed.success) {
+      return { error: "Validation failed.", fieldErrors: parsed.error.flatten().fieldErrors };
+    }
+    patch.name = parsed.data.name;
   }
-  if (formData.has("sku")) {
-    patch.sku = (formData.get("sku") as string).trim();
-  }
-  if (formData.has("stockQuantity")) {
-    const qty = parseInt(String(formData.get("stockQuantity")), 10);
-    patch.stockQuantity = isNaN(qty) ? null : qty;
-  }
-  if (formData.has("price")) {
-    patch.price = (formData.get("price") as string).trim();
-  }
-  if (formData.has("itemCondition")) {
-    patch.itemCondition = (formData.get("itemCondition") as string).trim();
+
+  // Validate + extract "Offer & Inventory" tab fields
+  if (isOfferTab) {
+    const raw = {
+      sku:           formData.get("sku")           ?? undefined,
+      price:         formData.get("price")         ?? undefined,
+      stockQuantity: formData.get("stockQuantity") ?? undefined,
+      itemCondition: formData.get("itemCondition") ?? undefined,
+    };
+    const parsed = OfferInventoryTabSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { error: "Validation failed.", fieldErrors: parsed.error.flatten().fieldErrors };
+    }
+    if (parsed.data.sku !== undefined)           patch.sku           = parsed.data.sku;
+    if (parsed.data.stockQuantity !== undefined) patch.stockQuantity = parsed.data.stockQuantity;
+    if (parsed.data.price !== undefined)         patch.price         = parsed.data.price;
+    if (parsed.data.itemCondition !== undefined) patch.itemCondition = parsed.data.itemCondition;
   }
 
   try {
     const userId = await getAuthenticatedUserId();
     await updateChannelProductService(userId, channelId, id, externalId, patch);
     revalidatePath(`/products/channels/${channelId}`);
-    return { success: true };
+    return { success: true, productId: id };
   } catch (err) {
     console.error("[updateChannelProductDetails]", { id, error: String(err) });
     return { error: "Failed to update channel product details." };

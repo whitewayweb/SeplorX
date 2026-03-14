@@ -3,7 +3,6 @@
 // Node built-ins. It is listed in next.config.ts → serverExternalPackages so
 // Next.js/Turbopack never tries to bundle it. The dynamic import() below is
 // resolved at runtime on the server only.
-// resolved at runtime on the server only.
 
 import type { ChannelHandler } from "../types";
 import { AmazonAPIClient } from "./api/client";

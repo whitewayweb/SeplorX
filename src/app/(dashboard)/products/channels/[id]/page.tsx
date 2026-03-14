@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Button } from "@/components/ui/button";
 import { TableSearch } from "@/components/ui/table-search";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { getChannel, getChannelProductsWithVariations, getBrandsForChannel } from "@/lib/channels/queries";
@@ -58,6 +60,11 @@ export default async function ChannelProductsPage({
         <div className="flex items-center gap-3">
           <BrandFilter brands={brands} />
           <TableSearch placeholder="Search by name, SKU..." />
+          {channel.channelType === "amazon" && (
+            <Button asChild variant="outline">
+              <Link href={`/channels/${channelId}/feeds`}>Feeds Dashboard</Link>
+            </Button>
+          )}
           {count > 0 && <ClearProductsButton channelId={channelId} />}
         </div>
       </div>

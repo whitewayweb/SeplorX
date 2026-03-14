@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { channels, channelProducts } from "@/db/schema";
+import { channels, channelProducts, channelProductMappings } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { encrypt } from "@/lib/crypto";
 import { getChannelById } from "@/lib/channels/registry";
@@ -345,23 +345,14 @@ export async function getCatalogItemService(userId: number, channelId: number, a
   return product;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// updateChannelProductService
-// ─────────────────────────────────────────────────────────────────────────────
-// Handles the edit-product-drawer save flow in a channel-agnostic way:
-//   1. Verifies channel ownership (auth guard)
-//   2. Reads the existing rawData from the DB (needed for safe merge)
-//   3. Delegates rawData patching to the channel's own mergeProductUpdate() hook
-//      (keeps channel-specific rawData key names out of the shared service layer)
-//   4. Writes only the submitted fields to channel_products via the DAL
-//   5. Marks any matching channel_product_mappings row as pending_update so
-//      the feeds generator picks it up on next provider sync
-// ─────────────────────────────────────────────────────────────────────────────
-
+/**
+ * Handles the edit-product-drawer save in a channel-agnostic way.
+ * Verifies ownership, reads existing rawData, delegates channel-specific
+ * rawData patching to the handler's mergeProductUpdate(), writes the DB,
+ * and stages the mapping for provider sync.
+ */
 export interface ChannelProductUpdatePatch {
-  /** Only present when the "Product Details" tab was active */
   name?: string;
-  /** Only present when the "Offer & Inventory" tab was active */
   sku?: string;
   stockQuantity?: number | null;
   price?: string;
@@ -375,28 +366,26 @@ export async function updateChannelProductService(
   externalId: string,
   patch: ChannelProductUpdatePatch,
 ): Promise<void> {
-  // ── 1. Verify channel ownership ──────────────────────────────────────────
-  const channelRows = await db
+  // Verify channel ownership
+  const [channel] = await db
     .select({ id: channels.id, channelType: channels.channelType })
     .from(channels)
     .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
     .limit(1);
 
-  if (channelRows.length === 0) throw new Error("Channel not found or unauthorized.");
-  const channelType = channelRows[0].channelType;
+  if (!channel) throw new Error("Channel not found or unauthorized.");
 
-  // ── 2. Read existing rawData (needed so merge doesn't lose existing fields) ─
-  const { channelProducts: cpTable, channelProductMappings } = await import("@/db/schema");
-  const existing = await db
-    .select({ rawData: cpTable.rawData })
-    .from(cpTable)
-    .where(eq(cpTable.id, productId))
+  // Read existing rawData for safe merge
+  const [existing] = await db
+    .select({ rawData: channelProducts.rawData })
+    .from(channelProducts)
+    .where(eq(channelProducts.id, productId))
     .limit(1);
 
-  if (existing.length === 0) throw new Error("Channel product not found.");
-  const existingRawData = (existing[0].rawData as Record<string, unknown>) ?? {};
+  if (!existing) throw new Error("Channel product not found.");
+  const existingRawData = (existing.rawData as Record<string, unknown>) ?? {};
 
-  // ── 3. Build the update payload ──────────────────────────────────────────
+  // Build DB patch from submitted fields
   const dbPatch: Parameters<typeof updateChannelProductInDb>[1] = {};
 
   if (patch.name !== undefined && patch.name.trim()) {
@@ -409,11 +398,8 @@ export async function updateChannelProductService(
     dbPatch.stockQuantity = patch.stockQuantity;
   }
 
-  // ── 4. Delegate rawData merge to the channel handler ─────────────────────
-  // The handler knows its own rawData key conventions (e.g. Amazon uses
-  // "item-condition", WooCommerce might use "sale_price"). If the handler
-  // doesn't implement mergeProductUpdate, rawData is left unchanged.
-  const handler = getChannelHandler(channelType);
+  // Delegate rawData merge to the channel handler
+  const handler = getChannelHandler(channel.channelType);
   if (handler?.mergeProductUpdate) {
     const rawPatch: Record<string, string | undefined> = {};
     if (patch.price !== undefined) rawPatch.price = patch.price;
@@ -425,11 +411,10 @@ export async function updateChannelProductService(
     }
   }
 
-  // ── 5. Persist — only touches fields that are in dbPatch ─────────────────
+  // Persist
   await updateChannelProductInDb(productId, dbPatch);
 
-  // ── 6. Stage for provider sync ───────────────────────────────────────────
-  // Mark the mapping as pending_update so the feeds generator picks it up.
+  // Stage for provider sync
   await db
     .update(channelProductMappings)
     .set({ syncStatus: "pending_update", lastSyncError: null })
