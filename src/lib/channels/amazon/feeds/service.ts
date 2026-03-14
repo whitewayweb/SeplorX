@@ -209,7 +209,7 @@ export async function submitPendingUpdates(
       // Record the failed feed
       await db.insert(channelFeeds).values({
         channelId,
-        feedType: "POST_FLAT_FILE_INVLOADER_DATA",
+        feedType: "POST_FLAT_FILE_LISTINGS_DATA",
         category,
         status: "fatal",
         productCount: mappings.length,

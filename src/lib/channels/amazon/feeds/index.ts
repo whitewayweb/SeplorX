@@ -3,6 +3,5 @@ export { submitPendingUpdates, pollFeedStatus, deleteAmazonFeedRecord } from "./
 export { generateCategoryTemplate, type TemplateProductRow } from "./generator";
 export {
   getTemplateForProductType,
-  getAllTemplates,
   type CategoryTemplateEntry,
 } from "./template-registry";

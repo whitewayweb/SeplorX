@@ -189,6 +189,7 @@ export function ChannelSyncCard({
                       width={16}
                       height={16}
                       className="shrink-0 rounded-sm"
+                      unoptimized
                     />
                   ) : (
                     <Plug className="h-3.5 w-3.5 text-muted-foreground" />

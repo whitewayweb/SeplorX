@@ -26,7 +26,7 @@ import * as path from "node:path";
 // TEMPLATE SHEET CONVENTIONS (Amazon standard, applies to all templates)
 //   - Sheet name:   "Template"
 //   - Data start:   row 4  (rows 1–3 are metadata/headers)
-//   - Feed type:    POST_FLAT_FILE_INVLOADER_DATA
+//   - Feed type:    POST_FLAT_FILE_LISTINGS_DATA
 // ────────────────────────────────────────────────────────────────────────────
 
 export interface CategoryTemplateEntry {
@@ -75,7 +75,7 @@ function getRegistry(): Map<string, CategoryTemplateEntry> {
       label: productTypeToLabel(productType),
       amazonProductType: productType,
       templateFile: path.join(TEMPLATES_DIR, file),
-      feedType: "POST_FLAT_FILE_INVLOADER_DATA",
+      feedType: "POST_FLAT_FILE_LISTINGS_DATA",
       sheetName: "Template",
       dataStartRow: 4,
     });
@@ -95,10 +95,6 @@ export function getTemplateForProductType(amazonProductType: string): CategoryTe
   return getRegistry().get(amazonProductType.trim().toUpperCase()) ?? null;
 }
 
-/** All currently registered templates (for UI/debug use). */
-export function getAllTemplates(): CategoryTemplateEntry[] {
-  return Array.from(getRegistry().values());
-}
 
 /** Get the absolute file path for a template entry. */
 export function getTemplatePath(entry: CategoryTemplateEntry): string {

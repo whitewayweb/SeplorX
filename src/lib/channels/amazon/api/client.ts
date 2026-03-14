@@ -7,6 +7,7 @@ import { type CatalogItemsSchema } from "./types/catalogItemsSchema";
 import { type ProductTypesSchema } from "./types/productTypesSchema";
 import { type ListingsItemsSchema } from "./types/listingsItemsSchema";
 import { type FbaInventorySchema } from "./types/fbaInventorySchema";
+import { type FeedsSchema } from "./types/feedsSchema";
 
 const gunzipAsync = promisify(zlib.gunzip);
 
@@ -244,7 +245,7 @@ export class AmazonAPIClient {
     return res.json();
   }
 
-  public async createFeedDocument(contentType: string): Promise<{ feedDocumentId: string; url: string }> {
+  public async createFeedDocument(contentType: string): Promise<FeedsSchema["CreateFeedDocumentResponse"]> {
     const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}/feeds/2021-06-30/documents`);
 
@@ -284,7 +285,7 @@ export class AmazonAPIClient {
     }
   }
 
-  public async createFeed(feedType: string, inputFeedDocumentId: string): Promise<{ feedId: string }> {
+  public async createFeed(feedType: string, inputFeedDocumentId: string): Promise<FeedsSchema["CreateFeedResponse"]> {
     const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}/feeds/2021-06-30/feeds`);
 
@@ -305,17 +306,26 @@ export class AmazonAPIClient {
     if (!res.ok) {
       const errText = await res.text();
       console.error("[Amazon SP-API] createFeed Error:", errText);
+      let amazonError = "";
+      try {
+        const parsed = JSON.parse(errText);
+        if (parsed.errors && parsed.errors.length > 0) {
+          amazonError = parsed.errors[0].message;
+        }
+      } catch {
+        // ignore
+      }
+
+      if (amazonError) {
+        throw new Error(`Failed to create feed (${res.status}): ${amazonError}`);
+      }
       throw new Error(`Failed to create feed: ${res.status}`);
     }
 
     return res.json();
   }
 
-  public async getFeed(feedId: string): Promise<{
-    feedId: string;
-    processingStatus: string;
-    resultFeedDocumentId?: string;
-  }> {
+  public async getFeed(feedId: string): Promise<FeedsSchema["Feed"]> {
     const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}/feeds/2021-06-30/feeds/${encodeURIComponent(feedId)}`);
 
@@ -336,7 +346,7 @@ export class AmazonAPIClient {
     return res.json();
   }
 
-  public async getFeedDocument(feedDocumentId: string): Promise<{ url: string; compressionAlgorithm?: string }> {
+  public async getFeedDocument(feedDocumentId: string): Promise<FeedsSchema["FeedDocument"]> {
     const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}/feeds/2021-06-30/documents/${encodeURIComponent(feedDocumentId)}`);
 

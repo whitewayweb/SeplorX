@@ -97,6 +97,7 @@ function ChannelCard({
           width={40}
           height={40}
           className="shrink-0"
+          unoptimized
         />
       ) : (
         <div className="bg-muted flex h-10 w-10 items-center justify-center rounded-md">
@@ -329,6 +330,7 @@ export function AddChannelWizard() {
                       alt={selectedDefinition.name}
                       width={20}
                       height={20}
+                      unoptimized
                     />
                   ) : (
                     <Store className="h-4 w-4 text-muted-foreground" />
