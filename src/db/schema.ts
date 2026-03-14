@@ -376,6 +376,7 @@ export const channelFeeds = pgTable("channel_feeds", {
   uploadUrl: text("upload_url"),
   resultDocumentUrl: text("result_document_url"),
   errorMessage: text("error_message"),
+  mappingIds: jsonb("mapping_ids").$type<number[]>().default([]),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [

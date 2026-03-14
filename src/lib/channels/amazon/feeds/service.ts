@@ -193,6 +193,7 @@ export async function submitPendingUpdates(
         status: "in_progress",
         productCount: mappings.length,
         uploadUrl,
+        mappingIds: categoryMappingIds,
       });
 
       results.push({
@@ -220,6 +221,7 @@ export async function submitPendingUpdates(
         status: "fatal",
         productCount: mappings.length,
         errorMessage: errorMsg,
+        mappingIds: categoryMappingIds,
       });
     }
   }
@@ -243,6 +245,7 @@ export async function pollFeedStatus(userId: number, feedRowId: number): Promise
       feedId: channelFeeds.feedId,
       channelId: channelFeeds.channelId,
       status: channelFeeds.status,
+      mappingIds: channelFeeds.mappingIds,
       storeUrl: channels.storeUrl,
       credentials: channels.credentials,
     })
@@ -291,18 +294,30 @@ export async function pollFeedStatus(userId: number, feedRowId: number): Promise
       })
       .where(eq(channelFeeds.id, feedRowId));
 
-    // Mark all related mappings as in_sync
-    // (We'd need to track which mappings belong to which feed for precision,
-    //  but for now we clear all `processing` mappings for this channel)
-    await db
-      .update(channelProductMappings)
-      .set({ syncStatus: "in_sync", lastSyncError: null })
-      .where(
-        and(
-          eq(channelProductMappings.channelId, feedRow.channelId),
-          eq(channelProductMappings.syncStatus, "processing"),
-        ),
-      );
+    // Mark specific related mappings as in_sync
+    if (feedRow.mappingIds && feedRow.mappingIds.length > 0) {
+      await db
+        .update(channelProductMappings)
+        .set({ syncStatus: "in_sync", lastSyncError: null })
+        .where(
+          and(
+            eq(channelProductMappings.channelId, feedRow.channelId),
+            inArray(channelProductMappings.id, feedRow.mappingIds),
+            eq(channelProductMappings.syncStatus, "processing"),
+          ),
+        );
+    } else {
+      // Legacy fallback: clear all `processing` mappings for this channel
+      await db
+        .update(channelProductMappings)
+        .set({ syncStatus: "in_sync", lastSyncError: null })
+        .where(
+          and(
+            eq(channelProductMappings.channelId, feedRow.channelId),
+            eq(channelProductMappings.syncStatus, "processing"),
+          ),
+        );
+    }
 
     return { status: "done", resultDocumentUrl };
   }
@@ -317,19 +332,35 @@ export async function pollFeedStatus(userId: number, feedRowId: number): Promise
       })
       .where(eq(channelFeeds.id, feedRowId));
 
-    // Mark related mappings as failed
-    await db
-      .update(channelProductMappings)
-      .set({
-        syncStatus: "failed",
-        lastSyncError: `Feed ${feedStatus.processingStatus}`,
-      })
-      .where(
-        and(
-          eq(channelProductMappings.channelId, feedRow.channelId),
-          eq(channelProductMappings.syncStatus, "processing"),
-        ),
-      );
+    // Mark specific related mappings as failed
+    if (feedRow.mappingIds && feedRow.mappingIds.length > 0) {
+      await db
+        .update(channelProductMappings)
+        .set({
+          syncStatus: "failed",
+          lastSyncError: `Feed ${feedStatus.processingStatus}`,
+        })
+        .where(
+          and(
+            eq(channelProductMappings.channelId, feedRow.channelId),
+            inArray(channelProductMappings.id, feedRow.mappingIds),
+            eq(channelProductMappings.syncStatus, "processing"),
+          ),
+        );
+    } else {
+      await db
+        .update(channelProductMappings)
+        .set({
+          syncStatus: "failed",
+          lastSyncError: `Feed ${feedStatus.processingStatus}`,
+        })
+        .where(
+          and(
+            eq(channelProductMappings.channelId, feedRow.channelId),
+            eq(channelProductMappings.syncStatus, "processing"),
+          ),
+        );
+    }
 
     return { status: "fatal" };
   }

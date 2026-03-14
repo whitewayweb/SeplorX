@@ -1,0 +1,1 @@
+ALTER TABLE "channel_feeds" ADD COLUMN "mapping_ids" jsonb DEFAULT '[]'::jsonb;
