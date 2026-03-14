@@ -357,6 +357,7 @@ export interface ChannelProductUpdatePatch {
   stockQuantity?: number | null;
   price?: string;
   itemCondition?: string;
+  category?: string;
 }
 
 export async function updateChannelProductService(
@@ -420,6 +421,7 @@ export async function updateChannelProductService(
     const rawPatch: Record<string, string | undefined> = {};
     if (patch.price !== undefined) rawPatch.price = patch.price;
     if (patch.itemCondition !== undefined) rawPatch.itemCondition = patch.itemCondition;
+    if (patch.category !== undefined) rawPatch.category = patch.category;
 
     const rawDataMerge = handler.mergeProductUpdate(existingRawData, rawPatch);
     if (rawDataMerge && Object.keys(rawDataMerge).length > 0) {

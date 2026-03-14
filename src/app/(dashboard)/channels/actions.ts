@@ -267,11 +267,18 @@ export async function updateChannelProductDetails(_prevState: unknown, formData:
 
   // Validate + extract "Product Details" tab fields
   if (isDetailsTab) {
-    const parsed = ProductDetailsTabSchema.safeParse({ name: formData.get("name") });
+    const raw = {
+      name: formData.get("name"),
+      category: formData.get("category") ?? undefined,
+    };
+    const parsed = ProductDetailsTabSchema.safeParse(raw);
     if (!parsed.success) {
       return { error: "Validation failed.", fieldErrors: parsed.error.flatten().fieldErrors };
     }
     patch.name = parsed.data.name;
+    if (parsed.data.category !== undefined) {
+      patch.category = parsed.data.category;
+    }
   }
 
   // Validate + extract "Offer & Inventory" tab fields

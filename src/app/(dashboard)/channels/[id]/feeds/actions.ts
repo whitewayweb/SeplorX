@@ -48,3 +48,28 @@ export async function checkFeedStatus(feedRowId: number) {
     return { error: String(err).replace(/^Error:\s*/, "").substring(0, 300) };
   }
 }
+
+/**
+ * Delete a failed/stuck Amazon feed submission record.
+ */
+export async function deleteFeedRecord(feedRowId: number) {
+  const parsed = z.number().int().positive().safeParse(feedRowId);
+  if (!parsed.success) return { error: "Invalid feed ID." };
+
+  try {
+    await getAuthenticatedUserId(); // Auth guard
+
+    // dynamic import since the file exports db functions
+    const { deleteAmazonFeedRecord } = await import("@/lib/channels/amazon/feeds/service");
+    await deleteAmazonFeedRecord(parsed.data);
+
+    // Note: Revalidation should happen in the client component manually
+    // via router.refresh() because this isn't tied to a specific URL path param naturally here 
+    // unless we pass channelId. But router.refresh() works well.
+    return { success: true };
+  } catch (err) {
+    console.error("[deleteFeedRecord]", { feedRowId, error: String(err) });
+    return { error: String(err).replace(/^Error:\s*/, "").substring(0, 300) };
+  }
+}
+

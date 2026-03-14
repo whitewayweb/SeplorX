@@ -56,6 +56,7 @@ export const amazonHandler: ChannelHandler = {
     // under the flat-file key "item-condition". Map from the generic patch names.
     if (patch.price) updates["price"] = patch.price;
     if (patch.itemCondition) updates["item-condition"] = patch.itemCondition;
+    if (patch.category) updates["category"] = patch.category;
     return Object.keys(updates).length > 0 ? updates : null;
   },
 };

@@ -98,7 +98,14 @@ export async function submitPendingUpdates(
   // ── Group by category ───────────────────────────────────────────────────
   const byCategory = new Map<string, typeof pendingMappings>();
   for (const mapping of pendingMappings) {
-    const cat = (mapping.productCategory || "uncategorized").toLowerCase().trim();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const channelRaw = (mapping.channelRawData as any) || {};
+    const amazonCategory = channelRaw.category;
+
+    if (!amazonCategory) {
+      throw new Error(`Product mapping ${mapping.mappingId} is missing an Amazon category. Update it in the product drawer.`);
+    }
+    const cat = String(amazonCategory).toLowerCase().trim();
     const group = byCategory.get(cat) ?? [];
     group.push(mapping);
     byCategory.set(cat, group);
@@ -316,4 +323,12 @@ export async function pollFeedStatus(feedRowId: number): Promise<{
     .where(eq(channelFeeds.id, feedRowId));
 
   return { status: feedStatus.processingStatus };
+}
+
+/**
+ * Delete a feed record from the database.
+ * This is useful for clearing out failed or stuck feeds.
+ */
+export async function deleteAmazonFeedRecord(feedRowId: number): Promise<void> {
+  await db.delete(channelFeeds).where(eq(channelFeeds.id, feedRowId));
 }

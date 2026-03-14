@@ -12,6 +12,7 @@ import {
   FileSpreadsheet,
   AlertCircle,
   ExternalLink,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -24,7 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { submitAmazonFeedUpdates, checkFeedStatus } from "./actions";
+import { submitAmazonFeedUpdates, checkFeedStatus, deleteFeedRecord } from "./actions";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Types
@@ -81,6 +82,7 @@ export function FeedsDashboard({ channelId, statusMap, feeds }: FeedsDashboardPr
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pollingId, setPollingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const pendingCount = statusMap["pending_update"] ?? 0;
 
@@ -125,6 +127,25 @@ export function FeedsDashboard({ channelId, statusMap, feeds }: FeedsDashboardPr
       toast.error("Unexpected error", { description: String(err) });
     } finally {
       setPollingId(null);
+    }
+  }, [router]);
+
+  // ── Delete Feed Record ──────────────────────────────────────────────────
+  const handleDelete = useCallback(async (feedRowId: number) => {
+    if (!window.confirm("Are you sure you want to remove this feed record?")) return;
+    setDeletingId(feedRowId);
+    try {
+      const result = await deleteFeedRecord(feedRowId);
+      if ("error" in result) {
+        toast.error("Failed to delete record", { description: result.error });
+      } else {
+        toast.success("Record removed");
+        router.refresh();
+      }
+    } catch (err) {
+      toast.error("Unexpected error", { description: String(err) });
+    } finally {
+      setDeletingId(null);
     }
   }, [router]);
 
@@ -252,6 +273,22 @@ export function FeedsDashboard({ channelId, statusMap, feeds }: FeedsDashboardPr
                                 <ExternalLink className="h-3.5 w-3.5" />
                               </Button>
                             </a>
+                          )}
+                          {(feed.status === "fatal" || feed.status === "done") && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-red-500 hover:bg-red-50"
+                              onClick={() => handleDelete(feed.id)}
+                              disabled={deletingId === feed.id}
+                              title="Delete record"
+                            >
+                              {deletingId === feed.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                            </Button>
                           )}
                         </div>
                       </TableCell>
