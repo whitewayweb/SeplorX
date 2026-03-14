@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 // @ts-expect-error — xlsx-populate ships JS-only, no .d.ts; used server-side only
 import XlsxPopulate from "xlsx-populate";
-import { getTemplateForCategory, getTemplatePath, type CategoryTemplateEntry } from "./template-registry";
+import { getTemplatePath, type CategoryTemplateEntry } from "./template-registry";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Amazon Category Template Generator
@@ -21,7 +21,7 @@ export interface TemplateProductRow {
   price?: string | number | null;
   /** Stock quantity */
   quantity?: number | null;
-  /** The SeplorX product category (must match a registered template) */
+  /** The amazon product type (must match a registered template) */
   category: string;
   /** Additional raw fields from rawPayload to map to template columns */
   extraFields?: Record<string, string | number | null | undefined>;
@@ -42,22 +42,16 @@ const DEFAULT_COLUMN_MAP: Record<string, string> = {
 };
 
 /**
- * Generate a populated .xlsm workbook buffer for a set of products
- * belonging to the same Amazon category.
+ * Generate a populated .xlsm workbook buffer for a set of products.
  *
- * @param category - The SeplorX product category (case-insensitive)
- * @param products - Array of products to insert into the template
- * @returns The modified .xlsm file as a Node.js Buffer
+ * @param entry    - Pre-resolved `CategoryTemplateEntry` from the registry.
+ * @param products - Products to insert into the template.
+ * @returns The modified .xlsm file as a Uint8Array buffer.
  */
 export async function generateCategoryTemplate(
-  category: string,
+  entry: CategoryTemplateEntry,
   products: TemplateProductRow[],
-): Promise<{ buffer: Uint8Array; entry: CategoryTemplateEntry }> {
-  const entry = getTemplateForCategory(category);
-  if (!entry) {
-    throw new Error(`No Amazon template registered for category "${category}".`);
-  }
-
+): Promise<{ buffer: Uint8Array }> {
   if (products.length === 0) {
     throw new Error("No products provided for template generation.");
   }
@@ -124,6 +118,5 @@ export async function generateCategoryTemplate(
 
   // ── Output the modified workbook as a buffer ────────────────────────────
   const outputBuffer = await workbook.outputAsync() as Uint8Array;
-
-  return { buffer: outputBuffer, entry };
+  return { buffer: outputBuffer };
 }

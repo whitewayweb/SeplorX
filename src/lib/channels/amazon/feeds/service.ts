@@ -4,6 +4,7 @@ import { eq, and, inArray } from "drizzle-orm";
 import { AmazonAPIClient } from "../api/client";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
 import { generateCategoryTemplate, type TemplateProductRow } from "./generator";
+import { getTemplateForProductType, type CategoryTemplateEntry } from "./template-registry";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Amazon Feeds Service
@@ -95,20 +96,33 @@ export async function submitPendingUpdates(
     return [];
   }
 
-  // ── Group by category ───────────────────────────────────────────────────
-  const byCategory = new Map<string, typeof pendingMappings>();
+  // ── Group by amazonProductType (the stable SP-API flat-file key) ──────────
+  type TemplateGroup = { entry: CategoryTemplateEntry; mappings: typeof pendingMappings };
+  const byTemplate = new Map<string, TemplateGroup>();
+
   for (const mapping of pendingMappings) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const channelRaw = (mapping.channelRawData as any) || {};
-    const amazonCategory = channelRaw.category;
+    const amazonProductType: string | undefined = channelRaw.amazonProductType;
 
-    if (!amazonCategory) {
-      throw new Error(`Product mapping ${mapping.mappingId} is missing an Amazon category. Update it in the product drawer.`);
+    if (!amazonProductType) {
+      throw new Error(
+        `Product mapping ${mapping.mappingId} is missing an Amazon product type. ` +
+        `Re-sync the product to auto-populate it.`,
+      );
     }
-    const cat = String(amazonCategory).toLowerCase().trim();
-    const group = byCategory.get(cat) ?? [];
-    group.push(mapping);
-    byCategory.set(cat, group);
+
+    const entry = getTemplateForProductType(amazonProductType);
+    if (!entry) {
+      throw new Error(
+        `No Amazon template registered for product type "${amazonProductType}". ` +
+        `Please drop the ${amazonProductType}.xlsm file in the category_product_upload_templates folder.`,
+      );
+    }
+
+    const group = byTemplate.get(entry.amazonProductType) ?? { entry, mappings: [] };
+    group.mappings.push(mapping);
+    byTemplate.set(entry.amazonProductType, group);
   }
 
   // ── Mark all as file_generating ─────────────────────────────────────────
@@ -121,8 +135,9 @@ export async function submitPendingUpdates(
   const client = new AmazonAPIClient(decryptedCreds, channel.storeUrl);
   const results: FeedSubmissionResult[] = [];
 
-  for (const [category, mappings] of byCategory.entries()) {
+  for (const [, { entry, mappings }] of byTemplate.entries()) {
     const categoryMappingIds = mappings.map((m) => m.mappingId);
+    const category = entry.label;
 
     try {
       // Build product rows for the template generator
@@ -134,12 +149,12 @@ export async function submitPendingUpdates(
           name: m.channelName || m.productName,
           price: (rawData.price !== undefined ? rawData.price : m.sellingPrice)?.toString(),
           quantity: m.channelStock !== null && m.channelStock !== undefined ? m.channelStock : m.quantityOnHand,
-          category,
+          category: entry.label,
         };
       });
 
-      // Generate the .xlsm file
-      const { buffer, entry } = await generateCategoryTemplate(category, templateProducts);
+      // Generate the .xlsm file using the pre-resolved template entry
+      const { buffer } = await generateCategoryTemplate(entry, templateProducts);
 
       // Mark as uploading
       await db

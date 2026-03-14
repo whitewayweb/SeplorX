@@ -1,70 +1,106 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 
 // ────────────────────────────────────────────────────────────────────────────
-// Amazon Category Template Registry
+// Amazon Category Template Registry — file-system driven
 // ────────────────────────────────────────────────────────────────────────────
-// Maps SeplorX product categories to their tested Amazon .xlsm template files.
-// The template files live in `category_product_upload_templates/` relative to
-// this module. Each entry also declares the SP-API feed type for submission.
 //
-// To add a new category:
-//   1. Place the tested .xlsm template in `category_product_upload_templates/`
-//   2. Add an entry to CATEGORY_TEMPLATES below
-//   3. (Optional) Add column mappings to COLUMN_MAPS if the sheet layout differs
+// HOW IT WORKS
+// ─────────────
+// Templates are discovered automatically by scanning `category_product_upload_templates/`.
+// The FILENAME (without extension) is treated as the SP-API product-type key.
+//
+//   AUTO_PART.xlsm   →  amazonProductType = "AUTO_PART"
+//   LUGGAGE.xlsm     →  amazonProductType = "LUGGAGE"
+//
+// The `amazonProductType` stored in channelProducts.rawData (fetched from the
+// Catalog API at sync time) is matched directly against the discovered file names.
+//
+// ADDING A NEW CATEGORY
+// ──────────────────────
+//   1. Download the category flat-file template from Amazon Seller Central.
+//   2. Rename it to match the SP-API product-type key:  <PRODUCT_TYPE>.xlsm
+//   3. Drop it in:  src/lib/channels/amazon/category_product_upload_templates/
+//   Done — no code changes required.
+//
+// TEMPLATE SHEET CONVENTIONS (Amazon standard, applies to all templates)
+//   - Sheet name:   "Template"
+//   - Data start:   row 4  (rows 1–3 are metadata/headers)
+//   - Feed type:    POST_FLAT_FILE_INVLOADER_DATA
 // ────────────────────────────────────────────────────────────────────────────
 
 export interface CategoryTemplateEntry {
-  /** SeplorX category key (lowercase, matches products.category) */
-  category: string;
-  /** Human-readable label */
+  /** Human-readable label derived from the product type (e.g. "Auto Part") */
   label: string;
-  /** Filename of the .xlsm template inside category_product_upload_templates/ */
+  /** SP-API product-type key, equals the filename stem (e.g. "AUTO_PART") */
+  amazonProductType: string;
+  /** Absolute path to the .xlsm file */
   templateFile: string;
-  /** SP-API feed type to use when submitting this template */
+  /** SP-API feed type — constant for all Amazon flat-file uploads */
   feedType: string;
-  /** Name of the sheet inside the .xlsm workbook that holds the data rows */
+  /** Sheet name inside the workbook — Amazon convention */
   sheetName: string;
-  /** 1-indexed row where data starts (row 1–3 are typically headers in Amazon templates) */
+  /** Row where product data starts — Amazon convention */
   dataStartRow: number;
 }
 
-/**
- * Single source of truth: category → Amazon template mapping.
- * Keys are normalized lowercase to match product.category values.
- */
-export const CATEGORY_TEMPLATES: CategoryTemplateEntry[] = [
-  {
-    category: "auto part",
-    label: "Auto Part",
-    templateFile: "AUTO_PART_TEMPLATE.xlsm",
-    feedType: "POST_FLAT_FILE_INVLOADER_DATA",
-    sheetName: "Template",
-    dataStartRow: 4,
-  },
-  // Future categories go here, e.g.:
-  // {
-  //   category: "luggage",
-  //   label: "Luggage",
-  //   templateFile: "LUGGAGE_TEMPLATE.xlsm",
-  //   feedType: "POST_FLAT_FILE_INVLOADER_DATA",
-  //   sheetName: "Template",
-  //   dataStartRow: 4,
-  // },
-];
+// ── Auto-discovery ────────────────────────────────────────────────────────────
 
 const TEMPLATES_DIR = path.resolve(
-  path.dirname(new URL(import.meta.url).pathname),
-  "category_product_upload_templates",
+  process.cwd(),
+  "src/lib/channels/amazon/category_product_upload_templates",
 );
 
-/** Lookup a template entry by category (case-insensitive). */
-export function getTemplateForCategory(category: string): CategoryTemplateEntry | null {
-  const normalized = category.trim().toLowerCase();
-  return CATEGORY_TEMPLATES.find((t) => t.category === normalized) ?? null;
+/** Convert "AUTO_PART" → "Auto Part" */
+function productTypeToLabel(productType: string): string {
+  return productType
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function getRegistry(): Map<string, CategoryTemplateEntry> {
+  const registry = new Map<string, CategoryTemplateEntry>();
+
+  if (!fs.existsSync(TEMPLATES_DIR)) {
+    console.warn("[Registry] Directory does not exist:", TEMPLATES_DIR);
+    return registry;
+  }
+
+  for (const file of fs.readdirSync(TEMPLATES_DIR)) {
+    if (!file.endsWith(".xlsm")) continue;
+
+    const productType = path.basename(file, ".xlsm").toUpperCase();
+    registry.set(productType, {
+      label: productTypeToLabel(productType),
+      amazonProductType: productType,
+      templateFile: path.join(TEMPLATES_DIR, file),
+      feedType: "POST_FLAT_FILE_INVLOADER_DATA",
+      sheetName: "Template",
+      dataStartRow: 4,
+    });
+  }
+
+  console.log("[Registry] Loaded entries:", Array.from(registry.keys()));
+  return registry;
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+/**
+ * Resolve a template entry by SP-API product-type key (case-insensitive).
+ * Returns `null` when no matching .xlsm file exists in the templates directory.
+ */
+export function getTemplateForProductType(amazonProductType: string): CategoryTemplateEntry | null {
+  return getRegistry().get(amazonProductType.trim().toUpperCase()) ?? null;
+}
+
+/** All currently registered templates (for UI/debug use). */
+export function getAllTemplates(): CategoryTemplateEntry[] {
+  return Array.from(getRegistry().values());
 }
 
 /** Get the absolute file path for a template entry. */
 export function getTemplatePath(entry: CategoryTemplateEntry): string {
-  return path.join(TEMPLATES_DIR, entry.templateFile);
+  return entry.templateFile; // already absolute from auto-discovery
 }
-

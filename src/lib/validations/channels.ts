@@ -36,7 +36,6 @@ export const UpdateChannelSchema = z.object({
 
 export const ProductDetailsTabSchema = z.object({
   name: z.string().trim().min(1, "Product name is required").max(500, "Name too long"),
-  category: z.string().trim().optional(),
 });
 
 export const OfferInventoryTabSchema = z.object({

@@ -10,6 +10,12 @@ import { type FbaInventorySchema } from "./types/fbaInventorySchema";
 
 const gunzipAsync = promisify(zlib.gunzip);
 
+// ── Shared catalog fetch config ───────────────────────────────────────────────
+// Central list of datasets requested on every catalog API call.
+// Add or remove entries here to control what the API returns across all methods.
+const CATALOG_INCLUDED_DATA =
+  "summaries,images,identifiers,attributes,dimensions,relationships,productTypes" as const;
+
 export class AmazonAPIClient {
   private marketplaceId: string;
   private clientId: string;
@@ -69,7 +75,7 @@ export class AmazonAPIClient {
 
     const url = new URL(`${this.endpoint}/catalog/2022-04-01/items/${encodeURIComponent(asin)}`);
     url.searchParams.set("marketplaceIds", this.marketplaceId);
-    url.searchParams.set("includedData", "summaries,images,identifiers,attributes,dimensions,relationships");
+    url.searchParams.set("includedData", CATALOG_INCLUDED_DATA);
 
     const res = await fetch(url.toString(), {
       headers: {
@@ -140,6 +146,9 @@ export class AmazonAPIClient {
         }
     }
 
+    // Derive category from the API response — marketplace-aware with fallback.
+    const { category, amazonProductType } = this.extractAmazonCategory(data);
+
     return {
       id: data.asin ?? asin,
       name: itemName,
@@ -149,6 +158,8 @@ export class AmazonAPIClient {
       rawPayload: {
         ...data,
         pricing: pricingData,
+        ...(category   ? { category }          : {}),
+        ...(amazonProductType ? { amazonProductType } : {}),
       },
     };
   }
@@ -578,7 +589,7 @@ export class AmazonAPIClient {
       url.searchParams.set("marketplaceIds", this.marketplaceId);
       url.searchParams.set("identifiersType", "ASIN");
       url.searchParams.set("identifiers", asins.join(","));
-      url.searchParams.set("includedData", "summaries,images,identifiers,attributes,dimensions,relationships");
+      url.searchParams.set("includedData", CATALOG_INCLUDED_DATA);
 
       try {
         const res = await fetch(url.toString(), {
@@ -593,11 +604,19 @@ export class AmazonAPIClient {
             const product = batch.find((p) => p.id === item.asin);
             if (product) {
               const payload = product.rawPayload as Record<string, unknown>;
-              if (item.summaries) payload.summaries = item.summaries;
-              if (item.images) payload.images = item.images;
+              if (item.summaries)   payload.summaries   = item.summaries;
+              if (item.images)      payload.images      = item.images;
               if (item.identifiers) payload.identifiers = item.identifiers;
-              if (item.attributes) payload.attributes = item.attributes;
-              if (item.dimensions) payload.dimensions = item.dimensions;
+              if (item.attributes)  payload.attributes  = item.attributes;
+              if (item.dimensions)  payload.dimensions  = item.dimensions;
+              if (item.productTypes) payload.productTypes = item.productTypes;
+
+              // Derive and persist Amazon category — single source of truth.
+              const { category, amazonProductType } = this.extractAmazonCategory(
+                item as CatalogItemsSchema["Item"],
+              );
+              if (category)          payload.category         = category;
+              if (amazonProductType) payload.amazonProductType = amazonProductType;
 
               let fullRelationships = item.relationships;
               const hasChildren = item.relationships?.some((r: { relationships?: Array<{ childAsins?: string[] }> }) =>
@@ -678,5 +697,42 @@ export class AmazonAPIClient {
         }
       }
     }
+  }
+
+  // ── Private helpers ────────────────────────────────────────────────────────
+
+  /**
+   * Return the entry from a marketplace-keyed array that matches the current
+   * marketplace, falling back to the first element if none matches.
+   * This pattern is repeated everywhere the SP-API returns per-marketplace arrays.
+   */
+  private forMarketplace<T extends { marketplaceId?: string }>(arr: T[] | undefined): T | undefined {
+    if (!arr?.length) return undefined;
+    return arr.find((entry) => entry.marketplaceId === this.marketplaceId) ?? arr[0];
+  }
+
+  /**
+   * Extract the human-readable Amazon category from a catalog item response.
+   *
+   * Priority:
+   *   1. `summaries[].browseClassification.displayName`  — rich browse-node label (e.g. "Automotive")
+   *   2. `productTypes[].productType`                    — flat-file type key  (e.g. "AUTO_PART")
+   *
+   * Both values are returned so callers can persist whichever they need.
+   */
+  private extractAmazonCategory(item: CatalogItemsSchema["Item"]): {
+    category?: string;
+    amazonProductType?: string;
+  } {
+    const summary = this.forMarketplace(item.summaries);
+    const browseCategory = summary?.browseClassification?.displayName;
+
+    const productTypeEntry = this.forMarketplace(item.productTypes);
+    const amazonProductType = productTypeEntry?.productType;
+
+    return {
+      category: browseCategory ?? amazonProductType,
+      amazonProductType,
+    };
   }
 }

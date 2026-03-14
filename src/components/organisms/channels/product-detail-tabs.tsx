@@ -74,7 +74,7 @@ function extractProductFields(rawData: Record<string, any>) {
         manufacturer: getNestedValue(summaries, "manufacturer") || getNestedValue(attributes, "manufacturer") || "",
         description:  getNestedValue(attributes, "product_description") || "",
         itemTypeKw:   getNestedValue(attributes, "item_type_keyword")   || "",
-        category:     rawData.category || "",
+        category:     rawData.category || summaries?.browseClassification?.displayName || "",
         price:        rawData.price || "",
         itemCondition: rawData["item-condition"] || "New",
         pkgWeight:    getDimensionValue(dimensions, "package") || getDimensionValue(dimensions?.package, "weight"),
@@ -186,13 +186,16 @@ function DetailsTab({
                 <div className="grid gap-2">
                     <Label>Amazon Category</Label>
                     <Input
-                        name="category"
                         defaultValue={fields.category}
-                        aria-invalid={!!fe.category}
-                        className={fe.category ? "border-destructive" : ""}
-                        placeholder="e.g. Auto Part"
+                        disabled
+                        className="bg-muted/50"
+                        placeholder="Synced automatically from Amazon"
                     />
-                    <FieldError errors={fe.category} />
+                    {!fields.category && (
+                        <p className="text-xs text-muted-foreground">
+                            Re-sync this product to populate the Amazon category.
+                        </p>
+                    )}
                 </div>
                 <ReadOnlyField label="Brand"             value={fields.brand} />
                 <ReadOnlyField label="Manufacturer"      value={fields.manufacturer} />
