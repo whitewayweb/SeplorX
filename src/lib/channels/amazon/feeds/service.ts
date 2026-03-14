@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { channelProductMappings, channelFeeds, channels, products } from "@/db/schema";
+import { channelProductMappings, channelFeeds, channels, products, channelProducts } from "@/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
 import { AmazonAPIClient } from "../api/client";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
@@ -70,9 +70,20 @@ export async function submitPendingUpdates(
       productCategory: products.category,
       sellingPrice: products.sellingPrice,
       quantityOnHand: products.quantityOnHand,
+      channelName: channelProducts.name,
+      channelSku: channelProducts.sku,
+      channelStock: channelProducts.stockQuantity,
+      channelRawData: channelProducts.rawData,
     })
     .from(channelProductMappings)
     .innerJoin(products, eq(channelProductMappings.productId, products.id))
+    .innerJoin(
+      channelProducts,
+      and(
+        eq(channelProducts.channelId, channelId),
+        eq(channelProducts.externalId, channelProductMappings.externalProductId)
+      )
+    )
     .where(
       and(
         eq(channelProductMappings.channelId, channelId),
@@ -108,13 +119,17 @@ export async function submitPendingUpdates(
 
     try {
       // Build product rows for the template generator
-      const templateProducts: TemplateProductRow[] = mappings.map((m) => ({
-        sku: m.productSku || m.externalProductId,
-        name: m.productName,
-        price: m.sellingPrice,
-        quantity: m.quantityOnHand,
-        category,
-      }));
+      const templateProducts: TemplateProductRow[] = mappings.map((m) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rawData = (m.channelRawData as any) || {};
+        return {
+          sku: m.channelSku || m.productSku || m.externalProductId,
+          name: m.channelName || m.productName,
+          price: (rawData.price !== undefined ? rawData.price : m.sellingPrice)?.toString(),
+          quantity: m.channelStock !== null && m.channelStock !== undefined ? m.channelStock : m.quantityOnHand,
+          category,
+        };
+      });
 
       // Generate the .xlsm file
       const { buffer, entry } = await generateCategoryTemplate(category, templateProducts);

@@ -261,7 +261,7 @@ export async function updateChannelProductDetails(_prevState: unknown, formData:
 
   // Detect active tab — formData.has() is false for inputs not in the DOM.
   const isDetailsTab = formData.has("name");
-  const isOfferTab   = formData.has("stockQuantity") || formData.has("price") || formData.has("sku");
+  const isOfferTab   = formData.has("stockQuantity") || formData.has("price") || formData.has("sku") || formData.has("itemCondition");
 
   const patch: ChannelProductUpdatePatch = {};
 
@@ -299,6 +299,7 @@ export async function updateChannelProductDetails(_prevState: unknown, formData:
     return { success: true, productId: id };
   } catch (err) {
     console.error("[updateChannelProductDetails]", { id, error: String(err) });
-    return { error: "Failed to update channel product details." };
+    const errorMessage = err instanceof Error ? err.message : "Failed to update channel product details.";
+    return { error: errorMessage };
   }
 }

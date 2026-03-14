@@ -276,16 +276,17 @@ function OfferTab({
                     />
                     <FieldError errors={fe.price} />
                 </div>
-                <div className="grid gap-2">
+                <div className="grid gap-2 relative">
                     <Label>Stock Quantity</Label>
                     <Input
                         name="stockQuantity"
-                        defaultValue={product.stockQuantity || 0}
+                        value={product.stockQuantity || 0}
                         type="number"
-                        aria-invalid={!!fe.stockQuantity}
-                        className={fe.stockQuantity ? "border-destructive" : ""}
+                        disabled
+                        className="bg-muted/50 cursor-not-allowed"
+                        title="Stock is managed from central SeplorX inventory"
                     />
-                    <FieldError errors={fe.stockQuantity} />
+                    <p className="text-[10px] text-muted-foreground absolute -bottom-5 left-0">Managed in SeplorX inventory</p>
                 </div>
                 <div className="grid gap-2">
                     <Label>Condition</Label>

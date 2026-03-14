@@ -62,7 +62,7 @@ export default async function ChannelProductsPage({
           <TableSearch placeholder="Search by name, SKU..." />
           {channel.channelType === "amazon" && (
             <Button asChild variant="outline">
-              <Link href={`/channels/${channelId}/feeds`}>Feeds Dashboard</Link>
+              <Link href={`/channels/${channelId}/feeds`}>Upload to {channel.name}</Link>
             </Button>
           )}
           {count > 0 && <ClearProductsButton channelId={channelId} />}

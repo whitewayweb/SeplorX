@@ -375,6 +375,22 @@ export async function updateChannelProductService(
 
   if (!channel) throw new Error("Channel not found or unauthorized.");
 
+  // Check if mapping exists BEFORE making local updates
+  const [mapping] = await db
+    .select({ id: channelProductMappings.id })
+    .from(channelProductMappings)
+    .where(
+      and(
+        eq(channelProductMappings.channelId, channelId),
+        eq(channelProductMappings.externalProductId, externalId),
+      ),
+    )
+    .limit(1);
+
+  if (!mapping) {
+    throw new Error("Product must be mapped to a SeplorX inventory item before it can be updated.");
+  }
+
   // Read existing rawData for safe merge
   const [existing] = await db
     .select({ rawData: channelProducts.rawData })
@@ -411,17 +427,12 @@ export async function updateChannelProductService(
     }
   }
 
-  // Persist
+  // Persist local custom overrides (like Amazon optimized name, custom price)
   await updateChannelProductInDb(productId, dbPatch);
 
   // Stage for provider sync
   await db
     .update(channelProductMappings)
     .set({ syncStatus: "pending_update", lastSyncError: null })
-    .where(
-      and(
-        eq(channelProductMappings.channelId, channelId),
-        eq(channelProductMappings.externalProductId, externalId),
-      ),
-    );
+    .where(eq(channelProductMappings.id, mapping.id));
 }
