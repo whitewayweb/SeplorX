@@ -2,8 +2,9 @@
 
 import { useActionState, useTransition, useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import Image from "next/image";
-import { Store, Webhook, PackageSearch, PlugZap } from "lucide-react";
+import { Store, Webhook, PackageSearch, PlugZap, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { PORTAL_NAME } from "@/utils/constants";
@@ -247,6 +248,18 @@ function ChannelRowActions({ channel }: { channel: ChannelInstance }) {
         const def = getChannelById(channel.channelType as Parameters<typeof getChannelById>[0]);
         return def?.capabilities?.usesWebhooks ? (
           <RegisterWebhooksButton channelId={channel.id} />
+        ) : null;
+      })()}
+
+      {/* Sync Products: connected WooCommerce channels with canPushProductUpdates */}
+      {channel.status === "connected" && (() => {
+        const def = getChannelById(channel.channelType as Parameters<typeof getChannelById>[0]);
+        return def?.capabilities?.canPushProductUpdates ? (
+          <Link href={`/channels/${channel.id}/sync`}>
+            <Button variant="outline" size="sm">
+              <RefreshCw className="h-3 w-3 mr-1" /> Sync Products
+            </Button>
+          </Link>
         ) : null;
       })()}
 

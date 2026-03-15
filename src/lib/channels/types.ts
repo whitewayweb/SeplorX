@@ -99,11 +99,29 @@ export interface ExternalProduct {
   rawPayload: Record<string, unknown>;
 }
 
+// Shared return type for pushPendingUpdates() across all channel handlers.
+export interface ChannelPushSyncItemResult {
+  externalProductId: string;
+  success: boolean;
+  error?: string;
+}
+export interface ChannelPushSyncResult {
+  pushed: number;
+  failed: number;
+  results: ChannelPushSyncItemResult[];
+}
+
 export interface ChannelCapabilities {
   /** Can fetch a product list from the remote channel (used in Add Products drawer) */
   canFetchProducts: boolean;
   /** Can push stock quantity back to the remote channel */
   canPushStock: boolean;
+  /**
+   * Can push staged product detail updates (name, description, price, etc.)
+   * directly to the remote channel's REST API.
+   * If true, the channel should expose a /channels/[id]/sync page.
+   */
+  canPushProductUpdates: boolean;
   /**
    * Uses webhook-based event delivery (e.g. WooCommerce order webhooks).
    * If false, the "Register Webhooks" button is hidden in the UI.
@@ -223,6 +241,24 @@ export interface ChannelHandler {
       [key: string]: string | undefined;
     },
   ): Record<string, unknown> | null | undefined;
+
+  /**
+   * Push all pending_update product mappings for this channel to the remote store.
+   * Required when capabilities.canPushProductUpdates = true.
+   *
+   * Implementations are responsible for:
+   *   - Reading pending mappings from DB (via channelProductMappings)
+   *   - Calling the remote API for each product
+   *   - Updating syncStatus to 'in_sync' on success, 'failed' on error
+   *   - Returning a summary so the caller can present results to the user
+   *
+   * Each product must be attempted independently — a single failure must not
+   * abort the rest of the batch.
+   */
+  pushPendingUpdates?(
+    userId: number,
+    channelId: number,
+  ): Promise<ChannelPushSyncResult>;
 
   /**
    * Fetch the distinct list of brand names available for a given channel instance.

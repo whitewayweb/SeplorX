@@ -6,7 +6,7 @@ import { getChannelById } from "@/lib/channels/registry";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
 import { upsertChannelProducts, upsertProductWithVariationsTx, updateChannelProductInDb } from "@/lib/channels/queries";
-import type { ChannelType } from "@/lib/channels/types";
+import type { ChannelType, ChannelPushSyncResult } from "@/lib/channels/types";
 import { env } from "@/lib/env";
 
 export async function createChannelService(
@@ -454,4 +454,35 @@ export async function updateChannelProductService(
       .set({ syncStatus: "pending_update", lastSyncError: null })
       .where(eq(channelProductMappings.id, mapping.id));
   });
+}
+
+/**
+ * Generic orchestrator for pushing staged product updates to any channel.
+ *
+ * Resolves the channel's handler via the handler registry and delegates
+ * entirely to handler.pushPendingUpdates(). No channel-type switch needed here
+ * or anywhere in application code — adding a new channel only requires
+ * implementing pushPendingUpdates() on the handler.
+ */
+export async function pushChannelProductUpdatesService(
+  userId: number,
+  channelId: number,
+): Promise<ChannelPushSyncResult> {
+  // Verify ownership + resolve channel type
+  const [channel] = await db
+    .select({ id: channels.id, channelType: channels.channelType, status: channels.status })
+    .from(channels)
+    .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
+    .limit(1);
+
+  if (!channel) throw new Error("Channel not found.");
+  if (channel.status !== "connected") throw new Error("Channel is not connected.");
+
+  const handler = getChannelHandler(channel.channelType);
+  if (!handler) throw new Error(`No handler registered for channel type "${channel.channelType}".`);
+  if (!handler.capabilities.canPushProductUpdates || !handler.pushPendingUpdates) {
+    throw new Error(`Channel type "${channel.channelType}" does not support direct product update sync.`);
+  }
+
+  return handler.pushPendingUpdates(userId, channelId);
 }

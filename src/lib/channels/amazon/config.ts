@@ -117,6 +117,7 @@ export const configFields: ChannelConfigField[] = [
 export const capabilities: ChannelCapabilities = {
   canFetchProducts: true,
   canPushStock: false,
+  canPushProductUpdates: false, // Amazon uses the Feeds API (xlsm templates), not direct REST push
   usesWebhooks: false,
 };
 

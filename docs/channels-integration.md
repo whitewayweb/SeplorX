@@ -185,12 +185,12 @@ Step 4 calls `createChannel` server action, receives the new `channelId`, then r
 
 ## Current Channel Types
 
-| ID | Name | Auth | Available | `canFetchProducts` | `usesWebhooks` |
-|----|------|------|-----------|------------------|--------------|
-| woocommerce | WooCommerce | OAuth (1-click) | ✅ | ✅ | ✅ |
-| amazon | Amazon | API key (wizard) | ✅ | ✅ | ❌ |
-| shopify | Shopify | OAuth | 🚧 Coming soon | — | — |
-| custom | Custom | API key | 🚧 Coming soon | — | — |
+| ID | Name | Auth | Available | `canFetchProducts` | `canPushProductUpdates` | `usesWebhooks` |
+|----|------|------|-----------|------------------|-----------------------|--------------|
+| woocommerce | WooCommerce | OAuth (1-click) | ✅ | ✅ | ✅ (direct REST) | ✅ |
+| amazon | Amazon | API key (wizard) | ✅ | ✅ | ❌ (uses Feeds API) | ❌ |
+| shopify | Shopify | OAuth | 🚧 Coming soon | — | — | — |
+| custom | Custom | API key | 🚧 Coming soon | — | — | — |
 
 ---
 
@@ -212,6 +212,10 @@ interface ChannelHandler {
   fetchProducts?(storeUrl, credentials, search?): Promise<ExternalProduct[]>;  // optional
   getCatalogItem?(storeUrl, credentials, externalId): Promise<ExternalProduct>; // optional — single-item fetch
   getProductUrl?(externalId, credentials, rawData): string | null;            // Polymorphic logic
+  
+  // -- Capabilities --
+  /** capabilities.canPushProductUpdates = true → must expose /channels/[id]/sync page */
+  /** capabilities.canPushStock = true → implement pushStock() */
   
   // -- Database & Analytics Methods (Scalable filtering/grouping) --
   /** Fetch the distinct list of brand names available for a given channel */
@@ -358,6 +362,46 @@ The template registry (`template-registry.ts`) scans the `category_product_uploa
 - `channel_feeds` — historical log of every feed submission (feedId, status, category, productCount, uploadUrl, resultDocumentUrl)
 
 ---
+
+### Channel Product Sync (`canPushProductUpdates` capability)
+
+The sync pipeline pushes staged (`pending_update`) product edits back to any channel that declares `capabilities.canPushProductUpdates = true`. The architecture is fully handler-driven — **no channel-type switch lives in application code**.
+
+#### Layers
+
+| Layer | File | Responsibility |
+|-------|------|---------------|
+| **Handler method** | `src/lib/channels/{channel}/index.ts` → `pushPendingUpdates(userId, channelId)` | All channel-specific API logic (auth, payload shape, PUT/POST/feed) |
+| **Generic service** | `src/lib/channels/services.ts` → `pushChannelProductUpdatesService()` | Verifies ownership, resolves handler via registry, delegates to `handler.pushPendingUpdates()` |
+| **Server action** | `src/app/(dashboard)/channels/[id]/sync/actions.ts` → `pushChannelProductUpdates()` | Auth, input validation, `revalidatePath` |
+| **Generic page** | `src/app/(dashboard)/channels/[id]/sync/page.tsx` | Checks `canPushProductUpdates` capability from registry; loads counts + pending list |
+| **UI component** | `src/components/organisms/channels/sync-dashboard.tsx` | Reusable organism: status cards, pending table, sync button, result rows |
+
+#### Flow
+
+1. User edits product fields → `channelProductMappings.syncStatus = 'pending_update'` set atomically
+2. User clicks **"Sync Products"** on the channel list (shown only when `canPushProductUpdates`) → `/channels/[id]/sync`
+3. Page checks capability via registry — `notFound()` for channels that don't support this
+4. User clicks **"Push Updates to Store"** → `pushChannelProductUpdates(channelId)` server action
+5. `pushChannelProductUpdatesService()` calls `handler.pushPendingUpdates(userId, channelId)`
+6. Handler fetches pending mappings, calls remote API per product independently (non-fatal failures)
+7. Handler writes `syncStatus = 'in_sync'` or `'failed'` with error details
+8. UI shows per-product result badges
+
+#### WooCommerce implementation
+
+`woocommerceHandler.pushPendingUpdates()` in `src/lib/channels/woocommerce/index.ts`:
+- Decrypts credentials, computes Basic Auth
+- Issues `PUT /wp-json/wc/v3/products/{externalId}` with only the fields SeplorX manages (`name`, `sku`, `description`, `regular_price`, `weight`) — unknown WC fields are never touched
+
+#### Adding sync support to a new channel
+
+1. Set `canPushProductUpdates: true` in `src/lib/channels/{channel}/config.ts`
+2. Implement `pushPendingUpdates(userId, channelId): Promise<ChannelPushSyncResult>` on the handler in `index.ts`
+3. **Done.** The page, action, service, and "Sync Products" button all work automatically.
+
+---
+
 
 ## Channel Product Mappings
 

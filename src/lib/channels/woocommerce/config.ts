@@ -14,6 +14,7 @@ export const configFields: ChannelConfigField[] = [
 export const capabilities: ChannelCapabilities = {
   canFetchProducts: true,
   canPushStock: true,
+  canPushProductUpdates: true, // Direct WooCommerce REST API push via PUT /products/{id}
   usesWebhooks: true,
 };
 

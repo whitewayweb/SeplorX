@@ -1,5 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
-import type { ChannelHandler, WebhookStockChange, ExternalProduct } from "../types";
+import type { ChannelHandler, WebhookStockChange, ExternalProduct, ChannelPushSyncResult } from "../types";
 import { extractSqlField, getBrands } from "./queries";
 
 // ─── WooCommerce REST API helpers ─────────────────────────────────────────────
@@ -248,6 +248,114 @@ export const woocommerceHandler: ChannelHandler = {
         // Unknown/future topic — no-op, return empty (route will still 200)
         return [];
     }
+  },
+
+  // ─── pushPendingUpdates ───────────────────────────────────────────────────
+  // Called by the generic pushChannelProductUpdatesService() in services.ts.
+  // No channel-type switch needed anywhere — just implement this method to
+  // participate in the sync pipeline.
+  async pushPendingUpdates(userId, channelId): Promise<ChannelPushSyncResult> {
+    // Lazy-import to avoid circular module deps at load time
+    const { db } = await import("@/db");
+    const { channels, channelProducts, channelProductMappings } = await import("@/db/schema");
+    const { eq, and, inArray } = await import("drizzle-orm");
+    const { decryptChannelCredentials } = await import("@/lib/channels/utils");
+
+    const [channel] = await db
+      .select({ storeUrl: channels.storeUrl, credentials: channels.credentials })
+      .from(channels)
+      .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
+      .limit(1);
+
+    if (!channel) throw new Error("Channel not found.");
+    if (!channel.storeUrl) throw new Error("Channel has no store URL.");
+
+    const creds = decryptChannelCredentials(channel.credentials);
+    if (!creds.consumerKey || !creds.consumerSecret) {
+      throw new Error("WooCommerce credentials are missing. Please reconnect the channel.");
+    }
+    const auth = basicAuth(creds.consumerKey, creds.consumerSecret);
+
+    // Fetch all pending mappings joined with cached channel product data
+    const pendingMappings = await db
+      .select({
+        mappingId: channelProductMappings.id,
+        externalProductId: channelProductMappings.externalProductId,
+        channelProductName: channelProducts.name,
+        channelProductSku: channelProducts.sku,
+        channelProductRawData: channelProducts.rawData,
+      })
+      .from(channelProductMappings)
+      .innerJoin(
+        channelProducts,
+        and(
+          eq(channelProducts.channelId, channelId),
+          eq(channelProducts.externalId, channelProductMappings.externalProductId),
+        ),
+      )
+      .where(
+        and(
+          eq(channelProductMappings.channelId, channelId),
+          eq(channelProductMappings.syncStatus, "pending_update"),
+        ),
+      );
+
+    if (pendingMappings.length === 0) {
+      return { pushed: 0, failed: 0, results: [] };
+    }
+
+    const results: ChannelPushSyncResult["results"] = [];
+    const succeededIds: number[] = [];
+    const failedData: { id: number; error: string }[] = [];
+
+    for (const mapping of pendingMappings) {
+      const { externalProductId, channelProductName, channelProductSku } = mapping;
+      const rawData = (mapping.channelProductRawData ?? {}) as Record<string, unknown>;
+
+      // Only send fields SeplorX explicitly manages — never clear unknown WC fields
+      const wooPayload: Record<string, unknown> = {};
+      if (channelProductName)        wooPayload.name              = channelProductName;
+      if (channelProductSku)         wooPayload.sku               = channelProductSku;
+      if (rawData.description)       wooPayload.description       = rawData.description;
+      if (rawData.short_description) wooPayload.short_description = rawData.short_description;
+      if (rawData.regular_price)     wooPayload.regular_price     = String(rawData.regular_price);
+      if (rawData.price)             wooPayload.regular_price     = String(rawData.price);
+      if (rawData.weight)            wooPayload.weight            = String(rawData.weight);
+
+      try {
+        const res = await wcFetch(channel.storeUrl!, `/products/${externalProductId}`, {
+          method: "PUT",
+          headers: { Authorization: auth },
+          body: JSON.stringify(wooPayload),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`WooCommerce PUT failed (${res.status}): ${text.substring(0, 200)}`);
+        }
+        results.push({ externalProductId, success: true });
+        succeededIds.push(mapping.mappingId);
+      } catch (err) {
+        const errorMsg = String(err).replace(/^Error:\s*/, "").substring(0, 300);
+        results.push({ externalProductId, success: false, error: errorMsg });
+        failedData.push({ id: mapping.mappingId, error: errorMsg });
+      }
+    }
+
+    // Write sync statuses atomically
+    if (succeededIds.length > 0) {
+      await db
+        .update(channelProductMappings)
+        .set({ syncStatus: "in_sync", lastSyncError: null })
+        .where(inArray(channelProductMappings.id, succeededIds));
+    }
+    for (const { id, error } of failedData) {
+      await db
+        .update(channelProductMappings)
+        .set({ syncStatus: "failed", lastSyncError: error })
+        .where(eq(channelProductMappings.id, id));
+    }
+
+    return { pushed: succeededIds.length, failed: failedData.length, results };
   },
 
   extractSqlField,
