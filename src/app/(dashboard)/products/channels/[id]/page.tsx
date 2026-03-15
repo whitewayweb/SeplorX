@@ -9,6 +9,7 @@ import { ClearProductsButton } from "@/components/organisms/channels/clear-produ
 import { ChannelProductsTable } from "@/components/organisms/channels/channel-products-table";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { BrandTabs } from "@/components/organisms/channels/brand-tabs";
+import { SyncProductsButton } from "@/components/organisms/channels/sync-products-button";
 import type { ChannelType } from "@/lib/channels/types";
 
 export const dynamic = "force-dynamic";
@@ -77,6 +78,9 @@ export default async function ChannelProductsPage({
         </div>
         <div className="flex items-center gap-3">
           <TableSearch placeholder="Search by name, SKU..." />
+          {channelDef?.capabilities?.canFetchProducts && (
+            <SyncProductsButton channelId={channelId} />
+          )}
           {count > 0 && <ClearProductsButton channelId={channelId} />}
         </div>
       </div>

@@ -84,7 +84,7 @@ const brandExpr = sql<string>`COALESCE(
       THEN ${channelProducts.rawData}->'attributes' 
       ELSE '[]'::jsonb 
     END,
-    '$[*] ? (@.name == "brand" || @.name == "Brand").option'
+    '$[*] ? (@.name == "brand" || @.name == "Brand" || @.name == "Brands").options[0]'
   )#>>'{}', '')
 )`;
 

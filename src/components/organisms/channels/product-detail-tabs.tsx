@@ -184,16 +184,16 @@ function DetailsTab({
                     <FieldError errors={fe.name} />
                 </div>
                 <div className="grid gap-2">
-                    <Label>Amazon Category</Label>
+                    <Label>Category</Label>
                     <Input
                         defaultValue={fields.category}
                         disabled
                         className="bg-muted/50"
-                        placeholder="Synced automatically from Amazon"
+                        placeholder="Synced automatically from provider"
                     />
                     {!fields.category && (
                         <p className="text-xs text-muted-foreground">
-                            Re-sync this product to populate the Amazon category.
+                            Re-sync this product to populate the category.
                         </p>
                     )}
                 </div>
@@ -314,7 +314,7 @@ function OfferTab({
                     <FieldError errors={fe.itemCondition} />
                 </div>
                 <div className="grid gap-2 relative">
-                    <Label>Last Synced From Amazon</Label>
+                    <Label>Last Synced</Label>
                     <Input
                         readOnly
                         value={product.lastSyncedAt ? new Date(product.lastSyncedAt).toLocaleString() : ""}
@@ -332,7 +332,7 @@ function VariationsTab({ relationships }: { relationships: any[] }) {
     return (
         <TabsContent value="variations" className="space-y-6 mt-0">
             <div className="text-sm text-muted-foreground mb-4">
-                Parent-Child variations for this Amazon catalog item.
+                Parent-Child variations for this catalog item.
             </div>
             {relationships.length > 0 ? (
                 <div className="rounded-md border overflow-hidden">
@@ -340,7 +340,7 @@ function VariationsTab({ relationships }: { relationships: any[] }) {
                         <thead className="bg-muted/50 border-b text-left">
                             <tr>
                                 <th className="p-3 font-medium">Type</th>
-                                <th className="p-3 font-medium">Related ASIN</th>
+                                <th className="p-3 font-medium">Related ID</th>
                                 <th className="p-3 font-medium">Variation Theme</th>
                             </tr>
                         </thead>
