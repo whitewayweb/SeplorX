@@ -29,6 +29,24 @@ async function wcFetch(
 import { Product as WCProduct } from "./api/types/wcproductSchema";
 import { ShopOrder as WCOrderPayload } from "./api/types/wcorderSchema";
 
+import { StandardizedProductRecord } from "../types";
+
+// ─── Scalable Field Mapping ───────────────────────────────────────────────
+// Maps standardized SeplorX UI fields to WooCommerce REST API / DB keys.
+// This avoids giant switch/case blocks and makes it easy to add new fields.
+// Key = SeplorX field, value = WooCommerce field name (keyof WCProduct or meta key).
+const FIELD_MAP: Partial<Record<keyof StandardizedProductRecord, keyof WCProduct | string>> = {
+  description:       "description",
+  price:             "regular_price",
+  itemWeight:        "weight",
+  pkgWeight:         "weight",
+  brand:             "brand-name",    // WC common meta key or attribute
+  itemCondition:     "item-condition", 
+  manufacturer:      "manufacturer",  // Common attribute name
+  partNumber:        "part_number",   // Common attribute name
+  color:             "color",         // Common attribute name
+};
+
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 import {
@@ -250,6 +268,22 @@ export const woocommerceHandler: ChannelHandler = {
     }
   },
 
+  mergeProductUpdate(existingRawData, patch) {
+    const rawData = { ...(existingRawData as Record<string, unknown>) };
+    // Standard delta fields (name, sku, stock) are handled in services.ts DB columns.
+    // Everything else in the patch is checked against our mapping table.
+    for (const [key, value] of Object.entries(patch)) {
+      const wcKey = FIELD_MAP[key as keyof StandardizedProductRecord]; // Use the global FIELD_MAP
+      if (wcKey && value !== undefined) {
+        rawData[wcKey] = value;
+      } else if (!wcKey && value !== undefined) {
+        // If not in FIELD_MAP, pass through using the original key
+        rawData[key] = value;
+      }
+    }
+    return rawData;
+  },
+
   // ─── pushPendingUpdates ───────────────────────────────────────────────────
   // Changelog-driven delta push: reads staged changelog entries, merges deltas
   // per product (latest value wins), and pushes only changed fields to WooCommerce.
@@ -275,7 +309,6 @@ export const woocommerceHandler: ChannelHandler = {
     }
     const auth = basicAuth(creds.consumerKey, creds.consumerSecret);
 
-    // Load all staged changelog entries for this channel, ordered by timestamp
     const stagedEntries = await db
       .select({
         id: channelProductChangelog.id,
@@ -296,29 +329,6 @@ export const woocommerceHandler: ChannelHandler = {
       return { pushed: 0, failed: 0, results: [] };
     }
 
-    // Map delta keys → WooCommerce REST API field names
-    function buildWcPayload(delta: Record<string, unknown>): Record<string, unknown> {
-      const payload: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(delta)) {
-        switch (key) {
-          case "name":              payload.name              = value; break;
-          case "sku":               payload.sku               = value; break;
-          case "description":       payload.description       = value; break;
-          case "short_description": payload.short_description = value; break;
-          case "regular_price":     payload.regular_price     = String(value); break;
-          case "price":             payload.regular_price     = String(value); break;
-          case "weight":            payload.weight            = String(value); break;
-          case "stockQuantity":     payload.manage_stock      = true;
-                                    payload.stock_quantity    = value; break;
-          default:
-            // Pass through any other delta keys as-is (e.g. item_condition)
-            payload[key] = value;
-        }
-      }
-      return payload;
-    }
-
-    // Since we now guarantee only 1 staged row per product, no grouping is needed
     const results: ChannelPushSyncResult["results"] = [];
     const succeededMappingExtIds: string[] = [];
     const succeededEntryIds: number[] = [];
@@ -328,7 +338,6 @@ export const woocommerceHandler: ChannelHandler = {
       const wooPayload = buildWcPayload(entry.delta as Record<string, unknown>);
 
       if (Object.keys(wooPayload).length === 0) {
-        // No meaningful WC fields to push — mark entries as success
         succeededEntryIds.push(entry.id);
         succeededMappingExtIds.push(entry.externalProductId);
         results.push({ externalProductId: entry.externalProductId, success: true });
@@ -355,7 +364,6 @@ export const woocommerceHandler: ChannelHandler = {
       }
     }
 
-    // Update changelog + mapping statuses atomically
     if (succeededEntryIds.length > 0) {
       await db
         .update(channelProductChangelog)
@@ -363,7 +371,6 @@ export const woocommerceHandler: ChannelHandler = {
         .where(inArray(channelProductChangelog.id, succeededEntryIds));
     }
 
-    // Update successful mappings to in_sync
     if (succeededMappingExtIds.length > 0) {
       const successMappings = await db
         .select({ id: channelProductMappings.id })
@@ -378,11 +385,10 @@ export const woocommerceHandler: ChannelHandler = {
         await db
           .update(channelProductMappings)
           .set({ syncStatus: "in_sync", lastSyncError: null })
-          .where(inArray(channelProductMappings.id, successMappings.map(m => m.id)));
+          .where(inArray(channelProductMappings.id, successMappings.map((m) => m.id)));
       }
     }
 
-    // Update failed entries and mappings
     for (const { entryIds, error, extId } of failedEntryData) {
       await db
         .update(channelProductChangelog)
@@ -407,3 +413,23 @@ export const woocommerceHandler: ChannelHandler = {
   getBrands,
   extractProductFields,
 };
+
+// Internal helper for testing and reuse
+export function buildWcPayload(delta: Record<string, unknown>): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(delta)) {
+    let wcKey: string;
+    if (key === "stockQuantity") {
+      payload.manage_stock = true;
+      wcKey = "stock_quantity";
+    } else {
+      wcKey = (FIELD_MAP[key as keyof StandardizedProductRecord] as string) || (key as string);
+    }
+    let val = value;
+    if (wcKey === "regular_price" || wcKey === "weight") {
+      val = String(value ?? "");
+    }
+    payload[wcKey] = val;
+  }
+  return payload;
+}

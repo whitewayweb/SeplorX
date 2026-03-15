@@ -235,11 +235,7 @@ export interface ChannelHandler {
    */
   mergeProductUpdate?(
     existingRawData: Record<string, unknown>,
-    patch: {
-      price?: string;
-      itemCondition?: string;
-      [key: string]: string | undefined;
-    },
+    patch: Record<string, unknown>,
   ): Record<string, unknown> | null | undefined;
 
   /**

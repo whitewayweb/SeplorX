@@ -159,7 +159,7 @@ export function ChannelPublishDashboard({
                       {change.externalProductId}
                     </Badge>
                   </div>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-xs text-muted-foreground" suppressHydrationWarning>
                     Last edited: {new Date(change.createdAt).toLocaleString()}
                   </span>
                 </div>

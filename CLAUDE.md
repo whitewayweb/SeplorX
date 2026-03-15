@@ -109,6 +109,7 @@ src/
 - **Dynamic validation:** Zod schemas built at runtime from registry `configFields`
 - **Server actions:** Mutations via `"use server"` actions with `useActionState` on client
 - **Auth pattern:** Uses `better-auth` for authentication. Server config and helpers in `src/lib/auth/index.ts`, client hooks in `src/lib/auth/client.ts`. The `src/proxy.ts` Edge middleware validates session tokens against the Better Auth API (not just cookie presence) and redirects unauthenticated users to `/login`. The shared helper `getAuthenticatedUserId()` is used in all Server Components and Server Actions to obtain the authenticated user's ID — never hardcode user IDs. Uses `emailAndPassword` plugin for native login. All dashboard routes are grouped inside `src/app/(dashboard)/`.
+- **Dynamic Field Extraction:** Server Actions that handle multi-tab/dynamic forms (like `updateChannelProductDetails`) should extract fields from `FormData` by iterating over the keys of the target Zod schema (`Object.keys(Schema.shape)`). This prevents field loss when the form structure changes and ensures the action remains a thin, type-safe gateway to the service layer.
 - **Agent pattern:** Agents are reasoning-only (read-only DB tools); writes happen via existing Server Actions after human approval. Two-phase serverless-safe flow.
 
 ## Database

@@ -183,7 +183,7 @@ Append-only audit log of field-level deltas for channel product edits. Instead o
 
 **Indexes**: `(channel_id)`, `(channel_product_id)`
 
-**Delta merging**: Multiple sequential edits to the same product create multiple staged rows. When publishing, the system fetches all `staged` rows, merges the deltas (`latest value wins`), pushes the combined minimal payload to the remote store, and marks all rows as `success`. Old values are derived dynamically for UI by inspecting the preceding entry.
+**Delta merging**: Multiple sequential edits to the same product create multiple staged rows. When publishing, the system fetches all `staged` rows, merges the deltas (`latest value wins`), pushes the combined minimal payload to the remote store, and marks all rows as `success`. The delta payload is constructed dynamically by mapping standardized fields to channel-specific API keys (e.g., using `FIELD_MAP` and WooCommerce `Product` schema types), ensuring minimal and type-safe updates. Old values are derived dynamically for UI by inspecting the preceding entry.
 
 ## JSONB Config Column
 

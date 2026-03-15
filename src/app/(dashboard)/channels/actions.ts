@@ -8,7 +8,7 @@ import { CreateChannelSchema, ChannelIdSchema, UpdateChannelSchema, ProductDetai
 import { getChannelById } from "@/lib/channels/registry";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
 import type { ChannelType } from "@/lib/channels/types";
-import type { ChannelProductUpdatePatch } from "@/lib/channels/services";
+import type { ChannelProductUpdatePatch } from "@/lib/channels/services"; // This import will now refer to the updated interface
 import { z } from "zod";
 import {
   createChannelService,
@@ -271,29 +271,33 @@ export async function updateChannelProductDetails(_prevState: unknown, formData:
 
   // Validate + extract "Product Details" tab fields
   if (isDetailsTab) {
-    const parsed = ProductDetailsTabSchema.safeParse({ name: formData.get("name") });
+    const raw: any = {};
+    // Dynamically extract only the fields defined in the schema from FormData
+    for (const key of Object.keys(ProductDetailsTabSchema.shape)) {
+      const val = formData.get(key);
+      if (val !== null) raw[key] = val;
+    }
+
+    const parsed = ProductDetailsTabSchema.safeParse(raw);
     if (!parsed.success) {
       return { error: "Validation failed.", fieldErrors: parsed.error.flatten().fieldErrors };
     }
-    patch.name = parsed.data.name;
+    Object.assign(patch, parsed.data);
   }
 
   // Validate + extract "Offer & Inventory" tab fields
   if (isOfferTab) {
-    const raw = {
-      sku:           formData.get("sku")           ?? undefined,
-      price:         formData.get("price")         ?? undefined,
-      stockQuantity: formData.get("stockQuantity") ?? undefined,
-      itemCondition: formData.get("itemCondition") ?? undefined,
-    };
+    const raw: any = {};
+    for (const key of Object.keys(OfferInventoryTabSchema.shape)) {
+      const val = formData.get(key);
+      if (val !== null) raw[key] = val;
+    }
+
     const parsed = OfferInventoryTabSchema.safeParse(raw);
     if (!parsed.success) {
       return { error: "Validation failed.", fieldErrors: parsed.error.flatten().fieldErrors };
     }
-    if (parsed.data.sku !== undefined)           patch.sku           = parsed.data.sku;
-    if (parsed.data.stockQuantity !== undefined) patch.stockQuantity = parsed.data.stockQuantity;
-    if (parsed.data.price !== undefined)         patch.price         = parsed.data.price;
-    if (parsed.data.itemCondition !== undefined) patch.itemCondition = parsed.data.itemCondition;
+    Object.assign(patch, parsed.data);
   }
 
   try {

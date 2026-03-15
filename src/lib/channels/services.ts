@@ -352,12 +352,24 @@ export async function getCatalogItemService(userId: number, channelId: number, a
  * and stages the mapping for provider sync.
  */
 export interface ChannelProductUpdatePatch {
-  name?: string;
-  sku?: string;
+  name?:          string;
+  sku?:           string;
   stockQuantity?: number | null;
-  price?: string;
+  price?:         string;
   itemCondition?: string;
+  description?:   string;
+  brand?:         string;
+  manufacturer?:  string;
+  partNumber?:    string;
+  color?:         string;
+  itemTypeKw?:    string;
+  pkgWeight?:     string;
+  itemWeight?:    string;
 }
+
+// Fields that correspond to columns in the channel_products table.
+// Everything else in a patch is treated as channel-specific rawData.
+const CHANNEL_PRODUCT_DB_COLUMNS = ["name", "sku", "stockQuantity"] as const;
 
 export async function updateChannelProductService(
   userId: number,
@@ -391,8 +403,7 @@ export async function updateChannelProductService(
     throw new Error("Product must be mapped to a SeplorX inventory item before it can be updated.");
   }
 
-  // Read existing state — validated by checking all three identifiers
-  // to prevent an attacker from updating an arbitrary channelProducts row.
+  // Read existing state
   const [existing] = await db
     .select({
       name: channelProducts.name,
@@ -413,26 +424,23 @@ export async function updateChannelProductService(
   if (!existing) throw new Error("Channel product not found.");
   const existingRawData = (existing.rawData as Record<string, unknown>) ?? {};
 
-  // Build DB patch from submitted fields
-  const dbPatch: Parameters<typeof updateChannelProductInDb>[1] = {};
+  // Build DB patch and separate raw data fields
+  const dbPatch: any = {};
+  const rawPatch: Record<string, unknown> = {};
 
-  if (patch.name !== undefined && patch.name.trim()) {
-    dbPatch.name = patch.name.trim();
-  }
-  if (patch.sku !== undefined) {
-    dbPatch.sku = patch.sku.trim() || null;
-  }
-  if (patch.stockQuantity !== undefined) {
-    dbPatch.stockQuantity = patch.stockQuantity;
+  for (const [key, value] of Object.entries(patch)) {
+    if (CHANNEL_PRODUCT_DB_COLUMNS.includes(key as any)) {
+      if (value !== undefined) {
+        dbPatch[key] = typeof value === "string" ? value.trim() : value;
+      }
+    } else {
+      rawPatch[key] = value;
+    }
   }
 
   // Delegate rawData merge to the channel handler
   const handler = getChannelHandler(channel.channelType);
-  if (handler?.mergeProductUpdate) {
-    const rawPatch: Record<string, string | undefined> = {};
-    if (patch.price !== undefined) rawPatch.price = patch.price;
-    if (patch.itemCondition !== undefined) rawPatch.itemCondition = patch.itemCondition;
-
+  if (handler?.mergeProductUpdate && Object.keys(rawPatch).length > 0) {
     const rawDataMerge = handler.mergeProductUpdate(existingRawData, rawPatch);
     if (rawDataMerge && Object.keys(rawDataMerge).length > 0) {
       dbPatch.rawData = { ...existingRawData, ...rawDataMerge };

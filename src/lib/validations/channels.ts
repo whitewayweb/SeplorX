@@ -35,7 +35,15 @@ export const UpdateChannelSchema = z.object({
 // We validate each tab independently using .partial() so absent fields are OK.
 
 export const ProductDetailsTabSchema = z.object({
-  name: z.string().trim().min(1, "Product name is required").max(500, "Name too long"),
+  name:          z.string().trim().min(1, "Product name is required").max(500, "Name too long"),
+  description:   z.string().trim().optional(),
+  brand:         z.string().trim().max(100, "Brand name too long").optional(),
+  manufacturer:  z.string().trim().max(100, "Manufacturer name too long").optional(),
+  partNumber:    z.string().trim().max(100, "Part number too long").optional(),
+  color:         z.string().trim().max(50, "Color name too long").optional(),
+  itemTypeKw:    z.string().trim().max(100, "Item type keyword too long").optional(),
+  pkgWeight:     z.string().trim().max(50, "Weight string too long").optional(),
+  itemWeight:    z.string().trim().max(50, "Weight string too long").optional(),
 });
 
 export const OfferInventoryTabSchema = z.object({
