@@ -57,6 +57,8 @@ export default async function ChannelSyncPage({
     .select({
       externalProductId: channelProductMappings.externalProductId,
       name: channelProducts.name,
+      sku: channelProducts.sku,
+      rawData: channelProducts.rawData,
     })
     .from(channelProductMappings)
     .leftJoin(
@@ -76,9 +78,9 @@ export default async function ChannelSyncPage({
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">{channel.name} — Sync</h1>
+        <h1 className="text-3xl font-bold tracking-tight">{channel.name} — Publish Updates</h1>
         <p className="text-muted-foreground mt-1">
-          Push staged product updates to {channelDef.name}.
+          Review and publish staged product updates to {channelDef.name}.
         </p>
       </div>
 

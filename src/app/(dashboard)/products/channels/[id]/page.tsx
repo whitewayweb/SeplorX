@@ -9,7 +9,10 @@ import { ClearProductsButton } from "@/components/organisms/channels/clear-produ
 import { ChannelProductsTable } from "@/components/organisms/channels/channel-products-table";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { BrandTabs } from "@/components/organisms/channels/brand-tabs";
-import { SyncProductsButton } from "@/components/organisms/channels/sync-products-button";
+import { SyncProductsButton as FetchProductsButton } from "@/components/organisms/channels/sync-products-button";
+import { RefreshCw } from "lucide-react";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import type { ChannelType } from "@/lib/channels/types";
 
 export const dynamic = "force-dynamic";
@@ -79,8 +82,18 @@ export default async function ChannelProductsPage({
         </div>
         <div className="flex items-center gap-3">
           <TableSearch placeholder="Search by name, SKU..." />
+          
+          {channelDef?.capabilities?.canPushProductUpdates && (
+            <Link href={`/channels/${channelId}/publish`}>
+               <Button className="gap-2">
+                 <RefreshCw className="h-4 w-4" />
+                 Publish Updates
+               </Button>
+            </Link>
+          )}
+
           {channelDef?.capabilities?.canFetchProducts && (
-            <SyncProductsButton channelId={channelId} />
+            <FetchProductsButton channelId={channelId} />
           )}
           {count > 0 && <ClearProductsButton channelId={channelId} />}
         </div>

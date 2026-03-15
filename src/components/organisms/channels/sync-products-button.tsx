@@ -34,7 +34,7 @@ export function SyncProductsButton({ channelId }: SyncProductsButtonProps) {
             title="Fetch products from this channel"
         >
             <PackageSearch className="h-4 w-4 mr-2" />
-            {pending ? "Fetching…" : "Sync Products"}
+            {pending ? "Fetching…" : "Fetch Products"}
         </Button>
     );
 }

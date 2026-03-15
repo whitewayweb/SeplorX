@@ -21,7 +21,7 @@ export async function pushChannelProductUpdates(channelId: number) {
     const summary = await pushChannelProductUpdatesService(userId, parsed.data);
 
     revalidatePath(`/products/channels/${parsed.data}`);
-    revalidatePath(`/channels/${parsed.data}/sync`);
+    revalidatePath(`/channels/${parsed.data}/publish`);
 
     return { success: true, ...summary };
   } catch (err) {

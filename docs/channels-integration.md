@@ -363,9 +363,9 @@ The template registry (`template-registry.ts`) scans the `category_product_uploa
 
 ---
 
-### Channel Product Sync (`canPushProductUpdates` capability)
+### Channel Product Publish (`canPushProductUpdates` capability)
 
-The sync pipeline pushes staged (`pending_update`) product edits back to any channel that declares `capabilities.canPushProductUpdates = true`. The architecture is fully handler-driven — **no channel-type switch lives in application code**.
+The publish pipeline pushes staged (`pending_update`) product edits back to any channel that declares `capabilities.canPushProductUpdates = true`. The architecture is fully handler-driven — **no channel-type switch lives in application code**.
 
 #### Layers
 
@@ -373,20 +373,21 @@ The sync pipeline pushes staged (`pending_update`) product edits back to any cha
 |-------|------|---------------|
 | **Handler method** | `src/lib/channels/{channel}/index.ts` → `pushPendingUpdates(userId, channelId)` | All channel-specific API logic (auth, payload shape, PUT/POST/feed) |
 | **Generic service** | `src/lib/channels/services.ts` → `pushChannelProductUpdatesService()` | Verifies ownership, resolves handler via registry, delegates to `handler.pushPendingUpdates()` |
-| **Server action** | `src/app/(dashboard)/channels/[id]/sync/actions.ts` → `pushChannelProductUpdates()` | Auth, input validation, `revalidatePath` |
-| **Generic page** | `src/app/(dashboard)/channels/[id]/sync/page.tsx` | Checks `canPushProductUpdates` capability from registry; loads counts + pending list |
-| **UI component** | `src/components/organisms/channels/sync-dashboard.tsx` | Reusable organism: status cards, pending table, sync button, result rows |
+| **Server action** | `src/app/(dashboard)/channels/[id]/publish/actions.ts` → `pushChannelProductUpdates()` | Auth, input validation, `revalidatePath` |
+| **Generic page** | `src/app/(dashboard)/channels/[id]/publish/page.tsx` | Checks `canPushProductUpdates` capability from registry; loads counts + pending list |
+| **UI component** | `src/components/organisms/channels/sync-dashboard.tsx` | Reusable organism: status cards, review table with diffs, publish button |
 
 #### Flow
 
 1. User edits product fields → `channelProductMappings.syncStatus = 'pending_update'` set atomically
-2. User clicks **"Sync Products"** on the channel list (shown only when `canPushProductUpdates`) → `/channels/[id]/sync`
+2. User clicks **"Publish Updates"** on the channel list (shown only when `canPushProductUpdates`) → `/channels/[id]/publish`
 3. Page checks capability via registry — `notFound()` for channels that don't support this
-4. User clicks **"Push Updates to Store"** → `pushChannelProductUpdates(channelId)` server action
-5. `pushChannelProductUpdatesService()` calls `handler.pushPendingUpdates(userId, channelId)`
-6. Handler fetches pending mappings, calls remote API per product independently (non-fatal failures)
-7. Handler writes `syncStatus = 'in_sync'` or `'failed'` with error details
-8. UI shows per-product result badges
+4. User reviews staged changes (Price, SKU, etc.) and deep-dives via technical JSON preview
+5. User clicks **"Publish Updates to Store"** → `pushChannelProductUpdates(channelId)` server action
+6. `pushChannelProductUpdatesService()` calls `handler.pushPendingUpdates(userId, channelId)`
+7. Handler fetches pending mappings, calls remote API per product independently (non-fatal failures)
+8. Handler writes `syncStatus = 'in_sync'` or `'failed'` with error details
+9. UI shows per-product result badges
 
 #### WooCommerce implementation
 
@@ -394,11 +395,11 @@ The sync pipeline pushes staged (`pending_update`) product edits back to any cha
 - Decrypts credentials, computes Basic Auth
 - Issues `PUT /wp-json/wc/v3/products/{externalId}` with only the fields SeplorX manages (`name`, `sku`, `description`, `regular_price`, `weight`) — unknown WC fields are never touched
 
-#### Adding sync support to a new channel
+#### Adding publish support to a new channel
 
 1. Set `canPushProductUpdates: true` in `src/lib/channels/{channel}/config.ts`
 2. Implement `pushPendingUpdates(userId, channelId): Promise<ChannelPushSyncResult>` on the handler in `index.ts`
-3. **Done.** The page, action, service, and "Sync Products" button all work automatically.
+3. **Done.** The page, action, service, and "Publish Updates" button all work automatically.
 
 ---
 
