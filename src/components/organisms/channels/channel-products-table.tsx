@@ -354,7 +354,7 @@ export function ChannelProductsTable({
                                 </SheetDescription>
                             </SheetHeader>
                             <div className="flex-1 w-full pb-0 flex flex-col items-start px-0">
-                                <ProductDetailTabs product={selectedProduct} />
+                                <ProductDetailTabs product={selectedProduct} onSaveSuccess={invalidate} />
                             </div>
                         </>
                     ) : null}

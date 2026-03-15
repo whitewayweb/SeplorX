@@ -174,6 +174,31 @@ export interface ChannelHandler {
     storeUrl: string,
     credentials: Record<string, string>,
     externalId: string,
+    sku?: string,
+    fulfillmentChannel?: string,
   ): Promise<ExternalProduct>;
+
+  /**
+   * Map generic update fields submitted from the product-detail form into the
+   * channel-specific rawData patch that should be persisted.
+   *
+   * Called by updateChannelProductService() so each channel controls how its
+   * own rawData schema is mutated — without bleeding channel-specific key names
+   * (e.g. "item-condition") into the shared service layer.
+   *
+   * @param existingRawData  The current rawData stored in the DB for this product.
+   * @param patch            Only the fields that were actually submitted in the
+   *                         form (undefined = field was not on the active tab).
+   * @returns                A partial rawData object to be merged (shallow) into
+   *                         the existing rawData, or null/undefined for no change.
+   */
+  mergeProductUpdate?(
+    existingRawData: Record<string, unknown>,
+    patch: {
+      price?: string;
+      itemCondition?: string;
+      [key: string]: string | undefined;
+    },
+  ): Record<string, unknown> | null | undefined;
 }
 

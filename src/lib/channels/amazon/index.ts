@@ -3,7 +3,6 @@
 // Node built-ins. It is listed in next.config.ts → serverExternalPackages so
 // Next.js/Turbopack never tries to bundle it. The dynamic import() below is
 // resolved at runtime on the server only.
-// resolved at runtime on the server only.
 
 import type { ChannelHandler } from "../types";
 import { AmazonAPIClient } from "./api/client";
@@ -38,16 +37,25 @@ export const amazonHandler: ChannelHandler = {
     return await client.fetchProducts(search);
   },
 
-  async getCatalogItem(storeUrl, credentials, asin) {
+  async getCatalogItem(storeUrl, credentials, asin, sku, fulfillmentChannel) {
     if (!credentials.marketplaceId || !credentials.clientId || !credentials.clientSecret || !credentials.refreshToken) {
       throw new Error("Missing required Amazon credentials (marketplaceId, clientId, clientSecret, refreshToken)");
     }
 
     const client = new AmazonAPIClient(credentials, storeUrl);
-    return await client.getCatalogItem(asin);
+    return await client.getCatalogItem(asin, sku, fulfillmentChannel);
   },
 
   // pushStock: not implemented — capabilities.canPushStock = false
   // registerWebhooks: not applicable — capabilities.usesWebhooks = false
   // processWebhook: not applicable — capabilities.usesWebhooks = false
+
+  mergeProductUpdate(_existingRawData, patch) {
+    const updates: Record<string, unknown> = {};
+    // Amazon stores the listing price under "price" (flat) and the item condition
+    // under the flat-file key "item-condition". Map from the generic patch names.
+    if (patch.price) updates["price"] = patch.price;
+    if (patch.itemCondition) updates["item-condition"] = patch.itemCondition;
+    return Object.keys(updates).length > 0 ? updates : null;
+  },
 };

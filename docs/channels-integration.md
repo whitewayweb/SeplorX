@@ -218,6 +218,19 @@ Channel-specific behavior should be shifted as far "left" (towards the registry)
 
 This allows the **Data Access Layer (DAL)** to automatically enrich product lists with URLs. UI components like `ChannelProductsTable` remain 100% generic—they only care if a `productUrl` exists, not how it was constructed.
 
+### User-Scoped Channel Access
+
+Sensitive pages that render channel data (e.g. `/channels/[id]/feeds`) **must** verify the channel belongs to the authenticated user. Use `getChannelForUser(userId, channelId)` from `src/lib/channels/queries.ts`:
+
+```typescript
+// page.tsx (server component)
+const userId = await getAuthenticatedUserId();
+const channel = await getChannelForUser(userId, channelId); // scoped by ownership
+if (!channel) notFound(); // returns 404 for both missing and unauthorized
+```
+
+The low-level `getChannel(id)` (no userId) is intentionally kept for internal service code that already has ownership verified by the service layer. Never use it directly in page components for sensitive routes.
+
 ### Cross-Field Validation
 When a channel has configuration fields that depend on each other (e.g., Amazon's **Marketplace** must match the selected **API Endpoint Region**), implement cross-field validation in the registry's `validateConfig` method.
 
@@ -293,8 +306,40 @@ File: `src/lib/channels/amazon/api/client.ts`
 | `getMarketplaceParticipations()` | `GET /sellers/v1/marketplaceParticipations` | List all marketplaces the seller is active in. Useful for credential validation. |
 | `getListingItem(sellerId, sku)` | `GET /listings/2021-08-01/items/:sellerId/:sku` | Fetch a single listing by SKU (complements getCatalogItem which uses ASIN). |
 | `searchProductTypes(keywords?)` | `GET /definitions/2020-09-01/productTypes` | Search Amazon product type schemas. Returns type names for use with product attribute validation. |
+| `createFeedDocument(contentType)` | `POST /feeds/2021-06-30/documents` | Create a feed document — returns presigned S3 upload URL. |
+| `uploadFeedData(url, data, ct)` | `PUT {presigned URL}` | Upload file data (e.g. .xlsm buffer) to the presigned URL. |
+| `createFeed(feedType, docId)` | `POST /feeds/2021-06-30/feeds` | Create a feed referencing the uploaded document. Returns `{ feedId }`. |
+| `getFeed(feedId)` | `GET /feeds/2021-06-30/feeds/:feedId` | Get feed processing status (IN_QUEUE, IN_PROGRESS, DONE, FATAL, CANCELLED). |
+| `getFeedDocument(docId)` | `GET /feeds/2021-06-30/documents/:docId` | Get feed result document URL (for processing reports). |
 
 > **About product schema types:** Yes — Amazon's Product Type Definitions API (`searchProductTypes` / `GET /definitions/2020-09-01/productTypes/:productType`) returns full JSON Schema documents for each product category (e.g. `AUTO_PART`, `LUGGAGE`). These schemas define required/optional attributes, allowed values, and validation rules. Call `searchProductTypes("keyword")` to find the type, then call `GET /definitions/2020-09-01/productTypes/:productType` to get the full schema.
+
+### Amazon Feeds Module (`src/lib/channels/amazon/feeds/`)
+
+This module handles product updates via Amazon's category-specific `.xlsm` template files. Logic is fully encapsulated within the Amazon channel directory.
+
+| File | Purpose |
+|------|---------|
+| `template-registry.ts` | Maps SeplorX product categories to tested `.xlsm` template files on disk. Adding a new category = adding one entry. |
+| `generator.ts` | Copies the authentic template into memory, injects product data via `xlsx-populate`, returns a populated buffer. Never modifies the original file. |
+| `service.ts` | Orchestrator: queries pending mappings, groups by category, generates templates, uploads via Feeds API, records results in `channel_feeds`. |
+| `index.ts` | Barrel exports. |
+
+**Flow:**
+1. User updates a product → `products` + `channelProductMappings.syncStatus = 'pending_update'` updated atomically in a single DB transaction
+2. User opens `/channels/[id]/feeds` → sees pending count (page is user-scoped via `getChannelForUser`)
+3. User clicks "Process Pending Updates" → `submitPendingUpdates()` groups by category → generates `.xlsm` per category → uploads via Feeds API → creates `channel_feeds` record
+4. User clicks refresh icon on in-progress feeds → `pollFeedStatus(userId, feedRowId)` checks Amazon status → updates DB
+
+**Value priority (feed content):**
+The feed generator prefers **live product values** (`products.name`, `products.quantity_on_hand`, `products.selling_price`) over cached channel values. Channel overrides (name, SKU, cached price in `rawData`) are used only when the live product field is absent. This ensures a `pending_update` triggered by editing a product actually uploads the edited values.
+
+**Template registry caching:**
+The template registry (`template-registry.ts`) scans the `category_product_upload_templates/` directory **once per process** and caches the result. Call `refreshRegistry()` to force a reload (e.g. during hot-reload in development without restarting the server). Registry scan logs are suppressed in production.
+
+**Database tables:**
+- `channel_product_mappings.sync_status` — enum (`in_sync`, `pending_update`, `file_generating`, `uploading`, `processing`, `failed`)
+- `channel_feeds` — historical log of every feed submission (feedId, status, category, productCount, uploadUrl, resultDocumentUrl)
 
 ---
 

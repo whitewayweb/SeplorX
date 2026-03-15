@@ -1,11 +1,11 @@
 import { db } from "@/db";
-import { channels, channelProducts } from "@/db/schema";
+import { channels, channelProducts, channelProductMappings } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { encrypt } from "@/lib/crypto";
 import { getChannelById } from "@/lib/channels/registry";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
-import { upsertChannelProducts, upsertProductWithVariationsTx } from "@/lib/channels/queries";
+import { upsertChannelProducts, upsertProductWithVariationsTx, updateChannelProductInDb } from "@/lib/channels/queries";
 import type { ChannelType } from "@/lib/channels/types";
 import { env } from "@/lib/env";
 
@@ -285,7 +285,19 @@ export async function getCatalogItemService(userId: number, channelId: number, a
   const decryptedCreds = decryptChannelCredentials(channel.credentials);
   if (Object.keys(decryptedCreds).length === 0) throw new Error("Channel credentials missing.");
 
-  const product = await handler.getCatalogItem(channel.storeUrl, decryptedCreds, asin);
+  // For Amazon, we need the SKU and fulfillment channel to fetch FBA inventory. 
+  // Let's try to get them from the DB if they're already there.
+  const existingProduct = await db
+    .select({ sku: channelProducts.sku, rawData: channelProducts.rawData })
+    .from(channelProducts)
+    .where(and(eq(channelProducts.channelId, channelId), eq(channelProducts.externalId, asin)))
+    .limit(1);
+    
+  const sku = existingProduct[0]?.sku || undefined;
+  const rawData = existingProduct[0]?.rawData as Record<string, unknown> | undefined;
+  const fulfillmentChannel = (rawData?.["fulfillment-channel"] as string) || undefined;
+
+  const product = await handler.getCatalogItem(channel.storeUrl, decryptedCreds, asin, sku, fulfillmentChannel);
 
   // ── Extract and map child variations ─────────────────────────────────────
   // Amazon stores child ASINs in rawPayload.relationships. We collect all unique
@@ -331,4 +343,115 @@ export async function getCatalogItemService(userId: number, channelId: number, a
   }, childAsins);
 
   return product;
+}
+
+/**
+ * Handles the edit-product-drawer save in a channel-agnostic way.
+ * Verifies ownership, reads existing rawData, delegates channel-specific
+ * rawData patching to the handler's mergeProductUpdate(), writes the DB,
+ * and stages the mapping for provider sync.
+ */
+export interface ChannelProductUpdatePatch {
+  name?: string;
+  sku?: string;
+  stockQuantity?: number | null;
+  price?: string;
+  itemCondition?: string;
+}
+
+export async function updateChannelProductService(
+  userId: number,
+  channelId: number,
+  productId: number,
+  externalId: string,
+  patch: ChannelProductUpdatePatch,
+): Promise<void> {
+  // Verify channel ownership
+  const [channel] = await db
+    .select({ id: channels.id, channelType: channels.channelType })
+    .from(channels)
+    .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
+    .limit(1);
+
+  if (!channel) throw new Error("Channel not found or unauthorized.");
+
+  // Check if mapping exists BEFORE making local updates
+  const [mapping] = await db
+    .select({ id: channelProductMappings.id })
+    .from(channelProductMappings)
+    .where(
+      and(
+        eq(channelProductMappings.channelId, channelId),
+        eq(channelProductMappings.externalProductId, externalId),
+      ),
+    )
+    .limit(1);
+
+  if (!mapping) {
+    throw new Error("Product must be mapped to a SeplorX inventory item before it can be updated.");
+  }
+
+  // Read existing rawData — validated by checking all three identifiers
+  // to prevent an attacker from updating an arbitrary channelProducts row.
+  const [existing] = await db
+    .select({ rawData: channelProducts.rawData })
+    .from(channelProducts)
+    .where(
+      and(
+        eq(channelProducts.id, productId),
+        eq(channelProducts.channelId, channelId),
+        eq(channelProducts.externalId, externalId),
+      ),
+    )
+    .limit(1);
+
+  if (!existing) throw new Error("Channel product not found.");
+  const existingRawData = (existing.rawData as Record<string, unknown>) ?? {};
+
+  // Build DB patch from submitted fields
+  const dbPatch: Parameters<typeof updateChannelProductInDb>[1] = {};
+
+  if (patch.name !== undefined && patch.name.trim()) {
+    dbPatch.name = patch.name.trim();
+  }
+  if (patch.sku !== undefined) {
+    dbPatch.sku = patch.sku.trim() || null;
+  }
+  if (patch.stockQuantity !== undefined) {
+    dbPatch.stockQuantity = patch.stockQuantity;
+  }
+
+  // Delegate rawData merge to the channel handler
+  const handler = getChannelHandler(channel.channelType);
+  if (handler?.mergeProductUpdate) {
+    const rawPatch: Record<string, string | undefined> = {};
+    if (patch.price !== undefined) rawPatch.price = patch.price;
+    if (patch.itemCondition !== undefined) rawPatch.itemCondition = patch.itemCondition;
+
+    const rawDataMerge = handler.mergeProductUpdate(existingRawData, rawPatch);
+    if (rawDataMerge && Object.keys(rawDataMerge).length > 0) {
+      dbPatch.rawData = { ...existingRawData, ...rawDataMerge };
+    }
+  }
+
+  // Persist local custom overrides and stage for provider sync atomically
+  await db.transaction(async (tx) => {
+    if (Object.keys(dbPatch).length > 0) {
+      await tx
+        .update(channelProducts)
+        .set(dbPatch)
+        .where(
+          and(
+            eq(channelProducts.id, productId),
+            eq(channelProducts.channelId, channelId),
+            eq(channelProducts.externalId, externalId),
+          ),
+        );
+    }
+
+    await tx
+      .update(channelProductMappings)
+      .set({ syncStatus: "pending_update", lastSyncError: null })
+      .where(eq(channelProductMappings.id, mapping.id));
+  });
 }

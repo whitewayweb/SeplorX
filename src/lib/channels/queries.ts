@@ -51,6 +51,28 @@ export async function getChannel(id: number) {
   return channel;
 }
 
+/**
+ * Fetch a channel scoped to the authenticated user.
+ * Use this on any sensitive page to prevent IDOR — returns `undefined` if the
+ * channel does not exist or belongs to a different user.
+ */
+export async function getChannelForUser(userId: number, channelId: number) {
+  const [channel] = await db
+    .select({
+      id: channels.id,
+      name: channels.name,
+      channelType: channels.channelType,
+      status: channels.status,
+      credentials: channels.credentials,
+      storeUrl: channels.storeUrl,
+    })
+    .from(channels)
+    .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
+    .limit(1);
+
+  return channel;
+}
+
 // A robust JSONB expression that extracts the brand name from a channel product.
 // 1. Tries Amazon nested summaries ('summaries[0].brand' from catalog-item API)
 // 2. Tries WooCommerce attributes array (where attribute name is 'brand')
@@ -173,21 +195,28 @@ export async function getChannelProductsWithVariations(channelId: number, option
     storeUrl: channel.storeUrl ?? ""
   };
 
-  const productsWithUrl = productsList.map((p) => {
-    const { rawData, ...safeProduct } = p;
-    return {
-      ...safeProduct,
-      productUrl: sanitizeUrl(getProductUrl?.(p.externalId, credentials, p.rawData)),
-    };
-  });
+  const productsWithUrl = productsList.map((p) => ({
+    id: p.id,
+    externalId: p.externalId,
+    name: p.name,
+    sku: p.sku,
+    type: p.type,
+    stockQuantity: p.stockQuantity,
+    lastSyncedAt: p.lastSyncedAt,
+    productUrl: sanitizeUrl(getProductUrl?.(p.externalId, credentials, p.rawData)),
+  }));
 
-  const variationsWithUrl = variationsList.map((v) => {
-    const { rawData, ...safeVariation } = v;
-    return {
-      ...safeVariation,
-      productUrl: sanitizeUrl(getProductUrl?.(v.externalId, credentials, v.rawData)),
-    };
-  });
+  const variationsWithUrl = variationsList.map((v) => ({
+    id: v.id,
+    externalId: v.externalId,
+    name: v.name,
+    sku: v.sku,
+    type: v.type,
+    stockQuantity: v.stockQuantity,
+    lastSyncedAt: v.lastSyncedAt,
+    parentId: v.parentId,
+    productUrl: sanitizeUrl(getProductUrl?.(v.externalId, credentials, v.rawData)),
+  }));
 
   return {
     products: productsWithUrl,
@@ -367,10 +396,34 @@ export async function getChannelProductByIdForUser(userId: number, id: number) {
     storeUrl: row.storeUrl ?? ""
   };
 
-  const { credentials: _credentials, channelType: _channelType, storeUrl: _storeUrl, ...safeRow } = row;
-
   return {
-    ...safeRow,
+    id: row.id,
+    channelId: row.channelId,
+    externalId: row.externalId,
+    name: row.name,
+    sku: row.sku,
+    type: row.type,
+    stockQuantity: row.stockQuantity,
+    rawData: row.rawData,
+    lastSyncedAt: row.lastSyncedAt,
     productUrl: sanitizeUrl(definition?.getProductUrl?.(row.externalId, credentials, row.rawData))
   };
+}
+
+/**
+ * Writes a partial update to a single channel_products row.
+ * Only the keys present in `patch` are written; all other columns are untouched.
+ * This is a pure DAL operation — no auth or business-logic checks.
+ */
+export async function updateChannelProductInDb(
+  id: number,
+  patch: {
+    name?: string;
+    sku?: string | null;
+    stockQuantity?: number | null;
+    rawData?: Record<string, unknown>;
+  }
+): Promise<void> {
+  if (Object.keys(patch).length === 0) return;
+  await db.update(channelProducts).set(patch).where(eq(channelProducts.id, id));
 }

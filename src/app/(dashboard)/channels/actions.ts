@@ -4,10 +4,11 @@ import { db } from "@/db";
 import { channels } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { CreateChannelSchema, ChannelIdSchema, UpdateChannelSchema } from "@/lib/validations/channels";
+import { CreateChannelSchema, ChannelIdSchema, UpdateChannelSchema, ProductDetailsTabSchema, OfferInventoryTabSchema, ChannelProductIdentifiersSchema } from "@/lib/validations/channels";
 import { getChannelById } from "@/lib/channels/registry";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
 import type { ChannelType } from "@/lib/channels/types";
+import type { ChannelProductUpdatePatch } from "@/lib/channels/services";
 import { z } from "zod";
 import {
   createChannelService,
@@ -19,6 +20,7 @@ import {
   syncChannelProductsService,
   clearChannelProductsService,
   getCatalogItemService,
+  updateChannelProductService,
 } from "@/lib/channels/services";
 import { getAuthenticatedUserId } from "@/lib/auth";
 
@@ -245,5 +247,63 @@ export async function getChannelProduct(productId: number) {
   } catch (err) {
     console.error("[getChannelProduct]", { productId, error: String(err) });
     return { error: "Failed to load product details." };
+  }
+}
+
+export async function updateChannelProductDetails(_prevState: unknown, formData: FormData) {
+  // Validate untrusted identifiers that control which DB rows are mutated
+  const identifiersParsed = ChannelProductIdentifiersSchema.safeParse({
+    id:         formData.get("id"),
+    channelId:  formData.get("channelId"),
+    externalId: formData.get("externalId"),
+  });
+
+  if (!identifiersParsed.success) {
+    return { error: "Missing or invalid product identifiers.", fieldErrors: identifiersParsed.error.flatten().fieldErrors };
+  }
+
+  const { id, channelId, externalId } = identifiersParsed.data;
+  // Detect active tab — formData.has() is false for inputs not in the DOM.
+  const isDetailsTab = formData.has("name");
+  const isOfferTab   = formData.has("stockQuantity") || formData.has("price") || formData.has("sku") || formData.has("itemCondition");
+
+  const patch: ChannelProductUpdatePatch = {};
+
+  // Validate + extract "Product Details" tab fields
+  if (isDetailsTab) {
+    const parsed = ProductDetailsTabSchema.safeParse({ name: formData.get("name") });
+    if (!parsed.success) {
+      return { error: "Validation failed.", fieldErrors: parsed.error.flatten().fieldErrors };
+    }
+    patch.name = parsed.data.name;
+  }
+
+  // Validate + extract "Offer & Inventory" tab fields
+  if (isOfferTab) {
+    const raw = {
+      sku:           formData.get("sku")           ?? undefined,
+      price:         formData.get("price")         ?? undefined,
+      stockQuantity: formData.get("stockQuantity") ?? undefined,
+      itemCondition: formData.get("itemCondition") ?? undefined,
+    };
+    const parsed = OfferInventoryTabSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { error: "Validation failed.", fieldErrors: parsed.error.flatten().fieldErrors };
+    }
+    if (parsed.data.sku !== undefined)           patch.sku           = parsed.data.sku;
+    if (parsed.data.stockQuantity !== undefined) patch.stockQuantity = parsed.data.stockQuantity;
+    if (parsed.data.price !== undefined)         patch.price         = parsed.data.price;
+    if (parsed.data.itemCondition !== undefined) patch.itemCondition = parsed.data.itemCondition;
+  }
+
+  try {
+    const userId = await getAuthenticatedUserId();
+    await updateChannelProductService(userId, channelId, id, externalId, patch);
+    revalidatePath(`/products/channels/${channelId}`);
+    return { success: true, productId: id };
+  } catch (err) {
+    console.error("[updateChannelProductDetails]", { id, error: String(err) });
+    const errorMessage = err instanceof Error ? err.message : "Failed to update channel product details.";
+    return { error: errorMessage };
   }
 }

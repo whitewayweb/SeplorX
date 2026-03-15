@@ -69,6 +69,11 @@ export async function createProduct(_prevState: unknown, formData: FormData) {
 
   revalidatePath("/products");
   revalidatePath("/purchase/bills");
+
+  // If a mapping is created later, it will start as in_sync.
+  // But if the user edits it later, it triggers.
+  // For new products, we don't have mappings yet, so nothing to update here.
+
   return { success: true };
 }
 
@@ -95,27 +100,40 @@ export async function updateProduct(_prevState: unknown, formData: FormData) {
   const { id, purchasePrice, sellingPrice, ...rest } = parsed.data;
 
   try {
-    const existing = await db
-      .select({ id: products.id })
-      .from(products)
-      .where(eq(products.id, id))
-      .limit(1);
+    await db.transaction(async (tx) => {
+      const existing = await tx
+        .select({ id: products.id })
+        .from(products)
+        .where(eq(products.id, id))
+        .limit(1);
 
-    if (existing.length === 0) {
+      if (existing.length === 0) {
+        throw new Error("PRODUCT_NOT_FOUND");
+      }
+
+      await tx
+        .update(products)
+        .set({
+          ...rest,
+          purchasePrice: purchasePrice != null && purchasePrice !== "" ? String(purchasePrice) : null,
+          sellingPrice: sellingPrice != null && sellingPrice !== "" ? String(sellingPrice) : null,
+          updatedAt: new Date(),
+        })
+        .where(eq(products.id, id));
+
+      // Flag all channel mappings for this product as pending_update
+      // so the Amazon Uploads dashboard picks them up for template generation.
+      await tx
+        .update(channelProductMappings)
+        .set({ syncStatus: "pending_update" })
+        .where(eq(channelProductMappings.productId, id));
+    });
+  } catch (err) {
+    const message = String(err);
+    if (message.includes("PRODUCT_NOT_FOUND")) {
       return { error: "Product not found." };
     }
-
-    await db
-      .update(products)
-      .set({
-        ...rest,
-        purchasePrice: purchasePrice != null && purchasePrice !== "" ? String(purchasePrice) : null,
-        sellingPrice: sellingPrice != null && sellingPrice !== "" ? String(sellingPrice) : null,
-        updatedAt: new Date(),
-      })
-      .where(eq(products.id, id));
-  } catch (err) {
-    console.error("[updateProduct]", { productId: id, error: String(err) });
+    console.error("[updateProduct]", { productId: id, error: message });
     if (
       err &&
       typeof err === "object" &&
@@ -277,6 +295,12 @@ export async function adjustStock(_prevState: unknown, formData: FormData) {
         notes: notes || null,
         createdBy: userId,
       });
+
+      // Flag all channel mappings for this product as pending_update
+      await tx
+        .update(channelProductMappings)
+        .set({ syncStatus: "pending_update" })
+        .where(eq(channelProductMappings.productId, productId));
     });
   } catch (err) {
     const message = String(err);

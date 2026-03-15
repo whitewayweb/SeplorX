@@ -61,6 +61,24 @@ export const channelStatusEnum = pgEnum("channel_status", [
   "disconnected",
 ]);
 
+export const syncStatusEnum = pgEnum("sync_status", [
+  "in_sync",
+  "pending_update",
+  "file_generating",
+  "uploading",
+  "processing",
+  "failed",
+]);
+
+export const feedStatusEnum = pgEnum("feed_status", [
+  "queued",
+  "generating",
+  "uploading",
+  "in_progress",
+  "done",
+  "fatal",
+]);
+
 // ─── Users ───────────────────────────────────────────────────────────────────
 
 export const users = pgTable("users", {
@@ -297,12 +315,15 @@ export const channelProductMappings = pgTable("channel_product_mappings", {
   productId: integer("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
   externalProductId: varchar("external_product_id", { length: 100 }).notNull(),
   label: varchar("label", { length: 255 }),
+  syncStatus: syncStatusEnum("sync_status").default("in_sync").notNull(),
+  lastSyncError: text("last_sync_error"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   uniqueIndex("channel_product_mappings_ext_unique").on(table.channelId, table.externalProductId),
   // channel_product_mappings_channel_idx removed — the composite unique index above
   // already covers queries on channel_id alone (Postgres uses composite index prefix).
   index("channel_product_mappings_product_idx").on(table.productId),
+  index("channel_product_mappings_sync_status_idx").on(table.syncStatus),
 ]).enableRLS();
 
 // ─── Channel Products (Cache) ────────────────────────────────────────────────
@@ -337,3 +358,28 @@ export const settings = pgTable("settings", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }).enableRLS();
+
+// ─── Channel Feeds (Upload History) ──────────────────────────────────────────
+// Tracks each template file submission to Amazon SP-API Feeds.
+// One row per feed submission — linked to a channel, grouped by category.
+
+export const channelFeeds = pgTable("channel_feeds", {
+  id: serial("id").primaryKey(),
+  channelId: integer("channel_id").notNull().references(() => channels.id, { onDelete: "cascade" }),
+  feedId: varchar("feed_id", { length: 255 }),
+  feedDocumentId: varchar("feed_document_id", { length: 255 }),
+  feedType: varchar("feed_type", { length: 255 }).notNull(),
+  category: varchar("category", { length: 100 }).notNull(),
+  status: feedStatusEnum("status").default("queued").notNull(),
+  productCount: integer("product_count").default(0).notNull(),
+  errorCount: integer("error_count").default(0),
+  uploadUrl: text("upload_url"),
+  resultDocumentUrl: text("result_document_url"),
+  errorMessage: text("error_message"),
+  mappingIds: jsonb("mapping_ids").$type<number[]>().default([]),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("channel_feeds_channel_idx").on(table.channelId),
+  index("channel_feeds_status_idx").on(table.status),
+]).enableRLS();

@@ -363,6 +363,7 @@ export function ChannelList({ channels, connected, mappedProductCounts }: Channe
                         width={20}
                         height={20}
                         className="shrink-0"
+                        unoptimized
                       />
                     ) : (
                       <Store className="text-muted-foreground h-4 w-4 shrink-0" />

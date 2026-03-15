@@ -140,10 +140,12 @@ Follow these principles for all code changes (based on sound software architectu
 ### Scalability
 
 - Write queries with explicit column selection (no `SELECT *`)
+- **JSONB column access:** Only extract the sub-fields you actually use from JSONB blobs. Use Drizzle's `sql<T>\`${table.col}->>'field'\`` syntax instead of fetching the entire `rawData`/`credentials` column when only scalar sub-fields are needed. This avoids deserialising large blobs unnecessarily.
 - Use DB transactions for multi-step mutations (read-check-write must be atomic)
 - Keep server actions focused: one action = one operation
 - Prefer DB-level constraints (unique indexes, FK checks) over application-level checks
 - Use `sql` template for atomic field updates (e.g., `quantity + N`) instead of read-then-write
+- **Registry / expensive module-level work:** Initialise once at module scope (`let cache: T | null = null`) and guard with `if (!cache)`. Suppress noisy logs in production with `if (process.env.NODE_ENV !== 'production')`. Expose a `refresh*()` escape-hatch for dev hot-reload.
 
 ### Minimal Engineering
 
@@ -159,6 +161,13 @@ Follow these principles for all code changes (based on sound software architectu
 - Trust internal code — don't re-validate data between your own functions
 - Use DB error codes (23505 = unique violation, 23503 = FK violation) for user-friendly messages
 - **Structured logging**: `console.error("[actionName]", { contextId, error: String(err) })`
+
+### Security
+
+- **Always validate untrusted identifiers at the action boundary.** FormData fields that control which DB rows are mutated (e.g. `id`, `channelId`, `externalId`) must pass through a Zod schema before use — not just a `parseInt` / truthiness check. Add these to `src/lib/validations/channels.ts`.
+- **IDOR prevention — service layer:** When a service function accepts a row ID supplied by client-side code, add an ownership constraint to the query. For example: `where(eq(table.id, rowId), eq(foreignTable.userId, userId))` via a JOIN, not just `where(eq(table.id, rowId))`. This pattern is used in `pollFeedStatus`, `deleteAmazonFeedRecordForUser`, and `getChannelForUser`.
+- **IDOR prevention — page layer:** Sensitive server-component pages must call `getAuthenticatedUserId()` and use user-scoped queries (e.g. `getChannelForUser(userId, channelId)` instead of `getChannel(channelId)`). Return `notFound()` for both missing rows and unauthorized access — never leak row existence.
+- **Multi-write atomicity:** Any function that performs two or more dependent DB writes must wrap them in `db.transaction(async (tx) => { ... })`. A partial write leaves state machines (sync status enums, audit tables) inconsistent. See `updateProduct`, `updateChannelProductService`.
 
 ### Performance & Data Integrity
 
