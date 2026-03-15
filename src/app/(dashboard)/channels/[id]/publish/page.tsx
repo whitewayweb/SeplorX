@@ -1,11 +1,11 @@
 import { notFound } from "next/navigation";
 import { db } from "@/db";
-import { channelProductMappings, channelProducts } from "@/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { channelProductMappings, channelProductChangelog, channelProducts } from "@/db/schema";
+import { eq, and, sql, desc } from "drizzle-orm";
 import { getChannelForUser } from "@/lib/channels/queries";
 import { getChannelById } from "@/lib/channels/registry";
 import { getAuthenticatedUserId } from "@/lib/auth";
-import { ChannelSyncDashboard } from "@/components/organisms/channels/sync-dashboard";
+import { ChannelPublishDashboard } from "@/components/organisms/channels/publish-dashboard";
 
 export const dynamic = "force-dynamic";
 
@@ -52,28 +52,27 @@ export default async function ChannelSyncPage({
     statusMap[row.syncStatus] = row.count;
   }
 
-  // ── Pending products ───────────────────────────────────────────────────
-  const pendingProducts = await db
+  // ── Staged changelog entries (with product name) ───────────────────────
+  const stagedChanges = await db
     .select({
-      externalProductId: channelProductMappings.externalProductId,
-      name: channelProducts.name,
-      sku: channelProducts.sku,
-      rawData: channelProducts.rawData,
+      id: channelProductChangelog.id,
+      externalProductId: channelProductChangelog.externalProductId,
+      delta: channelProductChangelog.delta,
+      createdAt: channelProductChangelog.createdAt,
+      productName: channelProducts.name,
     })
-    .from(channelProductMappings)
+    .from(channelProductChangelog)
     .leftJoin(
       channelProducts,
-      and(
-        eq(channelProducts.channelId, channelId),
-        eq(channelProducts.externalId, channelProductMappings.externalProductId),
-      ),
+      eq(channelProductChangelog.channelProductId, channelProducts.id),
     )
     .where(
       and(
-        eq(channelProductMappings.channelId, channelId),
-        eq(channelProductMappings.syncStatus, "pending_update"),
+        eq(channelProductChangelog.channelId, channelId),
+        eq(channelProductChangelog.status, "staged"),
       ),
-    );
+    )
+    .orderBy(desc(channelProductChangelog.createdAt));
 
   return (
     <div className="p-6 space-y-6">
@@ -84,13 +83,13 @@ export default async function ChannelSyncPage({
         </p>
       </div>
 
-      <ChannelSyncDashboard
+      <ChannelPublishDashboard
         channelId={channelId}
         channelName={channel.name}
         pendingCount={statusMap["pending_update"] ?? 0}
         failedCount={statusMap["failed"] ?? 0}
         inSyncCount={statusMap["in_sync"] ?? 0}
-        pendingProducts={pendingProducts}
+        stagedChanges={stagedChanges}
       />
     </div>
   );

@@ -113,7 +113,7 @@ src/
 
 ## Database
 
-- Tables: `users`, `app_installations`, `channels`, `channel_product_mappings`, `companies` (type: supplier/customer/both), `products`, `purchase_invoices`, `purchase_invoice_items`, `payments`, `inventory_transactions`, `agent_actions`, `settings`
+- Tables: `users`, `app_installations`, `channels`, `channel_product_mappings`, `channel_product_changelog`, `companies` (type: supplier/customer/both), `products`, `purchase_invoices`, `purchase_invoice_items`, `payments`, `inventory_transactions`, `agent_actions`, `settings`
 - All tables have RLS enabled — chain `.enableRLS()` on every new `pgTable(...)` call
 - Migrations in `drizzle/` directory (PostgreSQL dialect)
 - Use **port 6543** (transaction pooler) for the app, **port 5432** (direct) for migrations

@@ -251,13 +251,12 @@ export const woocommerceHandler: ChannelHandler = {
   },
 
   // ─── pushPendingUpdates ───────────────────────────────────────────────────
-  // Called by the generic pushChannelProductUpdatesService() in services.ts.
-  // No channel-type switch needed anywhere — just implement this method to
-  // participate in the sync pipeline.
+  // Changelog-driven delta push: reads staged changelog entries, merges deltas
+  // per product (latest value wins), and pushes only changed fields to WooCommerce.
   async pushPendingUpdates(userId, channelId): Promise<ChannelPushSyncResult> {
     // Lazy-import to avoid circular module deps at load time
     const { db } = await import("@/db");
-    const { channels, channelProducts, channelProductMappings } = await import("@/db/schema");
+    const { channels, channelProductMappings, channelProductChangelog } = await import("@/db/schema");
     const { eq, and, inArray } = await import("drizzle-orm");
     const { decryptChannelCredentials } = await import("@/lib/channels/utils");
 
@@ -276,54 +275,68 @@ export const woocommerceHandler: ChannelHandler = {
     }
     const auth = basicAuth(creds.consumerKey, creds.consumerSecret);
 
-    // Fetch all pending mappings joined with cached channel product data
-    const pendingMappings = await db
+    // Load all staged changelog entries for this channel, ordered by timestamp
+    const stagedEntries = await db
       .select({
-        mappingId: channelProductMappings.id,
-        externalProductId: channelProductMappings.externalProductId,
-        channelProductName: channelProducts.name,
-        channelProductSku: channelProducts.sku,
-        channelProductRawData: channelProducts.rawData,
+        id: channelProductChangelog.id,
+        externalProductId: channelProductChangelog.externalProductId,
+        delta: channelProductChangelog.delta,
+        createdAt: channelProductChangelog.createdAt,
       })
-      .from(channelProductMappings)
-      .innerJoin(
-        channelProducts,
-        and(
-          eq(channelProducts.channelId, channelId),
-          eq(channelProducts.externalId, channelProductMappings.externalProductId),
-        ),
-      )
+      .from(channelProductChangelog)
       .where(
         and(
-          eq(channelProductMappings.channelId, channelId),
-          eq(channelProductMappings.syncStatus, "pending_update"),
+          eq(channelProductChangelog.channelId, channelId),
+          eq(channelProductChangelog.status, "staged"),
         ),
-      );
+      )
+      .orderBy(channelProductChangelog.createdAt);
 
-    if (pendingMappings.length === 0) {
+    if (stagedEntries.length === 0) {
       return { pushed: 0, failed: 0, results: [] };
     }
 
+    // Map delta keys → WooCommerce REST API field names
+    function buildWcPayload(delta: Record<string, unknown>): Record<string, unknown> {
+      const payload: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(delta)) {
+        switch (key) {
+          case "name":              payload.name              = value; break;
+          case "sku":               payload.sku               = value; break;
+          case "description":       payload.description       = value; break;
+          case "short_description": payload.short_description = value; break;
+          case "regular_price":     payload.regular_price     = String(value); break;
+          case "price":             payload.regular_price     = String(value); break;
+          case "weight":            payload.weight            = String(value); break;
+          case "stockQuantity":     payload.manage_stock      = true;
+                                    payload.stock_quantity    = value; break;
+          default:
+            // Pass through any other delta keys as-is (e.g. item_condition)
+            payload[key] = value;
+        }
+      }
+      return payload;
+    }
+
+    // Since we now guarantee only 1 staged row per product, no grouping is needed
     const results: ChannelPushSyncResult["results"] = [];
-    const succeededIds: number[] = [];
-    const failedData: { id: number; error: string }[] = [];
+    const succeededMappingExtIds: string[] = [];
+    const succeededEntryIds: number[] = [];
+    const failedEntryData: { entryIds: number[]; error: string; extId: string }[] = [];
 
-    for (const mapping of pendingMappings) {
-      const { externalProductId, channelProductName, channelProductSku } = mapping;
-      const rawData = (mapping.channelProductRawData ?? {}) as Record<string, unknown>;
+    for (const entry of stagedEntries) {
+      const wooPayload = buildWcPayload(entry.delta as Record<string, unknown>);
 
-      // Only send fields SeplorX explicitly manages — never clear unknown WC fields
-      const wooPayload: Record<string, unknown> = {};
-      if (channelProductName)        wooPayload.name              = channelProductName;
-      if (channelProductSku)         wooPayload.sku               = channelProductSku;
-      if (rawData.description)       wooPayload.description       = rawData.description;
-      if (rawData.short_description) wooPayload.short_description = rawData.short_description;
-      if (rawData.regular_price)     wooPayload.regular_price     = String(rawData.regular_price);
-      if (rawData.price)             wooPayload.regular_price     = String(rawData.price);
-      if (rawData.weight)            wooPayload.weight            = String(rawData.weight);
+      if (Object.keys(wooPayload).length === 0) {
+        // No meaningful WC fields to push — mark entries as success
+        succeededEntryIds.push(entry.id);
+        succeededMappingExtIds.push(entry.externalProductId);
+        results.push({ externalProductId: entry.externalProductId, success: true });
+        continue;
+      }
 
       try {
-        const res = await wcFetch(channel.storeUrl!, `/products/${externalProductId}`, {
+        const res = await wcFetch(channel.storeUrl!, `/products/${entry.externalProductId}`, {
           method: "PUT",
           headers: { Authorization: auth },
           body: JSON.stringify(wooPayload),
@@ -332,30 +345,62 @@ export const woocommerceHandler: ChannelHandler = {
           const text = await res.text().catch(() => "");
           throw new Error(`WooCommerce PUT failed (${res.status}): ${text.substring(0, 200)}`);
         }
-        results.push({ externalProductId, success: true });
-        succeededIds.push(mapping.mappingId);
+        results.push({ externalProductId: entry.externalProductId, success: true });
+        succeededEntryIds.push(entry.id);
+        succeededMappingExtIds.push(entry.externalProductId);
       } catch (err) {
         const errorMsg = String(err).replace(/^Error:\s*/, "").substring(0, 300);
-        results.push({ externalProductId, success: false, error: errorMsg });
-        failedData.push({ id: mapping.mappingId, error: errorMsg });
+        results.push({ externalProductId: entry.externalProductId, success: false, error: errorMsg });
+        failedEntryData.push({ entryIds: [entry.id], error: errorMsg, extId: entry.externalProductId });
       }
     }
 
-    // Write sync statuses atomically
-    if (succeededIds.length > 0) {
+    // Update changelog + mapping statuses atomically
+    if (succeededEntryIds.length > 0) {
       await db
-        .update(channelProductMappings)
-        .set({ syncStatus: "in_sync", lastSyncError: null })
-        .where(inArray(channelProductMappings.id, succeededIds));
+        .update(channelProductChangelog)
+        .set({ status: "success", publishedAt: new Date() })
+        .where(inArray(channelProductChangelog.id, succeededEntryIds));
     }
-    for (const { id, error } of failedData) {
+
+    // Update successful mappings to in_sync
+    if (succeededMappingExtIds.length > 0) {
+      const successMappings = await db
+        .select({ id: channelProductMappings.id })
+        .from(channelProductMappings)
+        .where(
+          and(
+            eq(channelProductMappings.channelId, channelId),
+            inArray(channelProductMappings.externalProductId, succeededMappingExtIds),
+          ),
+        );
+      if (successMappings.length > 0) {
+        await db
+          .update(channelProductMappings)
+          .set({ syncStatus: "in_sync", lastSyncError: null })
+          .where(inArray(channelProductMappings.id, successMappings.map(m => m.id)));
+      }
+    }
+
+    // Update failed entries and mappings
+    for (const { entryIds, error, extId } of failedEntryData) {
+      await db
+        .update(channelProductChangelog)
+        .set({ status: "failed", errorLine: error })
+        .where(inArray(channelProductChangelog.id, entryIds));
+
       await db
         .update(channelProductMappings)
         .set({ syncStatus: "failed", lastSyncError: error })
-        .where(eq(channelProductMappings.id, id));
+        .where(
+          and(
+            eq(channelProductMappings.channelId, channelId),
+            eq(channelProductMappings.externalProductId, extId),
+          ),
+        );
     }
 
-    return { pushed: succeededIds.length, failed: failedData.length, results };
+    return { pushed: succeededMappingExtIds.length, failed: failedEntryData.length, results };
   },
 
   extractSqlField,

@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { channels, channelProducts, channelProductMappings } from "@/db/schema";
+import { channels, channelProducts, channelProductMappings, channelProductChangelog } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { encrypt } from "@/lib/crypto";
 import { getChannelById } from "@/lib/channels/registry";
@@ -391,10 +391,15 @@ export async function updateChannelProductService(
     throw new Error("Product must be mapped to a SeplorX inventory item before it can be updated.");
   }
 
-  // Read existing rawData — validated by checking all three identifiers
+  // Read existing state — validated by checking all three identifiers
   // to prevent an attacker from updating an arbitrary channelProducts row.
   const [existing] = await db
-    .select({ rawData: channelProducts.rawData })
+    .select({
+      name: channelProducts.name,
+      sku: channelProducts.sku,
+      stockQuantity: channelProducts.stockQuantity,
+      rawData: channelProducts.rawData,
+    })
     .from(channelProducts)
     .where(
       and(
@@ -434,7 +439,28 @@ export async function updateChannelProductService(
     }
   }
 
-  // Persist local custom overrides and stage for provider sync atomically
+  // ── Compute delta: only fields that actually changed ───────────────────
+  const delta: Record<string, unknown> = {};
+
+  if (dbPatch.name !== undefined && dbPatch.name !== existing.name) {
+    delta.name = dbPatch.name;
+  }
+  if (dbPatch.sku !== undefined && dbPatch.sku !== existing.sku) {
+    delta.sku = dbPatch.sku;
+  }
+  if (dbPatch.stockQuantity !== undefined && dbPatch.stockQuantity !== existing.stockQuantity) {
+    delta.stockQuantity = dbPatch.stockQuantity;
+  }
+  // For rawData changes, extract only the individual rawData fields that differ
+  if (dbPatch.rawData) {
+    for (const [key, newVal] of Object.entries(dbPatch.rawData)) {
+      if (JSON.stringify(newVal) !== JSON.stringify(existingRawData[key])) {
+        delta[key] = newVal;
+      }
+    }
+  }
+
+  // Persist local overrides, stage for sync, and append changelog atomically
   await db.transaction(async (tx) => {
     if (Object.keys(dbPatch).length > 0) {
       await tx
@@ -453,6 +479,42 @@ export async function updateChannelProductService(
       .update(channelProductMappings)
       .set({ syncStatus: "pending_update", lastSyncError: null })
       .where(eq(channelProductMappings.id, mapping.id));
+
+    // Only create or update a changelog entry if something actually changed
+    if (Object.keys(delta).length > 0) {
+      const [existingStaged] = await tx
+        .select({ id: channelProductChangelog.id, delta: channelProductChangelog.delta })
+        .from(channelProductChangelog)
+        .where(
+          and(
+            eq(channelProductChangelog.channelId, channelId),
+            eq(channelProductChangelog.channelProductId, productId),
+            eq(channelProductChangelog.status, "staged")
+          )
+        )
+        .limit(1);
+
+      if (existingStaged) {
+        // Merge with existing staged delta
+        const mergedDelta = {
+          ...(existingStaged.delta as Record<string, unknown>),
+          ...delta
+        };
+        await tx
+          .update(channelProductChangelog)
+          .set({ delta: mergedDelta })
+          .where(eq(channelProductChangelog.id, existingStaged.id));
+      } else {
+        // Insert new staged row
+        await tx.insert(channelProductChangelog).values({
+          channelId,
+          channelProductId: productId,
+          externalProductId: externalId,
+          delta,
+          status: "staged",
+        });
+      }
+    }
   });
 }
 
