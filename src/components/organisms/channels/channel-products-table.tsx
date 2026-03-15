@@ -46,6 +46,7 @@ interface VariationRow extends ProductRow {
 
 interface ChannelProductsTableProps {
     channelId: number;
+    channelName?: string;
     products: ProductRow[];
     variations: VariationRow[];
     canRefetchItem: boolean;
@@ -57,6 +58,7 @@ interface ChannelProductsTableProps {
 
 export function ChannelProductsTable({
     channelId,
+    channelName,
     products,
     variations,
     canRefetchItem,
@@ -354,7 +356,7 @@ export function ChannelProductsTable({
                                 </SheetDescription>
                             </SheetHeader>
                             <div className="flex-1 w-full pb-0 flex flex-col items-start px-0">
-                                <ProductDetailTabs product={selectedProduct} onSaveSuccess={invalidate} />
+                                <ProductDetailTabs channelName={channelName} product={selectedProduct} onSaveSuccess={invalidate} />
                             </div>
                         </>
                     ) : null}

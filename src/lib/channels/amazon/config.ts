@@ -1,5 +1,23 @@
-import type { ChannelCapabilities, ChannelConfigField } from "../types";
-import { getBrandsForChannel } from "../queries";
+import type { ChannelCapabilities, ChannelConfigField, StandardizedProductRecord } from "../types";
+
+// Helper for Amazon raw data extraction
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getNestedValue(obj: any, key: string): string {
+    if (!obj) return "";
+    if (typeof obj[key] === "string") return obj[key];
+    if (Array.isArray(obj[key]) && obj[key][0]?.value) return obj[key][0].value;
+    return "";
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getDimensionValue(dimObj: any, key: string): string {
+    if (!dimObj?.[key]) return "";
+    const val  = dimObj[key].value !== undefined ? dimObj[key].value : dimObj[key];
+    const unit = dimObj[key].unit || "";
+    const num  = Number(val);
+    if (isNaN(num)) return "";
+    return `${num.toFixed(2)} ${unit}`.trim();
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // Registry & Constants
@@ -144,10 +162,39 @@ export function buildConnectUrl(channelId: number, config: Record<string, string
   return `${base}/channels?connected=amazon`;
 }
 
+
+
 /**
- * Returns the distinct, sorted brand names for this Amazon channel instance.
- * Re-uses the shared DAL helper; the JSONB extraction path lives in queries.ts.
+ * Maps an Amazon SP-API catalog item payload to the standardized UI presentation record.
  */
-export async function getBrands(channelId: number): Promise<string[]> {
-  return getBrandsForChannel(channelId);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function extractProductFields(rawData: Record<string, any>): StandardizedProductRecord {
+    const summaries     = Array.isArray(rawData.summaries)      ? rawData.summaries[0] || {}          : {};
+    const attributesObj = Array.isArray(rawData.attributes)     ? rawData.attributes[0] || {}         : {};
+    const dimensions    = Array.isArray(rawData.dimensions)     ? rawData.dimensions[0] || {}         : {};
+    const relationships = Array.isArray(rawData.relationships)  ? rawData.relationships[0]?.relationships || [] : [];
+
+    const rawImages = (Array.isArray(rawData.images) && rawData.images[0]?.images) ? rawData.images[0].images : [];
+    const images = rawImages.map((img: { link?: string; variant?: string; width?: string | number; height?: string | number }) => ({
+        link: img.link || "",
+        variant: img.variant || "",
+        width: img.width || "-",
+        height: img.height || "-"
+    }));
+
+    return {
+        brand:        getNestedValue(summaries, "brand")        || getNestedValue(attributesObj, "brand")        || rawData["brand-name"] || "",
+        color:        getNestedValue(summaries, "color")        || getNestedValue(attributesObj, "color")        || "",
+        partNumber:   getNestedValue(summaries, "partNumber")   || getNestedValue(attributesObj, "part_number")  || rawData.sku || "",
+        manufacturer: getNestedValue(summaries, "manufacturer") || getNestedValue(attributesObj, "manufacturer") || "",
+        description:  getNestedValue(attributesObj, "product_description") || "",
+        itemTypeKw:   getNestedValue(attributesObj, "item_type_keyword") || "",
+        category:     rawData.category || summaries?.browseClassification?.displayName || "",
+        price:        rawData.price || "",
+        itemCondition: rawData["item-condition"] || "New",
+        pkgWeight:    getDimensionValue(dimensions, "package") || getDimensionValue(dimensions?.package, "weight") || "",
+        itemWeight:   getDimensionValue(dimensions, "item")    || getDimensionValue(dimensions?.item, "weight") || "",
+        images,
+        relationships,
+    };
 }

@@ -9,6 +9,9 @@ import { Button } from "@/components/ui/button";
 import { updateChannelProductDetails } from "@/app/(dashboard)/channels/actions";
 import { toast } from "sonner";
 
+import { getChannelById } from "@/lib/channels/registry";
+import type { ChannelType, StandardizedProductRecord } from "@/lib/channels/types";
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface ChannelProductDetail {
@@ -22,10 +25,12 @@ export interface ChannelProductDetail {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rawData: Record<string, any>;
     lastSyncedAt: Date | null;
+    channelType: string;
 }
 
 interface ProductDetailTabsProps {
     product: ChannelProductDetail;
+    channelName?: string;
     /** Called after a successful save so the parent can evict its cache entry. */
     onSaveSuccess?: (productId: number) => void;
 }
@@ -36,53 +41,6 @@ type ActionState = {
     error?: string;
     fieldErrors?: Record<string, string[] | undefined>;
 } | null;
-
-// ── rawData extraction ────────────────────────────────────────────────────────
-// Extracts display-ready values from the channel-specific rawData blob.
-// Keeps all the Amazon/WooCommerce key-name knowledge out of the JSX.
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getNestedValue(obj: any, key: string): string {
-    if (!obj) return "";
-    if (typeof obj[key] === "string") return obj[key];
-    if (Array.isArray(obj[key]) && obj[key][0]?.value) return obj[key][0].value;
-    return "";
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getDimensionValue(dimObj: any, key: string): string {
-    if (!dimObj?.[key]) return "";
-    const val  = dimObj[key].value !== undefined ? dimObj[key].value : dimObj[key];
-    const unit = dimObj[key].unit || "";
-    const num  = Number(val);
-    if (isNaN(num)) return "";
-    return `${num.toFixed(2)} ${unit}`.trim();
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractProductFields(rawData: Record<string, any>) {
-    const summaries     = Array.isArray(rawData.summaries)      ? rawData.summaries[0] || {}          : {};
-    const attributes    = Array.isArray(rawData.attributes)     ? rawData.attributes[0] || {}         : {};
-    const dimensions    = Array.isArray(rawData.dimensions)     ? rawData.dimensions[0] || {}         : {};
-    const images        = Array.isArray(rawData.images)         ? rawData.images[0]?.images || []     : [];
-    const relationships = Array.isArray(rawData.relationships)  ? rawData.relationships[0]?.relationships || [] : [];
-
-    return {
-        brand:        getNestedValue(summaries, "brand")        || getNestedValue(attributes, "brand")        || rawData["brand-name"] || "",
-        color:        getNestedValue(summaries, "color")        || getNestedValue(attributes, "color")        || "",
-        partNumber:   getNestedValue(summaries, "partNumber")   || getNestedValue(attributes, "part_number")  || "",
-        manufacturer: getNestedValue(summaries, "manufacturer") || getNestedValue(attributes, "manufacturer") || "",
-        description:  getNestedValue(attributes, "product_description") || "",
-        itemTypeKw:   getNestedValue(attributes, "item_type_keyword")   || "",
-        category:     rawData.category || summaries?.browseClassification?.displayName || "",
-        price:        rawData.price || "",
-        itemCondition: rawData["item-condition"] || "New",
-        pkgWeight:    getDimensionValue(dimensions, "package") || getDimensionValue(dimensions?.package, "weight"),
-        itemWeight:   getDimensionValue(dimensions, "item")    || getDimensionValue(dimensions?.item, "weight"),
-        images,
-        relationships,
-    };
-}
 
 // ── Inline field error ────────────────────────────────────────────────────────
 
@@ -97,8 +55,17 @@ const tabTriggerCls = "data-[state=active]:shadow-none data-[state=active]:bg-tr
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function ProductDetailTabs({ product, onSaveSuccess }: ProductDetailTabsProps) {
-    const fields = extractProductFields(product.rawData || {});
+export function ProductDetailTabs({ product, channelName, onSaveSuccess }: ProductDetailTabsProps) {
+    const channelDef = getChannelById(product.channelType as ChannelType);
+    
+    // Use registry extraction or fallback to an empty object
+    const fields = channelDef?.extractProductFields
+        ? channelDef.extractProductFields(product.rawData || {})
+        : {
+            brand: "", color: "", partNumber: "", manufacturer: "", description: "", 
+            itemTypeKw: "", category: "", price: "", itemCondition: "", pkgWeight: "", 
+            itemWeight: "", images: [], relationships: []
+        };
 
     const [state, action, pending] = useActionState(
         async (prev: ActionState, formData: FormData): Promise<ActionState> => {
@@ -133,7 +100,7 @@ export function ProductDetailTabs({ product, onSaveSuccess }: ProductDetailTabsP
                 </TabsList>
 
                 <div className="p-4 pt-6 max-w-4xl">
-                    <DetailsTab fields={fields} product={product} fe={fe} />
+                    <DetailsTab fields={fields} product={product} fe={fe} channelName={channelName} />
                     <ImagesTab images={fields.images} />
                     <OfferTab product={product} fields={fields} fe={fe} />
                     <VariationsTab relationships={fields.relationships} />
@@ -165,10 +132,12 @@ function DetailsTab({
     fields,
     product,
     fe,
+    channelName,
 }: {
-    fields: ReturnType<typeof extractProductFields>;
+    fields: StandardizedProductRecord;
     product: ChannelProductDetail;
     fe: Record<string, string[] | undefined>;
+    channelName?: string;
 }) {
     return (
         <TabsContent value="details" className="space-y-6 mt-0">
@@ -189,7 +158,7 @@ function DetailsTab({
                         defaultValue={fields.category}
                         disabled
                         className="bg-muted/50"
-                        placeholder="Synced automatically from provider"
+                        placeholder={`Synced automatically from ${channelName || 'provider'}`}
                     />
                     {!fields.category && (
                         <p className="text-xs text-muted-foreground">
@@ -263,7 +232,7 @@ function OfferTab({
     fe,
 }: {
     product: ChannelProductDetail;
-    fields: ReturnType<typeof extractProductFields>;
+    fields: StandardizedProductRecord;
     fe: Record<string, string[] | undefined>;
 }) {
     return (

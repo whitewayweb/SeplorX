@@ -1,5 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import type { ChannelHandler, WebhookStockChange, ExternalProduct } from "../types";
+import { getBrandsForChannel } from "../queries";
 
 // ─── WooCommerce REST API helpers ─────────────────────────────────────────────
 // credentials JSONB keys: consumerKey, consumerSecret (encrypted),
@@ -265,5 +266,9 @@ export const woocommerceHandler: ChannelHandler = {
         // Unknown/future topic — no-op, return empty (route will still 200)
         return [];
     }
+  },
+
+  async getBrands(channelId) {
+    return getBrandsForChannel(channelId);
   },
 };

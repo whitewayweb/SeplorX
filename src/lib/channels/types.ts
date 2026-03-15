@@ -1,5 +1,21 @@
 export type ChannelType = "woocommerce" | "shopify" | "amazon" | "custom";
 
+export interface StandardizedProductRecord {
+  brand: string;
+  color: string;
+  partNumber: string;
+  manufacturer: string;
+  description: string;
+  itemTypeKw: string;
+  category: string;
+  price: string;
+  itemCondition: string;
+  pkgWeight: string;
+  itemWeight: string;
+  images: { link: string; variant?: string; width: string | number; height: string | number }[];
+  relationships: { type?: string; childAsins?: string[]; parentAsins?: string[]; variationTheme?: { theme: string } }[];
+}
+
 export interface ChannelDefinition {
   id: ChannelType;
   name: string;
@@ -21,12 +37,13 @@ export interface ChannelDefinition {
   getProductUrl?: (externalId: string, credentials?: Record<string, string>, rawData?: unknown) => string | null;
   /** UI Hint for the connection step */
   connectionHint?: string;
+
   /**
-   * Fetch the distinct list of brand names available for a given channel instance.
-   * Each channel type implements its own extraction logic (JSONB path, attributes array, etc.).
-   * Returns an empty array if the channel has no brand data.
+   * Extract standardized fields from channel-specific rawData payload to be displayed
+   * in the product details UI.
    */
-  getBrands?: (channelId: number) => Promise<string[]>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  extractProductFields?: (rawData: Record<string, any>) => StandardizedProductRecord;
 }
 
 export type ChannelStatus = "pending" | "connected" | "disconnected";
@@ -206,5 +223,12 @@ export interface ChannelHandler {
       [key: string]: string | undefined;
     },
   ): Record<string, unknown> | null | undefined;
+
+  /**
+   * Fetch the distinct list of brand names available for a given channel instance.
+   * Each channel type implements its own extraction logic.
+   * Returns an empty array if the channel has no brand data.
+   */
+  getBrands?(channelId: number): Promise<string[]>;
 }
 

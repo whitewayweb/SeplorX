@@ -13,6 +13,7 @@ import {
   validateConfig,
   buildConnectUrl,
 } from "./config";
+import { getBrandsForChannel } from "../queries";
 
 export const amazonHandler: ChannelHandler = {
   id: "amazon",
@@ -57,5 +58,9 @@ export const amazonHandler: ChannelHandler = {
     if (patch.price) updates["price"] = patch.price;
     if (patch.itemCondition) updates["item-condition"] = patch.itemCondition;
     return Object.keys(updates).length > 0 ? updates : null;
+  },
+
+  async getBrands(channelId) {
+    return getBrandsForChannel(channelId);
   },
 };

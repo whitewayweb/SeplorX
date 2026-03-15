@@ -66,6 +66,10 @@ interface ChannelDefinition {
   buildConnectUrl?: (channelId: number, config: Record<string, string>, appUrl: string) => string;
   /** Generate a public product link if available (e.g. Amazon DP link) */
   getProductUrl?: (externalId: string, credentials?: Record<string, string>, rawData?: unknown) => string | null;
+  /** Fetch the distinct list of brand names available for a given channel instance. */
+  getBrands?: (channelId: number) => Promise<string[]>;
+  /** Extract standardized fields from channel-specific rawData payload for the UI. */
+  extractProductFields?: (rawData: Record<string, any>) => StandardizedProductRecord;
 }
 
 type ChannelStatus = "pending" | "connected" | "disconnected";
@@ -213,10 +217,10 @@ interface ChannelHandler {
 
 ### Polymorphic Logic & Registry-Driven Rendering
 Channel-specific behavior should be shifted as far "left" (towards the registry) as possible.
-- **BAD**: Adding `if (channelType === 'amazon')` in a React component.
-- **GOOD**: Defining `getProductUrl` in the Amazon and WooCommerce configs.
+- **BAD**: Adding `if (channelType === 'amazon')` in a React component for display parsing.
+- **GOOD**: Defining `getProductUrl` or `extractProductFields` in the Amazon and WooCommerce configs.
 
-This allows the **Data Access Layer (DAL)** to automatically enrich product lists with URLs. UI components like `ChannelProductsTable` remain 100% generic—they only care if a `productUrl` exists, not how it was constructed.
+This allows the UI components like `ChannelProductsTable` and `ProductDetailTabs` to remain 100% generic — they only care about checking `channelDef.extractProductFields()`, not how it was constructed from the raw JSON payload.
 
 ### User-Scoped Channel Access
 

@@ -1,5 +1,4 @@
-import type { ChannelCapabilities, ChannelConfigField } from "../types";
-import { getBrandsForChannel } from "../queries";
+import type { ChannelCapabilities, ChannelConfigField, StandardizedProductRecord } from "../types";
 
 export const configFields: ChannelConfigField[] = [
   {
@@ -54,10 +53,51 @@ export function getProductUrl(externalId: string, credentials?: Record<string, s
   return `${storeUrl.replace(/\/$/, "")}/?p=${externalId}`;
 }
 
+
+
 /**
- * Returns the distinct, sorted brand names for this WooCommerce channel instance.
- * Re-uses the shared DAL helper; the JSONB extraction for WC attributes lives in queries.ts.
+ * Maps a WooCommerce product payload to the standardized UI presentation record.
  */
-export async function getBrands(channelId: number): Promise<string[]> {
-  return getBrandsForChannel(channelId);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function extractProductFields(rawData: Record<string, any>): StandardizedProductRecord {
+    const isWoo = Array.isArray(rawData.attributes);
+    
+    // WooCommerce fallback attribute getter
+    const getWooAttr = (name: string) => {
+        if (!isWoo) return "";
+        const attr = rawData.attributes.find((a: { name?: string; options?: string[] }) => a.name?.toLowerCase() === name.toLowerCase());
+        return attr?.options?.[0] || "";
+    };
+
+    const description = rawData.description?.replace(/(<([^>]+)>)/gi, "") 
+        || rawData.short_description?.replace(/(<([^>]+)>)/gi, "") 
+        || "";
+
+    const category = Array.isArray(rawData.categories) 
+        ? rawData.categories.map((c: { name?: string }) => c.name).join(", ") 
+        : "";
+
+    const rawImages = Array.isArray(rawData.images) ? rawData.images : [];
+    const images = rawImages.map((img: { src?: string; link?: string; name?: string; alt?: string; variant?: string; width?: string | number; height?: string | number }) => ({
+        link: img.src || img.link || "",
+        variant: img.name || img.alt || img.variant || "",
+        width: img.width || "-",
+        height: img.height || "-"
+    }));
+
+    return {
+        brand:        getWooAttr("brand") || rawData["brand-name"] || "",
+        color:        getWooAttr("color"),
+        partNumber:   getWooAttr("part_number") || rawData.sku || "",
+        manufacturer: getWooAttr("manufacturer"),
+        description:  description,
+        itemTypeKw:   "",
+        category:     category,
+        price:        rawData.price || rawData.regular_price || "",
+        itemCondition: rawData["item-condition"] || "New",
+        pkgWeight:    rawData.weight ? `${rawData.weight} kg` : "",
+        itemWeight:   rawData.weight ? `${rawData.weight} kg` : "",
+        images,
+        relationships: [],
+    };
 }

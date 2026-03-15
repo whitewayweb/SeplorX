@@ -38,22 +38,23 @@ export default async function ChannelProductsPage({
     notFound();
   }
 
-  // Resolve the channel definition from the registry (for icon + getBrands)
+  // Resolve the channel definition from the registry (for icon + extractProductFields)
   const channelDef = getChannelById(channel.channelType as ChannelType);
+  
+  // Resolve the channel handler (server-only) for methods like getBrands and getCatalogItem
+  const handler = getChannelHandler(channel.channelType);
+  const canRefetchItem = !!handler?.getCatalogItem;
+  const channelIcon = channelDef?.icon ?? null;
 
-  // Fetch brands via the registry-defined getBrands — falls back to empty array
+  // Fetch brands via the server-side handler — falls back to empty array
   // Run both queries in parallel.
   const [
     { products: productsList, variations: variationsList, totalCount: count },
     brands,
   ] = await Promise.all([
     getChannelProductsWithVariations(channelId, { query, brand, limit, offset }),
-    channelDef?.getBrands?.(channelId) ?? Promise.resolve([]),
+    handler?.getBrands?.(channelId) ?? Promise.resolve([]),
   ]);
-
-  const handler = getChannelHandler(channel.channelType);
-  const canRefetchItem = !!handler?.getCatalogItem;
-  const channelIcon = channelDef?.icon ?? null;
 
   return (
     <div className="p-6 space-y-4">
@@ -93,6 +94,7 @@ export default async function ChannelProductsPage({
       {/* ── Products Table ────────────────────────────────────────────── */}
       <ChannelProductsTable
         channelId={channelId}
+        channelName={channel.name}
         products={productsList}
         variations={variationsList}
         canRefetchItem={canRefetchItem}
