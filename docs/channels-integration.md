@@ -212,8 +212,20 @@ interface ChannelHandler {
   fetchProducts?(storeUrl, credentials, search?): Promise<ExternalProduct[]>;  // optional
   getCatalogItem?(storeUrl, credentials, externalId): Promise<ExternalProduct>; // optional — single-item fetch
   getProductUrl?(externalId, credentials, rawData): string | null;            // Polymorphic logic
+  
+  // -- Database & Analytics Methods (Scalable filtering/grouping) --
+  /** Fetch the distinct list of brand names available for a given channel */
+  getBrands?(channelId: number): Promise<string[]>;
+  /** Drizzle SQL expression to extract a given filter field (e.g. "brand") from rawData */
+  extractSqlField?(fieldName: "brand" | "category" | string): any | null;
 }
 ```
+
+### Channel Specific Queries (`src/lib/channels/{channel_id}/queries.ts`)
+To keep the global DAL clean and avoid massive SQL `CASE` statements across channels, each channel type should define its own `queries.ts` file that exports its specific implementations for `extractSqlField` and database convenience methods like `getBrands`. These are then exported out of the specific channel's `index.ts` handler definition.
+
+> **Top-Level Columns vs. JSONB:** 
+> Do not use `extractSqlField` for standard entity properties like `title` (mapped to `name`), `sku`, or `stock` (mapped to `stockQuantity`). These are **native top-level PostgreSQL columns** on the `channel_products` table. They are already fully indexed, standardized, and natively queryable. `extractSqlField` is exclusively for data *trapped inside* the channel's specific JSONB `rawData` payload (e.g., `price`, `category`, `brand`, `itemCondition`).
 
 ### Polymorphic Logic & Registry-Driven Rendering
 Channel-specific behavior should be shifted as far "left" (towards the registry) as possible.

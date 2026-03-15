@@ -230,5 +230,12 @@ export interface ChannelHandler {
    * Returns an empty array if the channel has no brand data.
    */
   getBrands?(channelId: number): Promise<string[]>;
+
+  /**
+   * Returns the Drizzle SQL expression to extract a given filter field (e.g. "brand", "category") 
+   * from the channel_products.raw_data JSONB column. Used by the DAL for filtering and grouping.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  extractSqlField?(fieldName: "brand" | "category" | string): any | null;
 }
 

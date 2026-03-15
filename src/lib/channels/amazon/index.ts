@@ -13,7 +13,7 @@ import {
   validateConfig,
   buildConnectUrl,
 } from "./config";
-import { getBrandsForChannel } from "../queries";
+import { extractSqlField, getBrands } from "./queries";
 
 export const amazonHandler: ChannelHandler = {
   id: "amazon",
@@ -60,7 +60,6 @@ export const amazonHandler: ChannelHandler = {
     return Object.keys(updates).length > 0 ? updates : null;
   },
 
-  async getBrands(channelId) {
-    return getBrandsForChannel(channelId);
-  },
+  extractSqlField,
+  getBrands,
 };

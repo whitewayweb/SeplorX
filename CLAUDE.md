@@ -141,6 +141,8 @@ Follow these principles for all code changes (based on sound software architectu
 
 - Write queries with explicit column selection (no `SELECT *`)
 - **JSONB column access:** Only extract the sub-fields you actually use from JSONB blobs. Use Drizzle's `sql<T>\`${table.col}->>'field'\`` syntax instead of fetching the entire `rawData`/`credentials` column when only scalar sub-fields are needed. This avoids deserialising large blobs unnecessarily.
+- **Scalable JSONB Querying:** When filtering or organizing globally against channel-specific JSONB payloads (e.g., getting unique brands, categories, or prices), avoid massive global `CASE` statements. Instead, delegate the JSONB Drizzle SQL extraction to `handler.extractSqlField(fieldName)`. The specific extraction logic must live inside `src/lib/channels/{channel_id}/queries.ts`.
+  - **Note:** Standard fields like `title` (`name`), `sku`, and `stockQuantity` are strictly maintained as **native top-level PostgreSQL columns** (`channelProducts.name`, `channelProducts.stockQuantity`) because they are heavily indexed and updated often. You **do not** need to use JSONB `extractSqlField` logic for these; just use standard Drizzle querying (`eq(channelProducts.sku, "123")`).
 - Use DB transactions for multi-step mutations (read-check-write must be atomic)
 - Keep server actions focused: one action = one operation
 - Prefer DB-level constraints (unique indexes, FK checks) over application-level checks
