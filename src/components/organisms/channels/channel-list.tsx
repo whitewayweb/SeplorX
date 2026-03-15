@@ -6,6 +6,7 @@ import Image from "next/image";
 import { Store, Webhook, PackageSearch, PlugZap } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { PORTAL_NAME } from "@/utils/constants";
 import {
   Table,
   TableBody,
@@ -93,7 +94,7 @@ function RegisterWebhooksButton({ channelId }: { channelId: number }) {
         setError(result.error ?? "Failed to register webhooks.");
       } else {
         toast.success("Webhooks registered", {
-          description: "The channel will now send order events to SeplorX.",
+          description: `The channel will now send order events to ${PORTAL_NAME}.`,
         });
       }
     });

@@ -8,6 +8,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { updateChannelProductDetails } from "@/app/(dashboard)/channels/actions";
 import { toast } from "sonner";
+import { useAtomValue } from "jotai";
+import { channelNameAtom } from "@/store/channels";
+import { PORTAL_NAME } from "@/utils/constants";
 
 import { getChannelById } from "@/lib/channels/registry";
 import type { ChannelType, StandardizedProductRecord } from "@/lib/channels/types";
@@ -30,7 +33,6 @@ export interface ChannelProductDetail {
 
 interface ProductDetailTabsProps {
     product: ChannelProductDetail;
-    channelName?: string;
     /** Called after a successful save so the parent can evict its cache entry. */
     onSaveSuccess?: (productId: number) => void;
 }
@@ -55,7 +57,8 @@ const tabTriggerCls = "data-[state=active]:shadow-none data-[state=active]:bg-tr
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function ProductDetailTabs({ product, channelName, onSaveSuccess }: ProductDetailTabsProps) {
+export function ProductDetailTabs({ product, onSaveSuccess }: ProductDetailTabsProps) {
+    const channelName = useAtomValue(channelNameAtom);
     const channelDef = getChannelById(product.channelType as ChannelType);
     
     // Use registry extraction or fallback to an empty object
@@ -77,7 +80,7 @@ export function ProductDetailTabs({ product, channelName, onSaveSuccess }: Produ
             const result = await updateChannelProductDetails(prev, formData);
             if (result?.success) {
                 toast.success("Channel product updated", {
-                    description: "Updates have been staged for the next provider sync.",
+                    description: `Updates have been staged for the next ${channelName || 'provider'} sync.`,
                 });
                 if (result.productId) onSaveSuccess?.(result.productId);
             } else if (result?.error && !result?.fieldErrors) {
@@ -114,7 +117,7 @@ export function ProductDetailTabs({ product, channelName, onSaveSuccess }: Produ
                 <div className="absolute bottom-0 left-0 right-0 bg-background border-t p-4 flex justify-end gap-3 z-10 w-full rounded-b-md shadow-[0_-4px_6px_-2px_rgba(0,0,0,0.05)]">
                     <Button type="button" variant="outline">Cancel</Button>
                     <Button type="submit" disabled={pending}>
-                        {pending ? "Saving..." : "Save Updates to Provider"}
+                        {pending ? "Saving..." : `Save Updates to ${PORTAL_NAME}`}
                     </Button>
                 </div>
             </Tabs>
@@ -294,9 +297,9 @@ function OfferTab({
                         type="number"
                         disabled
                         className="bg-muted/50 cursor-not-allowed"
-                        title="Stock is managed from central SeplorX inventory"
+                        title={`Stock is managed from central ${PORTAL_NAME} inventory`}
                     />
-                    <p className="text-[10px] text-muted-foreground absolute -bottom-5 left-0">Managed in SeplorX inventory</p>
+                    <p className="text-[10px] text-muted-foreground absolute -bottom-5 left-0">Managed in {PORTAL_NAME} inventory</p>
                 </div>
                 <div className="grid gap-2">
                     <Label>Condition</Label>
