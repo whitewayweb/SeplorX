@@ -1,4 +1,4 @@
-import type { ChannelDefinition, ChannelType } from "./types";
+import type { ChannelDefinition } from "./types";
 import * as woocommerceConfig from "./woocommerce/config";
 import * as amazonConfig from "./amazon/config";
 

@@ -17,6 +17,7 @@
   "ignore": [
     "src/components/ui/**",
     "src/lib/channels/amazon/api/types/**",
+    "src/lib/channels/woocommerce/api/types/**",
     "scripts/**"
   ]
 }

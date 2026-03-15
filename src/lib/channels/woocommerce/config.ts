@@ -1,4 +1,5 @@
 import type { ChannelCapabilities, ChannelConfigField, StandardizedProductRecord } from "../types";
+import { Product as WCProduct } from "./api/types/wcproductSchema";
 
 export const configFields: ChannelConfigField[] = [
   {
@@ -58,15 +59,12 @@ export function getProductUrl(externalId: string, credentials?: Record<string, s
 /**
  * Maps a WooCommerce product payload to the standardized UI presentation record.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function extractProductFields(rawData: Record<string, any>): StandardizedProductRecord {
-    const isWoo = Array.isArray(rawData.attributes);
-    
+export function extractProductFields(rawData: WCProduct): StandardizedProductRecord {
     // WooCommerce fallback attribute getter
     const getWooAttr = (name: string) => {
-        if (!isWoo) return "";
-        const attr = rawData.attributes.find((a: { name?: string; options?: string[] }) => a.name?.toLowerCase() === name.toLowerCase());
-        return attr?.options?.[0] || "";
+        if (!Array.isArray(rawData.attributes)) return "";
+        const attr = rawData.attributes.find((a) => a.name?.toLowerCase() === name.toLowerCase());
+        return (attr?.options?.[0] as string) || "";
     };
 
     // 1. Description: strip HTML tags but preserve some spacing, fallback to SEO meta if possible
@@ -80,27 +78,32 @@ export function extractProductFields(rawData: Record<string, any>): Standardized
             .trim();
     }
     
-    if (!description && rawData.yoast_head_json?.og_description) {
-        description = rawData.yoast_head_json.og_description;
+    // Check for Yoast SEO description in meta_data if not found in main fields
+    if (!description && Array.isArray(rawData.meta_data)) {
+        const yoastDesc = rawData.meta_data.find(m => m.key === "_yoast_wpseo_metadesc");
+        if (yoastDesc?.value && typeof yoastDesc.value === "string") {
+            description = yoastDesc.value;
+        }
     }
 
-    // 2. Category: handle array of objects or array of strings
+    // 2. Category: handle array of objects
     const category = Array.isArray(rawData.categories) 
-        ? rawData.categories.map((c: any) => typeof c === "string" ? c : c.name).filter(Boolean).join(", ") 
+        ? rawData.categories.map((c) => c.name).filter(Boolean).join(", ") 
         : "";
 
     // 3. Brand: check attributes, brand-name, or the common "brands" taxonomy array populated by plugins
-    let brand = getWooAttr("brand") || rawData["brand-name"] || "";
+    let brand = getWooAttr("brand") || (rawData["brand-name"] as string) || "";
     if (!brand && Array.isArray(rawData.brands) && rawData.brands.length > 0) {
-        brand = typeof rawData.brands[0] === "string" ? rawData.brands[0] : rawData.brands[0].name;
+        const firstBrand = rawData.brands[0];
+        brand = (typeof firstBrand === "object" && firstBrand !== null ? firstBrand.name : String(firstBrand)) || "";
     }
 
     const rawImages = Array.isArray(rawData.images) ? rawData.images : [];
-    const images = rawImages.map((img: { src?: string; link?: string; name?: string; alt?: string; variant?: string; width?: string | number; height?: string | number }) => ({
-        link: img.src || img.link || "",
-        variant: img.name || img.alt || img.variant || "",
-        width: img.width || "-",
-        height: img.height || "-"
+    const images = rawImages.map((img) => ({
+        link: img.src || "",
+        variant: img.name || img.alt || "",
+        width: img.width ? String(img.width) : "-",
+        height: img.height ? String(img.height) : "-"
     }));
 
     return {
@@ -112,7 +115,7 @@ export function extractProductFields(rawData: Record<string, any>): Standardized
         itemTypeKw:   "",
         category:     category,
         price:        rawData.price || rawData.regular_price || "",
-        itemCondition: rawData["item-condition"] || "New",
+        itemCondition: (rawData["item-condition"] as string) || "New",
         pkgWeight:    rawData.weight ? `${rawData.weight} kg` : "",
         itemWeight:   rawData.weight ? `${rawData.weight} kg` : "",
         images,

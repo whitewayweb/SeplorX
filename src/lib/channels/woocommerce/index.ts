@@ -26,33 +26,9 @@ async function wcFetch(
   return res;
 }
 
-// ─── WooCommerce product payload (minimal shape we need) ─────────────────────
-
-interface WCProductListItem {
-  id: number;
-  name: string;
-  sku: string;
-  stock_quantity: number | null;
-  type: string; // "simple" | "variable" | "grouped" | "external"
-}
-
-interface WCVariation {
-  id: number;
-  sku: string;
-  stock_quantity: number | null;
-  attributes: Array<{ name: string; option: string }>;
-}
-
-// ─── WooCommerce order webhook payload (minimal shape we need) ────────────────
-
-interface WCOrderPayload {
-  id: number;
-  status: string;
-  line_items: Array<{
-    product_id: number;
-    quantity: number;
-  }>;
-}
+import { Product as WCProduct } from "./api/types/wcproductSchema";
+import { ShopOrder as WCOrderPayload } from "./api/types/wcorderSchema";
+type WCVariation = WCProduct; // WooCommerce Variations are essentially Products with a parent_id
 
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
@@ -109,17 +85,18 @@ export const woocommerceHandler: ChannelHandler = {
       const text = await res.text().catch(() => "");
       throw new Error(`WooCommerce fetchProducts failed (${res.status}): ${text.substring(0, 200)}`);
     }
-    const data = (await res.json()) as WCProductListItem[];
+    const data = (await res.json()) as WCProduct[];
 
     const results: ExternalProduct[] = [];
 
     for (const p of data) {
+      if (!p.id) continue;
       const productType = p.type === "variable" ? "variable" : "simple";
       results.push({
         id: String(p.id),
-        name: p.name,
-        sku: p.sku,
-        stockQuantity: p.stock_quantity ?? undefined,
+        name: p.name ?? "Unnamed Product",
+        sku: p.sku || undefined,
+        stockQuantity: (p.stock_quantity as number) ?? undefined,
         type: productType,
         rawPayload: p as unknown as Record<string, unknown>,
       });
@@ -163,13 +140,16 @@ export const woocommerceHandler: ChannelHandler = {
     for (const group of variationsGroups) {
       const { parent: p, variations } = group;
       for (const v of variations) {
+        if (!v.id) continue;
         // Build a readable label from attributes (e.g. "Size: L, Color: Red")
-        const attrLabel = v.attributes.map((a) => `${a.name}: ${a.option}`).join(", ");
+        const attrLabel = (v.attributes || [])
+          .map((a: { name?: string; option?: string }) => `${a.name}: ${a.option}`)
+          .join(", ");
         results.push({
           id: String(v.id),
           name: attrLabel ? `${p.name} — ${attrLabel}` : `${p.name} #${v.id}`,
           sku: v.sku || undefined,
-          stockQuantity: v.stock_quantity ?? undefined,
+          stockQuantity: (v.stock_quantity as number) ?? undefined,
           type: "variation",
           parentId: String(p.id),
           rawPayload: v as unknown as Record<string, unknown>,
@@ -241,25 +221,27 @@ export const woocommerceHandler: ChannelHandler = {
     switch (topic) {
       case "order.created": {
         const order = JSON.parse(body) as WCOrderPayload;
-        return order.line_items
-          .filter((item) => item.product_id && item.quantity > 0)
+        const lineItems = order.line_items || [];
+        return lineItems
+          .filter((item) => item.product_id && (item.quantity ?? 0) > 0)
           .map((item): WebhookStockChange => ({
             externalProductId: String(item.product_id),
-            quantity: -item.quantity,   // sale_out: decrement
+            quantity: -(item.quantity ?? 0),   // sale_out: decrement
             type: "sale_out",
-            referenceId: order.id,
+            referenceId: order.id ?? 0,
             referenceType: "woocommerce_order",
           }));
       }
       case "order.cancelled": {
         const order = JSON.parse(body) as WCOrderPayload;
-        return order.line_items
-          .filter((item) => item.product_id && item.quantity > 0)
+        const lineItems = order.line_items || [];
+        return lineItems
+          .filter((item) => item.product_id && (item.quantity ?? 0) > 0)
           .map((item): WebhookStockChange => ({
             externalProductId: String(item.product_id),
-            quantity: item.quantity,    // return: increment
+            quantity: (item.quantity ?? 0),    // return: increment
             type: "return",
-            referenceId: order.id,
+            referenceId: order.id ?? 0,
             referenceType: "woocommerce_order",
           }));
       }
