@@ -129,7 +129,8 @@ export async function fetchChannelProductsService(
           : undefined
       )
     )
-    .limit(100);
+    .orderBy(channelProducts.externalId)
+    .limit(2000);
 
   let externalProducts: ExternalProduct[];
   try {

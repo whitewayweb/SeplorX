@@ -124,15 +124,6 @@ export function ProductDetailTabs({ product, channelName, onSaveSuccess }: Produ
 
 // ── Sub-components (one per tab) ──────────────────────────────────────────────
 
-function ReadOnlyField({ label, value }: { label: string; value: string }) {
-    return (
-        <div className="grid gap-2">
-            <Label>{label}</Label>
-            <Input defaultValue={value} disabled className="bg-muted/50" />
-        </div>
-    );
-}
-
 function DetailsTab({
     fields,
     product,
@@ -171,25 +162,55 @@ function DetailsTab({
                         </p>
                     )}
                 </div>
-                <ReadOnlyField label="Brand"             value={fields.brand} />
-                <ReadOnlyField label="Manufacturer"      value={fields.manufacturer} />
-                <ReadOnlyField label="Part Number"       value={fields.partNumber} />
-                <ReadOnlyField label="Color"             value={fields.color} />
-                <ReadOnlyField label="Item Type Keyword" value={fields.itemTypeKw} />
+                <div className="grid gap-2">
+                    <Label>Brand</Label>
+                    <Input name="brand" defaultValue={fields.brand} aria-invalid={!!fe.brand} className={fe.brand ? "border-destructive" : ""} />
+                    <FieldError errors={fe.brand} />
+                </div>
+                <div className="grid gap-2">
+                    <Label>Manufacturer</Label>
+                    <Input name="manufacturer" defaultValue={fields.manufacturer} aria-invalid={!!fe.manufacturer} className={fe.manufacturer ? "border-destructive" : ""} />
+                    <FieldError errors={fe.manufacturer} />
+                </div>
+                <div className="grid gap-2">
+                    <Label>Part Number</Label>
+                    <Input name="partNumber" defaultValue={fields.partNumber} aria-invalid={!!fe.partNumber} className={fe.partNumber ? "border-destructive" : ""} />
+                    <FieldError errors={fe.partNumber} />
+                </div>
+                <div className="grid gap-2">
+                    <Label>Color</Label>
+                    <Input name="color" defaultValue={fields.color} aria-invalid={!!fe.color} className={fe.color ? "border-destructive" : ""} />
+                    <FieldError errors={fe.color} />
+                </div>
+                <div className="grid gap-2">
+                    <Label>Item Type Keyword</Label>
+                    <Input name="itemTypeKw" defaultValue={fields.itemTypeKw} aria-invalid={!!fe.itemTypeKw} className={fe.itemTypeKw ? "border-destructive" : ""} />
+                    <FieldError errors={fe.itemTypeKw} />
+                </div>
             </div>
 
             <div className="grid gap-2">
                 <Label>Product Description</Label>
                 <textarea
-                    className="min-h-[120px] rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    name="description"
+                    className={`min-h-[120px] rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${fe.description ? "border-destructive" : "border-input"}`}
                     defaultValue={fields.description}
-                    disabled
+                    aria-invalid={!!fe.description}
                 />
+                <FieldError errors={fe.description} />
             </div>
 
             <div className="pt-4 border-t grid grid-cols-2 gap-6">
-                <ReadOnlyField label="Package Weight" value={fields.pkgWeight} />
-                <ReadOnlyField label="Item Weight"    value={fields.itemWeight} />
+                <div className="grid gap-2">
+                    <Label>Package Weight</Label>
+                    <Input name="pkgWeight" defaultValue={fields.pkgWeight} aria-invalid={!!fe.pkgWeight} className={fe.pkgWeight ? "border-destructive" : ""} />
+                    <FieldError errors={fe.pkgWeight} />
+                </div>
+                <div className="grid gap-2">
+                    <Label>Item Weight</Label>
+                    <Input name="itemWeight" defaultValue={fields.itemWeight} aria-invalid={!!fe.itemWeight} className={fe.itemWeight ? "border-destructive" : ""} />
+                    <FieldError errors={fe.itemWeight} />
+                </div>
             </div>
         </TabsContent>
     );

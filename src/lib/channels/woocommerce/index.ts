@@ -28,7 +28,6 @@ async function wcFetch(
 
 import { Product as WCProduct } from "./api/types/wcproductSchema";
 import { ShopOrder as WCOrderPayload } from "./api/types/wcorderSchema";
-type WCVariation = WCProduct; // WooCommerce Variations are essentially Products with a parent_id
 
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
@@ -107,7 +106,7 @@ export const woocommerceHandler: ChannelHandler = {
     const variationPromises = variableProducts.map(async (p) => {
       let page = 1;
       let totalPages = 1;
-      const allVariationsForProduct: WCVariation[] = [];
+      const allVariationsForProduct: WCProduct[] = [];
 
       try {
         do {
@@ -123,7 +122,7 @@ export const woocommerceHandler: ChannelHandler = {
           if (!vRes.ok) break;
 
           totalPages = parseInt(vRes.headers.get("x-wp-totalpages") || "1", 10);
-          const variations = (await vRes.json()) as WCVariation[];
+          const variations = (await vRes.json()) as WCProduct[];
           allVariationsForProduct.push(...variations);
 
           page++;

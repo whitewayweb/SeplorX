@@ -423,13 +423,13 @@ export function AddMappingDialog({ productId, channelId, channelName }: AddMappi
         onClick={() => handleOpen(true)}
       >
         <Plus className="h-3.5 w-3.5 mr-1.5" />
-        Add Products
+        Link Products
       </Button>
 
       <DrawerContent className="!w-[700px] !max-w-[700px] flex flex-col h-full">
         {/* Header */}
         <DrawerHeader className="border-b px-6 py-4 shrink-0">
-          <DrawerTitle>Add Products — {channelName}</DrawerTitle>
+          <DrawerTitle>Link Products — {channelName}</DrawerTitle>
         </DrawerHeader>
 
         {/* Search */}
