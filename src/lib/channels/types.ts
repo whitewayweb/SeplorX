@@ -21,6 +21,12 @@ export interface ChannelDefinition {
   getProductUrl?: (externalId: string, credentials?: Record<string, string>, rawData?: unknown) => string | null;
   /** UI Hint for the connection step */
   connectionHint?: string;
+  /**
+   * Fetch the distinct list of brand names available for a given channel instance.
+   * Each channel type implements its own extraction logic (JSONB path, attributes array, etc.).
+   * Returns an empty array if the channel has no brand data.
+   */
+  getBrands?: (channelId: number) => Promise<string[]>;
 }
 
 export type ChannelStatus = "pending" | "connected" | "disconnected";

@@ -1,4 +1,5 @@
 import type { ChannelCapabilities, ChannelConfigField } from "../types";
+import { getBrandsForChannel } from "../queries";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Registry & Constants
@@ -141,4 +142,12 @@ export function buildConnectUrl(channelId: number, config: Record<string, string
   void channelId; void config;
   const base = appUrl.replace(/\/$/, "");
   return `${base}/channels?connected=amazon`;
+}
+
+/**
+ * Returns the distinct, sorted brand names for this Amazon channel instance.
+ * Re-uses the shared DAL helper; the JSONB extraction path lives in queries.ts.
+ */
+export async function getBrands(channelId: number): Promise<string[]> {
+  return getBrandsForChannel(channelId);
 }

@@ -1,4 +1,5 @@
 import type { ChannelCapabilities, ChannelConfigField } from "../types";
+import { getBrandsForChannel } from "../queries";
 
 export const configFields: ChannelConfigField[] = [
   {
@@ -51,4 +52,12 @@ export function getProductUrl(externalId: string, credentials?: Record<string, s
   const storeUrl = credentials?.storeUrl;
   if (!storeUrl) return null;
   return `${storeUrl.replace(/\/$/, "")}/?p=${externalId}`;
+}
+
+/**
+ * Returns the distinct, sorted brand names for this WooCommerce channel instance.
+ * Re-uses the shared DAL helper; the JSONB extraction for WC attributes lives in queries.ts.
+ */
+export async function getBrands(channelId: number): Promise<string[]> {
+  return getBrandsForChannel(channelId);
 }
