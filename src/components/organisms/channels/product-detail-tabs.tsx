@@ -59,8 +59,13 @@ export function ProductDetailTabs({ product, channelName, onSaveSuccess }: Produ
     const channelDef = getChannelById(product.channelType as ChannelType);
     
     // Use registry extraction or fallback to an empty object
+    let rawData = product.rawData || {};
+    if (typeof rawData === "string") {
+        try { rawData = JSON.parse(rawData); } catch { rawData = {}; }
+    }
+
     const fields = channelDef?.extractProductFields
-        ? channelDef.extractProductFields(product.rawData || {})
+        ? channelDef.extractProductFields(rawData)
         : {
             brand: "", color: "", partNumber: "", manufacturer: "", description: "", 
             itemTypeKw: "", category: "", price: "", itemCondition: "", pkgWeight: "", 

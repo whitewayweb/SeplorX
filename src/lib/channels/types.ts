@@ -237,5 +237,12 @@ export interface ChannelHandler {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   extractSqlField?(fieldName: "brand" | "category" | string): any | null;
+
+  /**
+   * Extract standardized fields from channel-specific rawData payload to be displayed
+   * in the product details UI.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  extractProductFields?: (rawData: Record<string, any>) => StandardizedProductRecord;
 }
 

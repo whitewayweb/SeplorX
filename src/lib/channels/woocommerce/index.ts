@@ -61,6 +61,7 @@ import {
   capabilities,
   validateConfig,
   buildConnectUrl,
+  extractProductFields,
 } from "./config";
 
 export const woocommerceHandler: ChannelHandler = {
@@ -270,4 +271,5 @@ export const woocommerceHandler: ChannelHandler = {
 
   extractSqlField,
   getBrands,
+  extractProductFields,
 };

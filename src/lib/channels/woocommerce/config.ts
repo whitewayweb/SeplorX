@@ -69,13 +69,31 @@ export function extractProductFields(rawData: Record<string, any>): Standardized
         return attr?.options?.[0] || "";
     };
 
-    const description = rawData.description?.replace(/(<([^>]+)>)/gi, "") 
-        || rawData.short_description?.replace(/(<([^>]+)>)/gi, "") 
-        || "";
+    // 1. Description: strip HTML tags but preserve some spacing, fallback to SEO meta if possible
+    let description = rawData.description || rawData.short_description || "";
+    if (description) {
+        description = description
+            .replace(/<\/p>/gi, "\n")
+            .replace(/<br\s*\/?>/gi, "\n")
+            .replace(/(<([^>]+)>)/gi, "")
+            .replace(/&nbsp;/g, " ")
+            .trim();
+    }
+    
+    if (!description && rawData.yoast_head_json?.og_description) {
+        description = rawData.yoast_head_json.og_description;
+    }
 
+    // 2. Category: handle array of objects or array of strings
     const category = Array.isArray(rawData.categories) 
-        ? rawData.categories.map((c: { name?: string }) => c.name).join(", ") 
+        ? rawData.categories.map((c: any) => typeof c === "string" ? c : c.name).filter(Boolean).join(", ") 
         : "";
+
+    // 3. Brand: check attributes, brand-name, or the common "brands" taxonomy array populated by plugins
+    let brand = getWooAttr("brand") || rawData["brand-name"] || "";
+    if (!brand && Array.isArray(rawData.brands) && rawData.brands.length > 0) {
+        brand = typeof rawData.brands[0] === "string" ? rawData.brands[0] : rawData.brands[0].name;
+    }
 
     const rawImages = Array.isArray(rawData.images) ? rawData.images : [];
     const images = rawImages.map((img: { src?: string; link?: string; name?: string; alt?: string; variant?: string; width?: string | number; height?: string | number }) => ({
@@ -86,10 +104,10 @@ export function extractProductFields(rawData: Record<string, any>): Standardized
     }));
 
     return {
-        brand:        getWooAttr("brand") || rawData["brand-name"] || "",
+        brand:        brand,
         color:        getWooAttr("color"),
         partNumber:   getWooAttr("part_number") || rawData.sku || "",
-        manufacturer: getWooAttr("manufacturer"),
+        manufacturer: getWooAttr("manufacturer") || getWooAttr("Brand") || "",
         description:  description,
         itemTypeKw:   "",
         category:     category,

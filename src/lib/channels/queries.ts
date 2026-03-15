@@ -403,6 +403,7 @@ export async function getChannelProductByIdForUser(userId: number, id: number) {
     stockQuantity: row.stockQuantity,
     rawData: row.rawData,
     lastSyncedAt: row.lastSyncedAt,
+    channelType: row.channelType,
     productUrl: sanitizeUrl(definition?.getProductUrl?.(row.externalId, credentials, row.rawData))
   };
 }

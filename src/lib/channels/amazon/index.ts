@@ -12,6 +12,7 @@ import {
   capabilities,
   validateConfig,
   buildConnectUrl,
+  extractProductFields,
 } from "./config";
 import { extractSqlField, getBrands } from "./queries";
 
@@ -62,4 +63,5 @@ export const amazonHandler: ChannelHandler = {
 
   extractSqlField,
   getBrands,
+  extractProductFields,
 };
