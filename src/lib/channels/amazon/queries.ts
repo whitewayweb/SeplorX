@@ -88,7 +88,11 @@ export interface ChannelRow {
 }
 
 /** All orders across all channels for a user (joined with channel name). */
-export async function getAllOrders(userId: number): Promise<OrderRow[]> {
+export async function getAllOrders(
+  userId: number,
+  limit = 50,
+  offset = 0
+): Promise<OrderRow[]> {
   return db
     .select({
       id: salesOrders.id,
@@ -103,13 +107,27 @@ export async function getAllOrders(userId: number): Promise<OrderRow[]> {
     .from(salesOrders)
     .innerJoin(channels, eq(salesOrders.channelId, channels.id))
     .where(eq(channels.userId, userId))
-    .orderBy(desc(salesOrders.purchasedAt));
+    .orderBy(desc(salesOrders.purchasedAt))
+    .limit(limit)
+    .offset(offset);
+}
+
+/** Total count of all orders across all channels for a user. */
+export async function countAllOrders(userId: number): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(salesOrders)
+    .innerJoin(channels, eq(salesOrders.channelId, channels.id))
+    .where(eq(channels.userId, userId));
+  return Number(row?.count ?? 0);
 }
 
 /** Orders for a single channel, scoped to the authenticated user (IDOR-safe). */
 export async function getOrdersByChannel(
   userId: number,
-  channelId: number
+  channelId: number,
+  limit = 50,
+  offset = 0
 ): Promise<OrderRow[]> {
   return db
     .select({
@@ -128,7 +146,25 @@ export async function getOrdersByChannel(
       and(eq(salesOrders.channelId, channels.id), eq(channels.userId, userId))
     )
     .where(eq(salesOrders.channelId, channelId))
-    .orderBy(desc(salesOrders.purchasedAt));
+    .orderBy(desc(salesOrders.purchasedAt))
+    .limit(limit)
+    .offset(offset);
+}
+
+/** Total count of orders for a single channel. */
+export async function countOrdersByChannel(
+  userId: number,
+  channelId: number
+): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(salesOrders)
+    .innerJoin(
+      channels,
+      and(eq(salesOrders.channelId, channels.id), eq(channels.userId, userId))
+    )
+    .where(eq(salesOrders.channelId, channelId));
+  return Number(row?.count ?? 0);
 }
 
 /** Single order detail — IDOR-safe via user-scoped channel join. */

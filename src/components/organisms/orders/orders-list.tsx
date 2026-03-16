@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { FetchOrdersButton } from "./fetch-orders-button";
+import { TablePagination } from "@/components/ui/table-pagination";
 
 interface Order {
   id: number;
@@ -21,6 +22,9 @@ interface OrdersListProps {
   orders: Order[];
   channels?: Channel[];
   title?: string;
+  currentPage: number;
+  totalCount: number;
+  pageSize: number;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -31,13 +35,22 @@ const STATUS_COLORS: Record<string, string> = {
   failed:    "bg-gray-100 text-gray-700",
 };
 
-export function OrdersList({ orders, channels = [], title = "Sales Orders" }: OrdersListProps) {
+export function OrdersList({ 
+  orders, 
+  channels = [], 
+  title = "Sales Orders",
+  currentPage,
+  totalCount,
+  pageSize,
+}: OrdersListProps) {
   return (
     <div className="p-8">
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-3xl font-bold">{title}</h1>
-          <p className="text-gray-500 mt-1">{orders.length} order{orders.length !== 1 ? "s" : ""}</p>
+          <p className="text-muted-foreground mt-1">
+            Total {totalCount} order{totalCount !== 1 ? "s" : ""}
+          </p>
         </div>
         <div className="flex gap-2">
           {channels.map((channel) => (
@@ -50,7 +63,7 @@ export function OrdersList({ orders, channels = [], title = "Sales Orders" }: Or
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-white rounded-lg shadow overflow-hidden border">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
@@ -106,7 +119,16 @@ export function OrdersList({ orders, channels = [], title = "Sales Orders" }: Or
             )}
           </tbody>
         </table>
+
+        <div className="px-6 py-4 bg-gray-50 border-t">
+          <TablePagination 
+            totalItems={totalCount} 
+            itemsPerPage={pageSize} 
+            currentPage={currentPage} 
+          />
+        </div>
       </div>
     </div>
   );
 }
+
