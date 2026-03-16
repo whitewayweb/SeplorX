@@ -1,36 +1,24 @@
-import { db } from "@/db";
-import { salesOrders, channels } from "@/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { getAuthenticatedUserId } from "@/lib/auth";
+import { getAllOrders, getAmazonChannelsForUser } from "@/lib/channels/amazon/queries";
 import { OrdersList } from "@/components/organisms/orders/orders-list";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
 export default async function OrdersPage() {
-  const allOrders = await db
-    .select({
-      id: salesOrders.id,
-      externalOrderId: salesOrders.externalOrderId,
-      status: salesOrders.status,
-      totalAmount: salesOrders.totalAmount,
-      currency: salesOrders.currency,
-      buyerName: salesOrders.buyerName,
-      purchasedAt: salesOrders.purchasedAt,
-      channelName: channels.name,
-    })
-    .from(salesOrders)
-    .leftJoin(channels, eq(salesOrders.channelId, channels.id))
-    .orderBy(desc(salesOrders.purchasedAt));
+  const userId = await getAuthenticatedUserId();
+  if (!userId) redirect("/login");
 
-  const amazonChannels = await db
-    .select({ id: channels.id, name: channels.name })
-    .from(channels)
-    .where(eq(channels.channelType, "amazon"));
+  const [allOrders, amazonChannels] = await Promise.all([
+    getAllOrders(userId),
+    getAmazonChannelsForUser(userId),
+  ]);
 
   return (
-    <OrdersList 
-      orders={allOrders} 
-      channels={amazonChannels} 
-      title="All Sales Orders" 
+    <OrdersList
+      orders={allOrders}
+      channels={amazonChannels}
+      title="All Sales Orders"
     />
   );
 }

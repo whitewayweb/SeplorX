@@ -1,8 +1,7 @@
-import { db } from "@/db";
-import { salesOrders, channels } from "@/db/schema";
-import { eq, desc, and } from "drizzle-orm";
-import { notFound } from "next/navigation";
+import { getAuthenticatedUserId } from "@/lib/auth";
+import { getOrdersByChannel, getAmazonChannelsForUser } from "@/lib/channels/amazon/queries";
 import { OrdersList } from "@/components/organisms/orders/orders-list";
+import { notFound, redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -11,44 +10,25 @@ export default async function ChannelOrdersPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const resolvedParams = await params;
-  const channelId = parseInt(resolvedParams.id, 10);
+  const { id } = await params;
+  const channelId = parseInt(id, 10);
+  if (isNaN(channelId)) notFound();
 
-  if (isNaN(channelId)) {
-    notFound();
-  }
+  const userId = await getAuthenticatedUserId();
+  if (!userId) redirect("/login");
 
-  const [channel] = await db
-    .select({ id: channels.id, name: channels.name, channelType: channels.channelType })
-    .from(channels)
-    .where(eq(channels.id, channelId))
-    .limit(1);
+  // Fetching channels for the user so we can confirm ownership and get channel name
+  const userChannels = await getAmazonChannelsForUser(userId);
+  const channel = userChannels.find((c) => c.id === channelId);
+  if (!channel) notFound();
 
-  if (!channel) {
-    notFound();
-  }
-
-  const channelOrders = await db
-    .select({
-      id: salesOrders.id,
-      externalOrderId: salesOrders.externalOrderId,
-      status: salesOrders.status,
-      totalAmount: salesOrders.totalAmount,
-      currency: salesOrders.currency,
-      buyerName: salesOrders.buyerName,
-      purchasedAt: salesOrders.purchasedAt,
-      channelName: channels.name,
-    })
-    .from(salesOrders)
-    .leftJoin(channels, eq(salesOrders.channelId, channels.id))
-    .where(eq(salesOrders.channelId, channelId))
-    .orderBy(desc(salesOrders.purchasedAt));
+  const orders = await getOrdersByChannel(userId, channelId);
 
   return (
-    <OrdersList 
-      orders={channelOrders} 
-      channels={channel.channelType === "amazon" ? [channel] : []} 
-      title={`${channel.name} Orders`} 
+    <OrdersList
+      orders={orders}
+      channels={[channel]}
+      title={`${channel.name} Orders`}
     />
   );
 }

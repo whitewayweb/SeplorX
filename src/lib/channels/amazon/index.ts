@@ -82,7 +82,7 @@ export const amazonHandler: ChannelHandler = {
   async fetchAndSaveOrders(userId: number, channelId: number): Promise<{ fetched: number; saved: number }> {
     const { db } = await import("@/db");
     const { channels, salesOrders, salesOrderItems, channelProductMappings } = await import("@/db/schema");
-    const { eq, and } = await import("drizzle-orm");
+    const { eq, and, or } = await import("drizzle-orm");
     const { decryptChannelCredentials } = await import("@/lib/channels/utils");
 
     const [channel] = await db
@@ -152,15 +152,25 @@ export const amazonHandler: ChannelHandler = {
           // 4. Insert Order Items with full rawData
           const amzItems = itemsRes?.OrderItems || [];
           for (const item of amzItems) {
-            // Try to find a product mapping in SeplorX
-            const [mapping] = await tx
-              .select({ productId: channelProductMappings.productId })
-              .from(channelProductMappings)
-              .where(and(
-                eq(channelProductMappings.channelId, channelId),
-                eq(channelProductMappings.externalProductId, item.ASIN ?? "")
-              ))
-              .limit(1);
+            const asin = item.ASIN ?? "";
+            const sku = item.SellerSKU ?? "";
+
+            // Match by ASIN and SKU simultaneously — whichever hits first wins
+            const [mapping] = (asin || sku)
+              ? await tx
+                  .select({ productId: channelProductMappings.productId })
+                  .from(channelProductMappings)
+                  .where(
+                    and(
+                      eq(channelProductMappings.channelId, channelId),
+                      or(
+                        asin ? eq(channelProductMappings.externalProductId, asin) : undefined,
+                        sku  ? eq(channelProductMappings.externalProductId, sku)  : undefined,
+                      ),
+                    )
+                  )
+                  .limit(1)
+              : [];
 
             await tx.insert(salesOrderItems).values({
               orderId: insertedOrder.id,

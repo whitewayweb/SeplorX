@@ -1,50 +1,11 @@
-import { db } from "@/db";
-import { salesOrders, salesOrderItems, channels } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
-import { notFound } from "next/navigation";
+import { getAuthenticatedUserId } from "@/lib/auth";
+import { getOrderDetail, getOrderItems } from "@/lib/channels/amazon/queries";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, CheckCircle2, AlertCircle } from "lucide-react";
+import OrdersV0Schema from "@/lib/channels/amazon/api/types/ordersV0Schema";
 
 export const dynamic = "force-dynamic";
-
-// Types matching the Amazon SP-API rawData structure we store
-interface AmazonOrderRaw {
-  AmazonOrderId?: string;
-  OrderStatus?: string;
-  PurchaseDate?: string;
-  OrderTotal?: { Amount?: string; CurrencyCode?: string };
-  FulfillmentChannel?: string;
-  ShipmentServiceLevelCategory?: string;
-  NumberOfItemsShipped?: number;
-  NumberOfItemsUnshipped?: number;
-}
-
-interface AmazonBuyerInfoRaw {
-  BuyerName?: string;
-  BuyerEmail?: string;
-}
-
-interface AmazonAddressRaw {
-  ShippingAddress?: {
-    Name?: string;
-    AddressLine1?: string;
-    AddressLine2?: string;
-    City?: string;
-    StateOrRegion?: string;
-    PostalCode?: string;
-    CountryCode?: string;
-    Phone?: string;
-  };
-}
-
-interface AmazonItemRaw {
-  Title?: string;
-  ASIN?: string;
-  SellerSKU?: string;
-  QuantityOrdered?: number;
-  ItemPrice?: { Amount?: string; CurrencyCode?: string };
-  ItemTax?: { Amount?: string; CurrencyCode?: string };
-}
 
 export default async function OrderDetailPage({
   params,
@@ -53,39 +14,28 @@ export default async function OrderDetailPage({
 }) {
   const { orderId } = await params;
   const orderIdNum = parseInt(orderId, 10);
-
   if (isNaN(orderIdNum)) notFound();
 
-  const [order] = await db
-    .select({
-      id: salesOrders.id,
-      externalOrderId: salesOrders.externalOrderId,
-      status: salesOrders.status,
-      totalAmount: salesOrders.totalAmount,
-      currency: salesOrders.currency,
-      buyerName: salesOrders.buyerName,
-      buyerEmail: salesOrders.buyerEmail,
-      purchasedAt: salesOrders.purchasedAt,
-      rawData: salesOrders.rawData,
-      channelId: salesOrders.channelId,
-      channelName: channels.name,
-    })
-    .from(salesOrders)
-    .leftJoin(channels, eq(salesOrders.channelId, channels.id))
-    .where(eq(salesOrders.id, orderIdNum))
-    .limit(1);
+  const userId = await getAuthenticatedUserId();
+  if (!userId) redirect("/login");
+
+  const [order, items] = await Promise.all([
+    getOrderDetail(userId, orderIdNum),
+    getOrderItems(orderIdNum),
+  ]);
 
   if (!order) notFound();
 
-  const items = await db
-    .select()
-    .from(salesOrderItems)
-    .where(eq(salesOrderItems.orderId, orderIdNum));
+  // Extract only needed fields from rawData JSONB
+  const storedRaw = order.rawData as {
+    order?: OrdersV0Schema["Order"];
+    shippingAddress?: OrdersV0Schema["OrderAddress"];
+  } | null;
+  
+  const rawOrder = storedRaw?.order;
+  const addr = storedRaw?.shippingAddress?.ShippingAddress;
 
-  // Extract typed rawData
-  const raw = order.rawData as { order?: AmazonOrderRaw; buyerInfo?: AmazonBuyerInfoRaw; shippingAddress?: AmazonAddressRaw } | null;
-  const addr = raw?.shippingAddress?.ShippingAddress;
-  const rawOrder = raw?.order;
+  const matchedCount = items.filter((i) => i.productId !== null).length;
 
   return (
     <div className="p-8 max-w-5xl">
@@ -108,7 +58,7 @@ export default async function OrderDetailPage({
           </div>
           <span className={`px-3 py-1 text-sm font-semibold rounded-full ${
             order.status === "shipped"   ? "bg-green-100 text-green-800"  :
-            order.status === "cancelled" ? "bg-red-100 text-red-800"     :
+            order.status === "cancelled" ? "bg-red-100 text-red-800"      :
             order.status === "returned"  ? "bg-orange-100 text-orange-800":
                                            "bg-yellow-100 text-yellow-800"
           }`}>
@@ -122,24 +72,42 @@ export default async function OrderDetailPage({
         <div className="md:col-span-2">
           <div className="bg-white rounded-lg shadow">
             <div className="px-6 py-4 border-b">
-              <h2 className="font-semibold text-gray-800">Order Items ({items.length})</h2>
+              <h2 className="font-semibold text-gray-800">
+                Order Items ({items.length}) · {matchedCount}/{items.length} matched
+              </h2>
             </div>
             <div className="divide-y">
               {items.map((item) => {
-                const rawItem = item.rawData as AmazonItemRaw | null;
+                const rawItem = item.rawData as OrdersV0Schema["OrderItem"] | null;
+                const isMatched = !!item.productId;
                 return (
                   <div key={item.id} className="px-6 py-4">
                     <div className="flex justify-between items-start gap-4">
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-gray-900 text-sm leading-snug">
-                          {item.title ?? rawItem?.Title ?? "Unknown product"}
+                          {item.title ?? "Unknown product"}
                         </p>
-                        <div className="flex gap-3 mt-1">
+                        <div className="flex flex-wrap gap-2 mt-1.5 items-center">
                           {item.sku && (
-                            <span className="text-xs text-gray-400">SKU: {item.sku}</span>
+                            <span className="text-xs text-gray-400 font-mono">SKU: {item.sku}</span>
                           )}
-                          {(rawItem?.ASIN) && (
-                            <span className="text-xs text-gray-400">ASIN: {rawItem.ASIN}</span>
+                          {rawItem?.ASIN && (
+                            <span className="text-xs text-gray-400 font-mono">ASIN: {rawItem.ASIN}</span>
+                          )}
+                          {isMatched ? (
+                            <Link
+                              href={`/products/${item.productId}`}
+                              className="inline-flex items-center gap-1 text-xs text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 rounded px-1.5 py-0.5 transition-colors"
+                            >
+                              <CheckCircle2 className="h-3 w-3" />
+                              {item.productName}
+                              {item.productSku && <span className="text-green-500">· {item.productSku}</span>}
+                            </Link>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-xs text-orange-600 bg-orange-50 border border-orange-200 rounded px-1.5 py-0.5">
+                              <AlertCircle className="h-3 w-3" />
+                              Not matched — re-fetch orders after mapping products
+                            </span>
                           )}
                         </div>
                       </div>
@@ -167,7 +135,7 @@ export default async function OrderDetailPage({
           </div>
         </div>
 
-        {/* Sidebar: buyer + shipping */}
+        {/* Sidebar */}
         <div className="space-y-4">
           {/* Buyer Info */}
           <div className="bg-white rounded-lg shadow">
@@ -175,7 +143,9 @@ export default async function OrderDetailPage({
               <h2 className="text-sm font-semibold text-gray-800">Customer</h2>
             </div>
             <div className="px-4 py-3 text-sm space-y-1 text-gray-600">
-              <p className="font-medium text-gray-900">{order.buyerName ?? "Anonymized by Amazon"}</p>
+              <p className="font-medium text-gray-900">
+                {order.buyerName ?? "Anonymized by Amazon"}
+              </p>
               {order.buyerEmail && <p className="text-gray-500">{order.buyerEmail}</p>}
               {rawOrder?.FulfillmentChannel && (
                 <p className="text-xs mt-2">
@@ -220,11 +190,15 @@ export default async function OrderDetailPage({
             <div className="px-4 py-3 text-xs text-gray-500 space-y-2">
               <div className="flex justify-between">
                 <span>Items Shipped</span>
-                <span className="font-medium text-gray-800">{rawOrder?.NumberOfItemsShipped ?? "—"}</span>
+                <span className="font-medium text-gray-800">
+                  {rawOrder?.NumberOfItemsShipped ?? "—"}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span>Items Unshipped</span>
-                <span className="font-medium text-gray-800">{rawOrder?.NumberOfItemsUnshipped ?? "—"}</span>
+                <span className="font-medium text-gray-800">
+                  {rawOrder?.NumberOfItemsUnshipped ?? "—"}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span>Channel</span>

@@ -504,3 +504,72 @@ The button is shown only for connected channels where `capabilities.canFetchProd
 **All-already-mapped guard:** If `getChannelProducts` returns 0 unmapped products, the agent returns `{ message: "All products are already mapped." }` and no `agent_actions` row is created.
 
 **One SeplorX product → many external products** is intentional — variants (4pc pack, Series A/B) all map to the same SeplorX product for unified stock management.
+
+---
+
+## Orders (Channel Order Pull)
+
+Channels can pull sales orders from external platforms into SeplorX. The first implementation is Amazon SP-API (polling).
+
+### Architecture
+
+```
+ChannelHandler.fetchAndSaveOrders(userId, channelId)
+  → Fetches orders from the external API
+  → Saves to sales_orders + sales_order_items (with rawData)
+  → Matches items to channel_product_mappings by ASIN AND SKU simultaneously
+```
+
+Triggered by the **"Fetch Orders"** button in the UI (`fetchAmazonOrdersAction` server action → revalidates `/orders` and `/orders/channels/[id]`).
+
+### Data Access Layer
+
+All order DB queries live in **`src/lib/channels/amazon/order-queries.ts`**. Pages and server actions must import from here — never import `db` directly in a page.
+
+| Function | Description |
+|---|---|
+| `getAllOrders(userId)` | All orders across all channels for a user |
+| `getOrdersByChannel(userId, channelId)` | Orders for one channel (IDOR-safe via innerJoin) |
+| `getOrderDetail(userId, orderId)` | Single order with rawData (IDOR-safe) |
+| `getOrderItems(orderId)` | Items joined with matched SeplorX product |
+| `getAmazonChannelsForUser(userId)` | Channels list for Fetch button rendering |
+
+### Product Matching
+
+When an order is fetched, each item is matched to `channel_product_mappings` using:
+
+```sql
+WHERE channel_id = :channelId
+  AND (external_product_id = :asin OR external_product_id = :sku)
+```
+
+Both ASIN and SKU are checked **simultaneously** — first match wins. The matched `product_id` is stored on `sales_order_items`. For unmatched items, re-fetch orders after the channel product mapping is set up.
+
+### rawData Storage
+
+Both `sales_orders` and `sales_order_items` store the full Amazon API payload in a `raw_data` JSONB column:
+
+- **`sales_orders.raw_data`**: `{ order: AmazonOrderRaw, buyerInfo: AmazonBuyerInfoRaw, shippingAddress: AmazonAddressRaw }`
+- **`sales_order_items.raw_data`**: Full Amazon `OrderItem` object
+
+This preserves all channel-specific fields (ASIN, tax, promotions, FBA/FBM status, etc.) without requiring schema migrations when Amazon adds new fields.
+
+### Pages
+
+| Route | File | Description |
+|---|---|---|
+| `/orders` | `src/app/(dashboard)/orders/page.tsx` | All orders across channels |
+| `/orders/channels/[id]` | `src/app/(dashboard)/orders/channels/[id]/page.tsx` | Orders for one channel |
+| `/orders/[orderId]` | `src/app/(dashboard)/orders/[orderId]/page.tsx` | Order detail (items, address, match status) |
+
+All pages use `getAuthenticatedUserId()` and call the DAL — no raw DB queries in page components.
+
+### Buyer Name Resolution
+
+Amazon progressively reveals buyer info. The handler tries these sources in order:
+1. `getOrderBuyerInfo()` API endpoint → `BuyerName`
+2. Order's embedded `BuyerInfo.BuyerName`
+3. `DefaultShipFromLocationAddress.Name`
+4. Shipping address `Name` (from `getOrderAddress()`)
+
+If all are empty, the customer shows as "Anonymized by Amazon" — this is Amazon's privacy policy for FBA orders, not a code limitation.
