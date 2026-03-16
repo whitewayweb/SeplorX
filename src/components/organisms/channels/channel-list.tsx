@@ -2,10 +2,12 @@
 
 import { useActionState, useTransition, useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import Image from "next/image";
-import { Store, Webhook, PackageSearch, PlugZap } from "lucide-react";
+import { Store, Webhook, PackageSearch, PlugZap, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { PORTAL_NAME } from "@/utils/constants";
 import {
   Table,
   TableBody,
@@ -93,7 +95,7 @@ function RegisterWebhooksButton({ channelId }: { channelId: number }) {
         setError(result.error ?? "Failed to register webhooks.");
       } else {
         toast.success("Webhooks registered", {
-          description: "The channel will now send order events to SeplorX.",
+          description: `The channel will now send order events to ${PORTAL_NAME}.`,
         });
       }
     });
@@ -246,6 +248,18 @@ function ChannelRowActions({ channel }: { channel: ChannelInstance }) {
         const def = getChannelById(channel.channelType as Parameters<typeof getChannelById>[0]);
         return def?.capabilities?.usesWebhooks ? (
           <RegisterWebhooksButton channelId={channel.id} />
+        ) : null;
+      })()}
+
+      {/* Sync Products: connected WooCommerce channels with canPushProductUpdates */}
+      {channel.status === "connected" && (() => {
+        const def = getChannelById(channel.channelType as Parameters<typeof getChannelById>[0]);
+        return def?.capabilities?.canPushProductUpdates ? (
+          <Link href={`/channels/${channel.id}/publish`}>
+            <Button variant="outline" size="sm">
+              <RefreshCw className="h-3 w-3 mr-1" /> Publish Updates
+            </Button>
+          </Link>
         ) : null;
       })()}
 

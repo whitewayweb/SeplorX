@@ -12,7 +12,9 @@ import {
   capabilities,
   validateConfig,
   buildConnectUrl,
+  extractProductFields,
 } from "./config";
+import { extractSqlField, getBrands } from "./queries";
 
 export const amazonHandler: ChannelHandler = {
   id: "amazon",
@@ -52,10 +54,25 @@ export const amazonHandler: ChannelHandler = {
 
   mergeProductUpdate(_existingRawData, patch) {
     const updates: Record<string, unknown> = {};
-    // Amazon stores the listing price under "price" (flat) and the item condition
-    // under the flat-file key "item-condition". Map from the generic patch names.
+    
+    // Flat mapping for Amazon updates
     if (patch.price) updates["price"] = patch.price;
     if (patch.itemCondition) updates["item-condition"] = patch.itemCondition;
+    if (patch.brand) updates["brand-name"] = patch.brand;
+    if (patch.manufacturer) updates["manufacturer"] = patch.manufacturer;
+    if (patch.partNumber) updates["part_number"] = patch.partNumber;
+    if (patch.color) updates["color"] = patch.color;
+    if (patch.itemTypeKw) updates["item_type_keyword"] = patch.itemTypeKw;
+    if (patch.description) updates["product_description"] = patch.description;
+    
+    // Weights
+    if (patch.pkgWeight) updates["pkg_weight"] = patch.pkgWeight;
+    if (patch.itemWeight) updates["item_weight"] = patch.itemWeight;
+
     return Object.keys(updates).length > 0 ? updates : null;
   },
+
+  extractSqlField,
+  getBrands,
+  extractProductFields,
 };

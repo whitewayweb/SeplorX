@@ -8,6 +8,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { updateChannelProductDetails } from "@/app/(dashboard)/channels/actions";
 import { toast } from "sonner";
+import { PORTAL_NAME } from "@/utils/constants";
+
+import { getChannelById } from "@/lib/channels/registry";
+import type { ChannelType, StandardizedProductRecord } from "@/lib/channels/types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -22,12 +26,14 @@ export interface ChannelProductDetail {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rawData: Record<string, any>;
     lastSyncedAt: Date | null;
+    channelType: string;
 }
 
 interface ProductDetailTabsProps {
     product: ChannelProductDetail;
     /** Called after a successful save so the parent can evict its cache entry. */
     onSaveSuccess?: (productId: number) => void;
+    channelName?: string;
 }
 
 type ActionState = {
@@ -36,53 +42,6 @@ type ActionState = {
     error?: string;
     fieldErrors?: Record<string, string[] | undefined>;
 } | null;
-
-// ── rawData extraction ────────────────────────────────────────────────────────
-// Extracts display-ready values from the channel-specific rawData blob.
-// Keeps all the Amazon/WooCommerce key-name knowledge out of the JSX.
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getNestedValue(obj: any, key: string): string {
-    if (!obj) return "";
-    if (typeof obj[key] === "string") return obj[key];
-    if (Array.isArray(obj[key]) && obj[key][0]?.value) return obj[key][0].value;
-    return "";
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getDimensionValue(dimObj: any, key: string): string {
-    if (!dimObj?.[key]) return "";
-    const val  = dimObj[key].value !== undefined ? dimObj[key].value : dimObj[key];
-    const unit = dimObj[key].unit || "";
-    const num  = Number(val);
-    if (isNaN(num)) return "";
-    return `${num.toFixed(2)} ${unit}`.trim();
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractProductFields(rawData: Record<string, any>) {
-    const summaries     = Array.isArray(rawData.summaries)      ? rawData.summaries[0] || {}          : {};
-    const attributes    = Array.isArray(rawData.attributes)     ? rawData.attributes[0] || {}         : {};
-    const dimensions    = Array.isArray(rawData.dimensions)     ? rawData.dimensions[0] || {}         : {};
-    const images        = Array.isArray(rawData.images)         ? rawData.images[0]?.images || []     : [];
-    const relationships = Array.isArray(rawData.relationships)  ? rawData.relationships[0]?.relationships || [] : [];
-
-    return {
-        brand:        getNestedValue(summaries, "brand")        || getNestedValue(attributes, "brand")        || rawData["brand-name"] || "",
-        color:        getNestedValue(summaries, "color")        || getNestedValue(attributes, "color")        || "",
-        partNumber:   getNestedValue(summaries, "partNumber")   || getNestedValue(attributes, "part_number")  || "",
-        manufacturer: getNestedValue(summaries, "manufacturer") || getNestedValue(attributes, "manufacturer") || "",
-        description:  getNestedValue(attributes, "product_description") || "",
-        itemTypeKw:   getNestedValue(attributes, "item_type_keyword")   || "",
-        category:     rawData.category || summaries?.browseClassification?.displayName || "",
-        price:        rawData.price || "",
-        itemCondition: rawData["item-condition"] || "New",
-        pkgWeight:    getDimensionValue(dimensions, "package") || getDimensionValue(dimensions?.package, "weight"),
-        itemWeight:   getDimensionValue(dimensions, "item")    || getDimensionValue(dimensions?.item, "weight"),
-        images,
-        relationships,
-    };
-}
 
 // ── Inline field error ────────────────────────────────────────────────────────
 
@@ -97,15 +56,30 @@ const tabTriggerCls = "data-[state=active]:shadow-none data-[state=active]:bg-tr
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function ProductDetailTabs({ product, onSaveSuccess }: ProductDetailTabsProps) {
-    const fields = extractProductFields(product.rawData || {});
+export function ProductDetailTabs({ product, onSaveSuccess, channelName: channelNameProp }: ProductDetailTabsProps) {
+    const channelDef = getChannelById(product.channelType as ChannelType);
+    const channelName = channelNameProp || channelDef?.name || "provider";
+    
+    // Use registry extraction or fallback to an empty object
+    let rawData = product.rawData || {};
+    if (typeof rawData === "string") {
+        try { rawData = JSON.parse(rawData); } catch { rawData = {}; }
+    }
+
+    const fields = channelDef?.extractProductFields
+        ? channelDef.extractProductFields(rawData)
+        : {
+            brand: "", color: "", partNumber: "", manufacturer: "", description: "", 
+            itemTypeKw: "", category: "", price: "", itemCondition: "", pkgWeight: "", 
+            itemWeight: "", images: [], relationships: []
+        };
 
     const [state, action, pending] = useActionState(
         async (prev: ActionState, formData: FormData): Promise<ActionState> => {
             const result = await updateChannelProductDetails(prev, formData);
             if (result?.success) {
                 toast.success("Channel product updated", {
-                    description: "Updates have been staged for the next provider sync.",
+                    description: `Updates have been staged for the next ${channelName || 'provider'} sync.`,
                 });
                 if (result.productId) onSaveSuccess?.(result.productId);
             } else if (result?.error && !result?.fieldErrors) {
@@ -133,16 +107,16 @@ export function ProductDetailTabs({ product, onSaveSuccess }: ProductDetailTabsP
                 </TabsList>
 
                 <div className="p-4 pt-6 max-w-4xl">
-                    <DetailsTab fields={fields} product={product} fe={fe} />
+                    <DetailsTab fields={fields as StandardizedProductRecord} product={product} fe={fe} channelName={channelName} />
                     <ImagesTab images={fields.images} />
-                    <OfferTab product={product} fields={fields} fe={fe} />
+                    <OfferTab product={product} fields={fields as StandardizedProductRecord} fe={fe} />
                     <VariationsTab relationships={fields.relationships} />
                 </div>
 
                 <div className="absolute bottom-0 left-0 right-0 bg-background border-t p-4 flex justify-end gap-3 z-10 w-full rounded-b-md shadow-[0_-4px_6px_-2px_rgba(0,0,0,0.05)]">
                     <Button type="button" variant="outline">Cancel</Button>
                     <Button type="submit" disabled={pending}>
-                        {pending ? "Saving..." : "Save Updates to Provider"}
+                        {pending ? "Saving..." : `Save Updates to ${PORTAL_NAME}`}
                     </Button>
                 </div>
             </Tabs>
@@ -152,23 +126,16 @@ export function ProductDetailTabs({ product, onSaveSuccess }: ProductDetailTabsP
 
 // ── Sub-components (one per tab) ──────────────────────────────────────────────
 
-function ReadOnlyField({ label, value }: { label: string; value: string }) {
-    return (
-        <div className="grid gap-2">
-            <Label>{label}</Label>
-            <Input defaultValue={value} disabled className="bg-muted/50" />
-        </div>
-    );
-}
-
 function DetailsTab({
     fields,
     product,
     fe,
+    channelName,
 }: {
-    fields: ReturnType<typeof extractProductFields>;
+    fields: StandardizedProductRecord;
     product: ChannelProductDetail;
     fe: Record<string, string[] | undefined>;
+    channelName?: string;
 }) {
     return (
         <TabsContent value="details" className="space-y-6 mt-0">
@@ -184,38 +151,68 @@ function DetailsTab({
                     <FieldError errors={fe.name} />
                 </div>
                 <div className="grid gap-2">
-                    <Label>Amazon Category</Label>
+                    <Label>Category</Label>
                     <Input
                         defaultValue={fields.category}
                         disabled
                         className="bg-muted/50"
-                        placeholder="Synced automatically from Amazon"
+                        placeholder={`Synced automatically from ${channelName || 'provider'}`}
                     />
                     {!fields.category && (
                         <p className="text-xs text-muted-foreground">
-                            Re-sync this product to populate the Amazon category.
+                            Re-sync this product to populate the category.
                         </p>
                     )}
                 </div>
-                <ReadOnlyField label="Brand"             value={fields.brand} />
-                <ReadOnlyField label="Manufacturer"      value={fields.manufacturer} />
-                <ReadOnlyField label="Part Number"       value={fields.partNumber} />
-                <ReadOnlyField label="Color"             value={fields.color} />
-                <ReadOnlyField label="Item Type Keyword" value={fields.itemTypeKw} />
+                <div className="grid gap-2">
+                    <Label>Brand</Label>
+                    <Input name="brand" defaultValue={fields.brand} aria-invalid={!!fe.brand} className={fe.brand ? "border-destructive" : ""} />
+                    <FieldError errors={fe.brand} />
+                </div>
+                <div className="grid gap-2">
+                    <Label>Manufacturer</Label>
+                    <Input name="manufacturer" defaultValue={fields.manufacturer} aria-invalid={!!fe.manufacturer} className={fe.manufacturer ? "border-destructive" : ""} />
+                    <FieldError errors={fe.manufacturer} />
+                </div>
+                <div className="grid gap-2">
+                    <Label>Part Number</Label>
+                    <Input name="partNumber" defaultValue={fields.partNumber} aria-invalid={!!fe.partNumber} className={fe.partNumber ? "border-destructive" : ""} />
+                    <FieldError errors={fe.partNumber} />
+                </div>
+                <div className="grid gap-2">
+                    <Label>Color</Label>
+                    <Input name="color" defaultValue={fields.color} aria-invalid={!!fe.color} className={fe.color ? "border-destructive" : ""} />
+                    <FieldError errors={fe.color} />
+                </div>
+                <div className="grid gap-2">
+                    <Label>Item Type Keyword</Label>
+                    <Input name="itemTypeKw" defaultValue={fields.itemTypeKw} aria-invalid={!!fe.itemTypeKw} className={fe.itemTypeKw ? "border-destructive" : ""} />
+                    <FieldError errors={fe.itemTypeKw} />
+                </div>
             </div>
 
             <div className="grid gap-2">
                 <Label>Product Description</Label>
                 <textarea
-                    className="min-h-[120px] rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    name="description"
+                    className={`min-h-[120px] rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${fe.description ? "border-destructive" : "border-input"}`}
                     defaultValue={fields.description}
-                    disabled
+                    aria-invalid={!!fe.description}
                 />
+                <FieldError errors={fe.description} />
             </div>
 
             <div className="pt-4 border-t grid grid-cols-2 gap-6">
-                <ReadOnlyField label="Package Weight" value={fields.pkgWeight} />
-                <ReadOnlyField label="Item Weight"    value={fields.itemWeight} />
+                <div className="grid gap-2">
+                    <Label>Package Weight</Label>
+                    <Input name="pkgWeight" defaultValue={fields.pkgWeight} aria-invalid={!!fe.pkgWeight} className={fe.pkgWeight ? "border-destructive" : ""} />
+                    <FieldError errors={fe.pkgWeight} />
+                </div>
+                <div className="grid gap-2">
+                    <Label>Item Weight</Label>
+                    <Input name="itemWeight" defaultValue={fields.itemWeight} aria-invalid={!!fe.itemWeight} className={fe.itemWeight ? "border-destructive" : ""} />
+                    <FieldError errors={fe.itemWeight} />
+                </div>
             </div>
         </TabsContent>
     );
@@ -263,7 +260,7 @@ function OfferTab({
     fe,
 }: {
     product: ChannelProductDetail;
-    fields: ReturnType<typeof extractProductFields>;
+    fields: StandardizedProductRecord;
     fe: Record<string, string[] | undefined>;
 }) {
     return (
@@ -299,9 +296,9 @@ function OfferTab({
                         type="number"
                         disabled
                         className="bg-muted/50 cursor-not-allowed"
-                        title="Stock is managed from central SeplorX inventory"
+                        title={`Stock is managed from central ${PORTAL_NAME} inventory`}
                     />
-                    <p className="text-[10px] text-muted-foreground absolute -bottom-5 left-0">Managed in SeplorX inventory</p>
+                    <p className="text-[10px] text-muted-foreground absolute -bottom-5 left-0">Managed in {PORTAL_NAME} inventory</p>
                 </div>
                 <div className="grid gap-2">
                     <Label>Condition</Label>
@@ -314,7 +311,7 @@ function OfferTab({
                     <FieldError errors={fe.itemCondition} />
                 </div>
                 <div className="grid gap-2 relative">
-                    <Label>Last Synced From Amazon</Label>
+                    <Label>Last Synced</Label>
                     <Input
                         readOnly
                         value={product.lastSyncedAt ? new Date(product.lastSyncedAt).toLocaleString() : ""}
@@ -332,7 +329,7 @@ function VariationsTab({ relationships }: { relationships: any[] }) {
     return (
         <TabsContent value="variations" className="space-y-6 mt-0">
             <div className="text-sm text-muted-foreground mb-4">
-                Parent-Child variations for this Amazon catalog item.
+                Parent-Child variations for this catalog item.
             </div>
             {relationships.length > 0 ? (
                 <div className="rounded-md border overflow-hidden">
@@ -340,7 +337,7 @@ function VariationsTab({ relationships }: { relationships: any[] }) {
                         <thead className="bg-muted/50 border-b text-left">
                             <tr>
                                 <th className="p-3 font-medium">Type</th>
-                                <th className="p-3 font-medium">Related ASIN</th>
+                                <th className="p-3 font-medium">Related ID</th>
                                 <th className="p-3 font-medium">Variation Theme</th>
                             </tr>
                         </thead>

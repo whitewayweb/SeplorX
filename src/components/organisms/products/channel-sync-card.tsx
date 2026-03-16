@@ -221,7 +221,7 @@ export function ChannelSyncCard({
                           {m.externalProductId}
                         </span>
                         {m.label && (
-                          <span className="text-xs text-muted-foreground truncate max-w-[120px]">
+                          <span className="text-xs text-muted-foreground">
                             {m.label}
                           </span>
                         )}

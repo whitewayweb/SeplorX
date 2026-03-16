@@ -12,6 +12,8 @@
     "preinstall": "npx only-allow yarn",
     "fix": "yarn lint --fix && yarn knip --fix && yarn build",
     "generate:amazon-types": "node ./scripts/generate-amazon-types.js",
+    "generate:woo-types": "node ./scripts/generate-woocommerce-types.js",
+    "generate:types": "yarn generate:amazon-types && yarn generate:woo-types",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
@@ -51,7 +53,9 @@
     "drizzle-kit": "^0.31.9",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "json-schema-to-typescript": "^15.0.4",
     "knip": "^5.83.1",
-    "only-allow": "^1.2.2"
+    "only-allow": "^1.2.2",
+    "vitest": "^4.1.0"
   }
 }

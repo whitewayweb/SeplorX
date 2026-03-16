@@ -1,5 +1,24 @@
 export type ChannelType = "woocommerce" | "shopify" | "amazon" | "custom";
 
+export interface StandardizedProductRecord {
+  name: string;
+  sku: string;
+  stockQuantity: string | number;
+  brand: string;
+  color: string;
+  partNumber: string;
+  manufacturer: string;
+  description: string;
+  itemTypeKw: string;
+  category: string;
+  price: string;
+  itemCondition: string;
+  pkgWeight: string;
+  itemWeight: string;
+  images: { link: string; variant?: string; width: string | number; height: string | number }[];
+  relationships: { type?: string; childAsins?: string[]; parentAsins?: string[]; variationTheme?: { theme: string } }[];
+}
+
 export interface ChannelDefinition {
   id: ChannelType;
   name: string;
@@ -21,6 +40,13 @@ export interface ChannelDefinition {
   getProductUrl?: (externalId: string, credentials?: Record<string, string>, rawData?: unknown) => string | null;
   /** UI Hint for the connection step */
   connectionHint?: string;
+
+  /**
+   * Extract standardized fields from channel-specific rawData payload to be displayed
+   * in the product details UI.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  extractProductFields?: (rawData: Record<string, any>) => StandardizedProductRecord;
 }
 
 export type ChannelStatus = "pending" | "connected" | "disconnected";
@@ -76,11 +102,29 @@ export interface ExternalProduct {
   rawPayload: Record<string, unknown>;
 }
 
+// Shared return type for pushPendingUpdates() across all channel handlers.
+export interface ChannelPushSyncItemResult {
+  externalProductId: string;
+  success: boolean;
+  error?: string;
+}
+export interface ChannelPushSyncResult {
+  pushed: number;
+  failed: number;
+  results: ChannelPushSyncItemResult[];
+}
+
 export interface ChannelCapabilities {
   /** Can fetch a product list from the remote channel (used in Add Products drawer) */
   canFetchProducts: boolean;
   /** Can push stock quantity back to the remote channel */
   canPushStock: boolean;
+  /**
+   * Can push staged product detail updates (name, description, price, etc.)
+   * directly to the remote channel's REST API.
+   * If true, the channel should expose a /channels/[id]/sync page.
+   */
+  canPushProductUpdates: boolean;
   /**
    * Uses webhook-based event delivery (e.g. WooCommerce order webhooks).
    * If false, the "Register Webhooks" button is hidden in the UI.
@@ -194,11 +238,46 @@ export interface ChannelHandler {
    */
   mergeProductUpdate?(
     existingRawData: Record<string, unknown>,
-    patch: {
-      price?: string;
-      itemCondition?: string;
-      [key: string]: string | undefined;
-    },
+    patch: Record<string, unknown>,
   ): Record<string, unknown> | null | undefined;
+
+  /**
+   * Push all pending_update product mappings for this channel to the remote store.
+   * Required when capabilities.canPushProductUpdates = true.
+   *
+   * Implementations are responsible for:
+   *   - Reading pending mappings from DB (via channelProductMappings)
+   *   - Calling the remote API for each product
+   *   - Updating syncStatus to 'in_sync' on success, 'failed' on error
+   *   - Returning a summary so the caller can present results to the user
+   *
+   * Each product must be attempted independently — a single failure must not
+   * abort the rest of the batch.
+   */
+  pushPendingUpdates?(
+    userId: number,
+    channelId: number,
+  ): Promise<ChannelPushSyncResult>;
+
+  /**
+   * Fetch the distinct list of brand names available for a given channel instance.
+   * Each channel type implements its own extraction logic.
+   * Returns an empty array if the channel has no brand data.
+   */
+  getBrands?(channelId: number): Promise<string[]>;
+
+  /**
+   * Returns the Drizzle SQL expression to extract a given filter field (e.g. "brand", "category") 
+   * from the channel_products.raw_data JSONB column. Used by the DAL for filtering and grouping.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  extractSqlField?(fieldName: "brand" | "category" | string): any | null;
+
+  /**
+   * Extract standardized fields from channel-specific rawData payload to be displayed
+   * in the product details UI.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  extractProductFields?: (rawData: Record<string, any>) => StandardizedProductRecord;
 }
 

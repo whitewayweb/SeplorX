@@ -46,6 +46,7 @@ interface VariationRow extends ProductRow {
 
 interface ChannelProductsTableProps {
     channelId: number;
+    channelName?: string;
     products: ProductRow[];
     variations: VariationRow[];
     canRefetchItem: boolean;
@@ -57,6 +58,7 @@ interface ChannelProductsTableProps {
 
 export function ChannelProductsTable({
     channelId,
+    channelName,
     products,
     variations,
     canRefetchItem,
@@ -67,7 +69,7 @@ export function ChannelProductsTable({
     const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
 
     const { selectedProduct, isLoading, openProduct, invalidate } = useChannelProductDetail();
-
+    
     const toggleExpand = useCallback((e: React.MouseEvent, externalId: string) => {
         e.stopPropagation();
         setExpandedParents((prev) => {
@@ -325,7 +327,7 @@ export function ChannelProductsTable({
 
             {/* ── Product Detail Drawer ────────────────────────────────────────── */}
             <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
-                <SheetContent side="right" className="sm:max-w-[80vw] w-full overflow-y-auto w-[80vw]">
+                <SheetContent side="right" className="sm:max-w-[80vw] w-full overflow-y-auto w-[55vw]">
                     {isLoading ? (
                         <div className="flex items-center justify-center h-full">
                             <SheetTitle className="sr-only">Loading product details...</SheetTitle>
@@ -354,7 +356,11 @@ export function ChannelProductsTable({
                                 </SheetDescription>
                             </SheetHeader>
                             <div className="flex-1 w-full pb-0 flex flex-col items-start px-0">
-                                <ProductDetailTabs product={selectedProduct} onSaveSuccess={invalidate} />
+                                <ProductDetailTabs 
+                                    product={selectedProduct} 
+                                    onSaveSuccess={invalidate} 
+                                    channelName={channelName} 
+                                />
                             </div>
                         </>
                     ) : null}

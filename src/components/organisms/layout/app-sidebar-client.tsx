@@ -31,6 +31,7 @@ import {
   SidebarMenuSubButton,
   SidebarRail,
 } from "@/components/ui/sidebar";
+import { PORTAL_NAME } from "@/utils/constants";
 
 const navItems = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -91,7 +92,7 @@ export function AppSidebarClient({
                           asChild
                           isActive={pathname === "/products"}
                         >
-                          <Link href="/products">All Products</Link>
+                          <Link href="/products">{PORTAL_NAME} Products</Link>
                         </SidebarMenuSubButton>
                       </SidebarMenuSubItem>
                       {userChannels.map((channel) => (

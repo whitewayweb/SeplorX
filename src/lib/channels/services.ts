@@ -1,12 +1,12 @@
 import { db } from "@/db";
-import { channels, channelProducts, channelProductMappings } from "@/db/schema";
+import { channels, channelProducts, channelProductMappings, channelProductChangelog } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { encrypt } from "@/lib/crypto";
 import { getChannelById } from "@/lib/channels/registry";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
-import { upsertChannelProducts, upsertProductWithVariationsTx, updateChannelProductInDb } from "@/lib/channels/queries";
-import type { ChannelType } from "@/lib/channels/types";
+import { upsertChannelProducts, upsertProductWithVariationsTx } from "@/lib/channels/queries";
+import type { ChannelType, ChannelPushSyncResult } from "@/lib/channels/types";
 import { env } from "@/lib/env";
 
 export async function createChannelService(
@@ -352,12 +352,24 @@ export async function getCatalogItemService(userId: number, channelId: number, a
  * and stages the mapping for provider sync.
  */
 export interface ChannelProductUpdatePatch {
-  name?: string;
-  sku?: string;
+  name?:          string;
+  sku?:           string;
   stockQuantity?: number | null;
-  price?: string;
+  price?:         string;
   itemCondition?: string;
+  description?:   string;
+  brand?:         string;
+  manufacturer?:  string;
+  partNumber?:    string;
+  color?:         string;
+  itemTypeKw?:    string;
+  pkgWeight?:     string;
+  itemWeight?:    string;
 }
+
+// Fields that correspond to columns in the channel_products table.
+// Everything else in a patch is treated as channel-specific rawData.
+const CHANNEL_PRODUCT_DB_COLUMNS = ["name", "sku", "stockQuantity"] as const;
 
 export async function updateChannelProductService(
   userId: number,
@@ -391,10 +403,14 @@ export async function updateChannelProductService(
     throw new Error("Product must be mapped to a SeplorX inventory item before it can be updated.");
   }
 
-  // Read existing rawData — validated by checking all three identifiers
-  // to prevent an attacker from updating an arbitrary channelProducts row.
+  // Read existing state
   const [existing] = await db
-    .select({ rawData: channelProducts.rawData })
+    .select({
+      name: channelProducts.name,
+      sku: channelProducts.sku,
+      stockQuantity: channelProducts.stockQuantity,
+      rawData: channelProducts.rawData,
+    })
     .from(channelProducts)
     .where(
       and(
@@ -408,33 +424,51 @@ export async function updateChannelProductService(
   if (!existing) throw new Error("Channel product not found.");
   const existingRawData = (existing.rawData as Record<string, unknown>) ?? {};
 
-  // Build DB patch from submitted fields
-  const dbPatch: Parameters<typeof updateChannelProductInDb>[1] = {};
+  // Build DB patch and separate raw data fields
+  const dbPatch: Record<string, unknown> = {};
+  const rawPatch: Record<string, unknown> = {};
 
-  if (patch.name !== undefined && patch.name.trim()) {
-    dbPatch.name = patch.name.trim();
-  }
-  if (patch.sku !== undefined) {
-    dbPatch.sku = patch.sku.trim() || null;
-  }
-  if (patch.stockQuantity !== undefined) {
-    dbPatch.stockQuantity = patch.stockQuantity;
+  for (const [key, value] of Object.entries(patch)) {
+    if ((CHANNEL_PRODUCT_DB_COLUMNS as readonly string[]).includes(key)) {
+      if (value !== undefined) {
+        dbPatch[key] = typeof value === "string" ? value.trim() : value;
+      }
+    } else {
+      rawPatch[key] = value;
+    }
   }
 
   // Delegate rawData merge to the channel handler
   const handler = getChannelHandler(channel.channelType);
-  if (handler?.mergeProductUpdate) {
-    const rawPatch: Record<string, string | undefined> = {};
-    if (patch.price !== undefined) rawPatch.price = patch.price;
-    if (patch.itemCondition !== undefined) rawPatch.itemCondition = patch.itemCondition;
-
+  if (handler?.mergeProductUpdate && Object.keys(rawPatch).length > 0) {
     const rawDataMerge = handler.mergeProductUpdate(existingRawData, rawPatch);
     if (rawDataMerge && Object.keys(rawDataMerge).length > 0) {
       dbPatch.rawData = { ...existingRawData, ...rawDataMerge };
     }
   }
 
-  // Persist local custom overrides and stage for provider sync atomically
+  // ── Compute delta: only fields that actually changed ───────────────────
+  const delta: Record<string, unknown> = {};
+
+  if (dbPatch.name !== undefined && dbPatch.name !== existing.name) {
+    delta.name = dbPatch.name;
+  }
+  if (dbPatch.sku !== undefined && dbPatch.sku !== existing.sku) {
+    delta.sku = dbPatch.sku;
+  }
+  if (dbPatch.stockQuantity !== undefined && dbPatch.stockQuantity !== existing.stockQuantity) {
+    delta.stockQuantity = dbPatch.stockQuantity;
+  }
+  // For rawData changes, extract only the individual rawData fields that differ
+  if (dbPatch.rawData) {
+    for (const [key, newVal] of Object.entries(dbPatch.rawData)) {
+      if (JSON.stringify(newVal) !== JSON.stringify(existingRawData[key])) {
+        delta[key] = newVal;
+      }
+    }
+  }
+
+  // Persist local overrides, stage for sync, and append changelog atomically
   await db.transaction(async (tx) => {
     if (Object.keys(dbPatch).length > 0) {
       await tx
@@ -449,9 +483,76 @@ export async function updateChannelProductService(
         );
     }
 
-    await tx
-      .update(channelProductMappings)
-      .set({ syncStatus: "pending_update", lastSyncError: null })
-      .where(eq(channelProductMappings.id, mapping.id));
+    // Only update mapping and changelog if something actually changed
+    if (Object.keys(delta).length > 0) {
+      await tx
+        .update(channelProductMappings)
+        .set({ syncStatus: "pending_update", lastSyncError: null })
+        .where(eq(channelProductMappings.id, mapping.id));
+
+      const [existingStaged] = await tx
+        .select({ id: channelProductChangelog.id, delta: channelProductChangelog.delta })
+        .from(channelProductChangelog)
+        .where(
+          and(
+            eq(channelProductChangelog.channelId, channelId),
+            eq(channelProductChangelog.channelProductId, productId),
+            eq(channelProductChangelog.status, "staged")
+          )
+        )
+        .limit(1);
+
+      if (existingStaged) {
+        // Merge with existing staged delta
+        const mergedDelta = {
+          ...(existingStaged.delta as Record<string, unknown>),
+          ...delta
+        };
+        await tx
+          .update(channelProductChangelog)
+          .set({ delta: mergedDelta })
+          .where(eq(channelProductChangelog.id, existingStaged.id));
+      } else {
+        // Insert new staged row
+        await tx.insert(channelProductChangelog).values({
+          channelId,
+          channelProductId: productId,
+          externalProductId: externalId,
+          delta,
+          status: "staged",
+        });
+      }
+    }
   });
+}
+
+/**
+ * Generic orchestrator for pushing staged product updates to any channel.
+ *
+ * Resolves the channel's handler via the handler registry and delegates
+ * entirely to handler.pushPendingUpdates(). No channel-type switch needed here
+ * or anywhere in application code — adding a new channel only requires
+ * implementing pushPendingUpdates() on the handler.
+ */
+export async function pushChannelProductUpdatesService(
+  userId: number,
+  channelId: number,
+): Promise<ChannelPushSyncResult> {
+  // Verify ownership + resolve channel type
+  const [channel] = await db
+    .select({ id: channels.id, channelType: channels.channelType, status: channels.status })
+    .from(channels)
+    .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
+    .limit(1);
+
+  if (!channel) throw new Error("Channel not found.");
+  if (channel.status !== "connected") throw new Error("Channel is not connected.");
+
+  const handler = getChannelHandler(channel.channelType);
+  if (!handler) throw new Error(`No handler registered for channel type "${channel.channelType}".`);
+  if (!handler.capabilities.canPushProductUpdates || !handler.pushPendingUpdates) {
+    throw new Error(`Channel type "${channel.channelType}" does not support direct product update sync.`);
+  }
+
+  return handler.pushPendingUpdates(userId, channelId);
 }

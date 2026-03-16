@@ -66,6 +66,10 @@ interface ChannelDefinition {
   buildConnectUrl?: (channelId: number, config: Record<string, string>, appUrl: string) => string;
   /** Generate a public product link if available (e.g. Amazon DP link) */
   getProductUrl?: (externalId: string, credentials?: Record<string, string>, rawData?: unknown) => string | null;
+  /** Fetch the distinct list of brand names available for a given channel instance. */
+  getBrands?: (channelId: number) => Promise<string[]>;
+  /** Extract standardized fields from channel-specific rawData payload for the UI. */
+  extractProductFields?: (rawData: Record<string, any>) => StandardizedProductRecord;
 }
 
 type ChannelStatus = "pending" | "connected" | "disconnected";
@@ -181,12 +185,12 @@ Step 4 calls `createChannel` server action, receives the new `channelId`, then r
 
 ## Current Channel Types
 
-| ID | Name | Auth | Available | `canFetchProducts` | `usesWebhooks` |
-|----|------|------|-----------|------------------|--------------|
-| woocommerce | WooCommerce | OAuth (1-click) | ✅ | ✅ | ✅ |
-| amazon | Amazon | API key (wizard) | ✅ | ✅ | ❌ |
-| shopify | Shopify | OAuth | 🚧 Coming soon | — | — |
-| custom | Custom | API key | 🚧 Coming soon | — | — |
+| ID | Name | Auth | Available | `canFetchProducts` | `canPushProductUpdates` | `usesWebhooks` |
+|----|------|------|-----------|------------------|-----------------------|--------------|
+| woocommerce | WooCommerce | OAuth (1-click) | ✅ | ✅ | ✅ (direct REST) | ✅ |
+| amazon | Amazon | API key (wizard) | ✅ | ✅ | ❌ (uses Feeds API) | ❌ |
+| shopify | Shopify | OAuth | 🚧 Coming soon | — | — | — |
+| custom | Custom | API key | 🚧 Coming soon | — | — | — |
 
 ---
 
@@ -208,15 +212,31 @@ interface ChannelHandler {
   fetchProducts?(storeUrl, credentials, search?): Promise<ExternalProduct[]>;  // optional
   getCatalogItem?(storeUrl, credentials, externalId): Promise<ExternalProduct>; // optional — single-item fetch
   getProductUrl?(externalId, credentials, rawData): string | null;            // Polymorphic logic
+  
+  // -- Capabilities --
+  /** capabilities.canPushProductUpdates = true → must expose /channels/[id]/sync page */
+  /** capabilities.canPushStock = true → implement pushStock() */
+  
+  // -- Database & Analytics Methods (Scalable filtering/grouping) --
+  /** Fetch the distinct list of brand names available for a given channel */
+  getBrands?(channelId: number): Promise<string[]>;
+  /** Drizzle SQL expression to extract a given filter field (e.g. "brand") from rawData */
+  extractSqlField?(fieldName: "brand" | "category" | string): any | null;
 }
 ```
 
+### Channel Specific Queries (`src/lib/channels/{channel_id}/queries.ts`)
+To keep the global DAL clean and avoid massive SQL `CASE` statements across channels, each channel type should define its own `queries.ts` file that exports its specific implementations for `extractSqlField` and database convenience methods like `getBrands`. These are then exported out of the specific channel's `index.ts` handler definition.
+
+> **Top-Level Columns vs. JSONB:** 
+> Do not use `extractSqlField` for standard entity properties like `title` (mapped to `name`), `sku`, or `stock` (mapped to `stockQuantity`). These are **native top-level PostgreSQL columns** on the `channel_products` table. They are already fully indexed, standardized, and natively queryable. `extractSqlField` is exclusively for data *trapped inside* the channel's specific JSONB `rawData` payload (e.g., `price`, `category`, `brand`, `itemCondition`).
+
 ### Polymorphic Logic & Registry-Driven Rendering
 Channel-specific behavior should be shifted as far "left" (towards the registry) as possible.
-- **BAD**: Adding `if (channelType === 'amazon')` in a React component.
-- **GOOD**: Defining `getProductUrl` in the Amazon and WooCommerce configs.
+- **BAD**: Adding `if (channelType === 'amazon')` in a React component for display parsing.
+- **GOOD**: Defining `getProductUrl` or `extractProductFields` in the Amazon and WooCommerce configs.
 
-This allows the **Data Access Layer (DAL)** to automatically enrich product lists with URLs. UI components like `ChannelProductsTable` remain 100% generic—they only care if a `productUrl` exists, not how it was constructed.
+This allows the UI components like `ChannelProductsTable` and `ProductDetailTabs` to remain 100% generic — they only care about checking `channelDef.extractProductFields()`, not how it was constructed from the raw JSON payload.
 
 ### User-Scoped Channel Access
 
@@ -342,6 +362,47 @@ The template registry (`template-registry.ts`) scans the `category_product_uploa
 - `channel_feeds` — historical log of every feed submission (feedId, status, category, productCount, uploadUrl, resultDocumentUrl)
 
 ---
+
+### Channel Product Publish (`canPushProductUpdates` capability)
+
+The publish pipeline pushes staged (`pending_update`) product edits back to any channel that declares `capabilities.canPushProductUpdates = true`. The architecture is fully handler-driven — **no channel-type switch lives in application code**.
+
+#### Layers
+
+| Layer | File | Responsibility |
+|-------|------|---------------|
+| **Handler method** | `src/lib/channels/{channel}/index.ts` → `pushPendingUpdates(userId, channelId)` | All channel-specific API logic (auth, payload shape, PUT/POST/feed) |
+| **Generic service** | `src/lib/channels/services.ts` → `pushChannelProductUpdatesService()` | Verifies ownership, resolves handler via registry, delegates to `handler.pushPendingUpdates()` |
+| **Server action** | `src/app/(dashboard)/channels/[id]/publish/actions.ts` → `pushChannelProductUpdates()` | Auth, input validation, `revalidatePath` |
+| **Generic page** | `src/app/(dashboard)/channels/[id]/publish/page.tsx` | Checks `canPushProductUpdates` capability from registry; loads counts + pending list |
+| **UI component** | `src/components/organisms/channels/sync-dashboard.tsx` | Reusable organism: status cards, review table with diffs, publish button |
+
+#### Flow
+
+1. User edits product fields → `channelProductMappings.syncStatus = 'pending_update'` set atomically
+2. User clicks **"Publish Updates"** on the channel list (shown only when `canPushProductUpdates`) → `/channels/[id]/publish`
+3. Page checks capability via registry — `notFound()` for channels that don't support this
+4. User reviews staged changes (Price, SKU, etc.) and deep-dives via technical JSON preview
+5. User clicks **"Publish Updates to Store"** → `pushChannelProductUpdates(channelId)` server action
+6. `pushChannelProductUpdatesService()` calls `handler.pushPendingUpdates(userId, channelId)`
+7. Handler fetches pending mappings, calls remote API per product independently (non-fatal failures)
+8. Handler writes `syncStatus = 'in_sync'` or `'failed'` with error details
+9. UI shows per-product result badges
+
+#### WooCommerce implementation
+
+`woocommerceHandler.pushPendingUpdates()` in `src/lib/channels/woocommerce/index.ts`:
+- Decrypts credentials, computes Basic Auth
+- Issues `PUT /wp-json/wc/v3/products/{externalId}` with only the fields SeplorX manages (`name`, `sku`, `description`, `regular_price`, `weight`) — unknown WC fields are never touched
+
+#### Adding publish support to a new channel
+
+1. Set `canPushProductUpdates: true` in `src/lib/channels/{channel}/config.ts`
+2. Implement `pushPendingUpdates(userId, channelId): Promise<ChannelPushSyncResult>` on the handler in `index.ts`
+3. **Done.** The page, action, service, and "Publish Updates" button all work automatically.
+
+---
+
 
 ## Channel Product Mappings
 

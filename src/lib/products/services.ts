@@ -93,6 +93,8 @@ export async function fetchChannelProductsService(
   channelId: number,
   productId: number,
   search?: string,
+  limit: number = 50,
+  offset: number = 0,
 ): Promise<ChannelProductWithState[]> {
   const channelRows = await db
     .select({
@@ -129,7 +131,9 @@ export async function fetchChannelProductsService(
           : undefined
       )
     )
-    .limit(100);
+    .orderBy(channelProducts.externalId)
+    .limit(limit)
+    .offset(offset);
 
   let externalProducts: ExternalProduct[];
   try {

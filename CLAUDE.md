@@ -109,11 +109,12 @@ src/
 - **Dynamic validation:** Zod schemas built at runtime from registry `configFields`
 - **Server actions:** Mutations via `"use server"` actions with `useActionState` on client
 - **Auth pattern:** Uses `better-auth` for authentication. Server config and helpers in `src/lib/auth/index.ts`, client hooks in `src/lib/auth/client.ts`. The `src/proxy.ts` Edge middleware validates session tokens against the Better Auth API (not just cookie presence) and redirects unauthenticated users to `/login`. The shared helper `getAuthenticatedUserId()` is used in all Server Components and Server Actions to obtain the authenticated user's ID — never hardcode user IDs. Uses `emailAndPassword` plugin for native login. All dashboard routes are grouped inside `src/app/(dashboard)/`.
+- **Dynamic Field Extraction:** Server Actions that handle multi-tab/dynamic forms (like `updateChannelProductDetails`) should extract fields from `FormData` by iterating over the keys of the target Zod schema (`Object.keys(Schema.shape)`). This prevents field loss when the form structure changes and ensures the action remains a thin, type-safe gateway to the service layer.
 - **Agent pattern:** Agents are reasoning-only (read-only DB tools); writes happen via existing Server Actions after human approval. Two-phase serverless-safe flow.
 
 ## Database
 
-- Tables: `users`, `app_installations`, `channels`, `channel_product_mappings`, `companies` (type: supplier/customer/both), `products`, `purchase_invoices`, `purchase_invoice_items`, `payments`, `inventory_transactions`, `agent_actions`, `settings`
+- Tables: `users`, `app_installations`, `channels`, `channel_product_mappings`, `channel_product_changelog`, `companies` (type: supplier/customer/both), `products`, `purchase_invoices`, `purchase_invoice_items`, `payments`, `inventory_transactions`, `agent_actions`, `settings`
 - All tables have RLS enabled — chain `.enableRLS()` on every new `pgTable(...)` call
 - Migrations in `drizzle/` directory (PostgreSQL dialect)
 - Use **port 6543** (transaction pooler) for the app, **port 5432** (direct) for migrations
@@ -141,6 +142,8 @@ Follow these principles for all code changes (based on sound software architectu
 
 - Write queries with explicit column selection (no `SELECT *`)
 - **JSONB column access:** Only extract the sub-fields you actually use from JSONB blobs. Use Drizzle's `sql<T>\`${table.col}->>'field'\`` syntax instead of fetching the entire `rawData`/`credentials` column when only scalar sub-fields are needed. This avoids deserialising large blobs unnecessarily.
+- **Scalable JSONB Querying:** When filtering or organizing globally against channel-specific JSONB payloads (e.g., getting unique brands, categories, or prices), avoid massive global `CASE` statements. Instead, delegate the JSONB Drizzle SQL extraction to `handler.extractSqlField(fieldName)`. The specific extraction logic must live inside `src/lib/channels/{channel_id}/queries.ts`.
+  - **Note:** Standard fields like `title` (`name`), `sku`, and `stockQuantity` are strictly maintained as **native top-level PostgreSQL columns** (`channelProducts.name`, `channelProducts.stockQuantity`) because they are heavily indexed and updated often. You **do not** need to use JSONB `extractSqlField` logic for these; just use standard Drizzle querying (`eq(channelProducts.sku, "123")`).
 - Use DB transactions for multi-step mutations (read-check-write must be atomic)
 - Keep server actions focused: one action = one operation
 - Prefer DB-level constraints (unique indexes, FK checks) over application-level checks

@@ -165,6 +165,26 @@ Links SeplorX products to external product IDs on a channel. Supports the one-to
 
 **Pull direction**: Webhook fires for external product ID → query `WHERE channel_id = X AND external_product_id = Y` → decrement the matched SeplorX product.
 
+### channel_product_changelog
+
+Append-only audit log of field-level deltas for channel product edits. Instead of full product snapshots, this table stores only the specific fields that changed, making it easy to display diffs and build minimal update payloads for remote channels.
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | serial | PK |
+| channel_id | integer | NOT NULL, FK → channels.id (CASCADE) |
+| channel_product_id | integer | NOT NULL, FK → channel_products.id (CASCADE) |
+| external_product_id | varchar(100) | NOT NULL |
+| delta | jsonb | NOT NULL (contains only changed fields, e.g. `{"name": "New Title"}`) |
+| status | varchar(50) | NOT NULL, default "staged" ("staged", "success", "failed") |
+| error_line | text | nullable (error message if push failed) |
+| created_at | timestamp | NOT NULL, default now() |
+| published_at | timestamp | nullable (when changes were successfully pushed) |
+
+**Indexes**: `(channel_id)`, `(channel_product_id)`
+
+**Delta merging**: Multiple sequential edits to the same product create multiple staged rows. When publishing, the system fetches all `staged` rows, merges the deltas (`latest value wins`), pushes the combined minimal payload to the remote store, and marks all rows as `success`. The delta payload is constructed dynamically by mapping standardized fields to channel-specific API keys (e.g., using `FIELD_MAP` and WooCommerce `Product` schema types), ensuring minimal and type-safe updates. Old values are derived dynamically for UI by inspecting the preceding entry.
+
 ## JSONB Config Column
 
 The `config` column stores a flat `Record<string, string>`. Sensitive fields (where `type === "password"` in the app registry) are encrypted with AES-256-GCM before storage:

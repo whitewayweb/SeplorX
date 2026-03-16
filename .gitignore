@@ -48,3 +48,4 @@ yarn-error.log*
 next-env.d.ts
 /postman
 /src/lib/channels/amazon/category_product_upload_templates
+/src/db

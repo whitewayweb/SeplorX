@@ -1,4 +1,4 @@
-import type { ChannelDefinition, ChannelType } from "./types";
+import type { ChannelDefinition } from "./types";
 import * as woocommerceConfig from "./woocommerce/config";
 import * as amazonConfig from "./amazon/config";
 
@@ -43,8 +43,9 @@ export const channelRegistry: ChannelDefinition[] = [
   },
 ];
 
-export function getChannelById(id: ChannelType): ChannelDefinition | undefined {
-  return channelRegistry.find((c) => c.id === id);
+export function getChannelById(id?: string | null): ChannelDefinition | undefined {
+  if (!id) return undefined;
+  return channelRegistry.find((c) => c.id.toLowerCase() === id.toLowerCase());
 }
 
 

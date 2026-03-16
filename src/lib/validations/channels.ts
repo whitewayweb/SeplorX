@@ -35,14 +35,23 @@ export const UpdateChannelSchema = z.object({
 // We validate each tab independently using .partial() so absent fields are OK.
 
 export const ProductDetailsTabSchema = z.object({
-  name: z.string().trim().min(1, "Product name is required").max(500, "Name too long"),
+  name:          z.string().trim().min(1, "Product name is required").max(500, "Name too long"),
+  description:   z.string().trim().optional().or(z.literal("")),
+  brand:         z.string().trim().max(100, "Brand name too long").optional().or(z.literal("")),
+  manufacturer:  z.string().trim().max(100, "Manufacturer name too long").optional().or(z.literal("")),
+  partNumber:    z.string().trim().max(100, "Part number too long").optional().or(z.literal("")),
+  color:         z.string().trim().max(50, "Color name too long").optional().or(z.literal("")),
+  itemTypeKw:    z.string().trim().max(100, "Item type keyword too long").optional().or(z.literal("")),
+  pkgWeight:     z.string().trim().max(50, "Weight string too long").optional().or(z.literal("")),
+  itemWeight:    z.string().trim().max(50, "Weight string too long").optional().or(z.literal("")),
+  category:      z.string().trim().max(255, "Category too long").optional().or(z.literal("")),
 });
 
 export const OfferInventoryTabSchema = z.object({
-  sku:           z.string().trim().max(100, "SKU too long").optional(),
-  price:         z.string().trim().regex(/^\d+(\.\d{1,2})?$/, "Must be a valid price (e.g. 99.99)").optional().or(z.literal("")),
+  sku:           z.string().trim().max(100, "SKU too long").optional().or(z.literal("")),
+  price:         z.string().trim().regex(/^\d*(\.\d{1,2})?$/, "Must be a valid price (e.g. 99.99)").optional().or(z.literal("")),
   stockQuantity: z.coerce.number().int("Must be a whole number").min(0, "Stock cannot be negative").optional(),
-  itemCondition: z.string().trim().max(100, "Condition too long").optional(),
+  itemCondition: z.string().trim().max(100, "Condition too long").optional().or(z.literal("")),
 });
 
 // ── Channel product identifiers — extracted from untrusted FormData ───────────

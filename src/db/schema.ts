@@ -383,3 +383,26 @@ export const channelFeeds = pgTable("channel_feeds", {
   index("channel_feeds_channel_idx").on(table.channelId),
   index("channel_feeds_status_idx").on(table.status),
 ]).enableRLS();
+
+// ─── Channel Product Changelog ───────────────────────────────────────────────
+// Append-only audit log of field-level deltas for channel product edits.
+// Each row stores only the NEW values of fields that changed in a single edit.
+// "Old" values are derived by looking at the previous entry (by created_at)
+// for the same channel product. Staged entries are merged at publish time —
+// all unpublished deltas for a product are combined into one push payload
+// (latest value wins per field).
+
+export const channelProductChangelog = pgTable("channel_product_changelog", {
+  id: serial("id").primaryKey(),
+  channelId: integer("channel_id").notNull().references(() => channels.id, { onDelete: "cascade" }),
+  channelProductId: integer("channel_product_id").notNull().references(() => channelProducts.id, { onDelete: "cascade" }),
+  externalProductId: varchar("external_product_id", { length: 100 }).notNull(),
+  delta: jsonb("delta").$type<Record<string, unknown>>().notNull(),
+  status: varchar("status", { length: 50 }).default("staged").notNull(), // 'staged', 'success', 'failed'
+  errorLine: text("error_line"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  publishedAt: timestamp("published_at"),
+}, (table) => [
+  index("channel_product_changelog_channel_idx").on(table.channelId),
+  index("channel_product_changelog_product_idx").on(table.channelProductId),
+]).enableRLS();

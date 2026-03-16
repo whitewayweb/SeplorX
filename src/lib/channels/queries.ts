@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { channelProducts, channels } from "@/db/schema";
 import { and, count, desc, eq, ilike, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { getChannelById } from "./registry";
+import { getChannelHandler } from "./handlers";
 import { decryptChannelCredentials } from "./utils";
 import { ChannelType } from "./types";
 
@@ -73,20 +74,8 @@ export async function getChannelForUser(userId: number, channelId: number) {
   return channel;
 }
 
-// A robust JSONB expression that extracts the brand name from a channel product.
-// 1. Tries Amazon nested summaries ('summaries[0].brand' from catalog-item API)
-// 2. Tries WooCommerce attributes array (where attribute name is 'brand')
-const brandExpr = sql<string>`COALESCE(
-  NULLIF(${channelProducts.rawData}->'summaries'->0->>'brand', ''),
-  NULLIF(jsonb_path_query_first(
-    CASE 
-      WHEN jsonb_typeof(${channelProducts.rawData}->'attributes') = 'array' 
-      THEN ${channelProducts.rawData}->'attributes' 
-      ELSE '[]'::jsonb 
-    END,
-    '$[*] ? (@.name == "brand" || @.name == "Brand").option'
-  )#>>'{}', '')
-)`;
+// The SQL logic to extract the brand from a channel product array is now completely
+// delegated to the individual ChannelHandlers via `handler.extractSqlField`.
 
 export async function getChannelProductsWithVariations(channelId: number, options: {
   query?: string;
@@ -123,7 +112,10 @@ export async function getChannelProductsWithVariations(channelId: number, option
     )
     : undefined;
 
-  const brandCondition = brand
+  const handler = getChannelHandler(channel.channelType);
+  const brandExpr = handler?.extractSqlField?.("brand");
+
+  const brandCondition = brand && brandExpr
     ? sql`${brandExpr} = ${brand}`
     : undefined;
 
@@ -226,12 +218,17 @@ export async function getChannelProductsWithVariations(channelId: number, option
 }
 
 /**
- * Returns a sorted list of distinct, non-empty brand names for the given channel.
+ * Returns a sorted list of distinct, non-empty values for the given channel by 
+ * leveraging the handler's custom SQL extraction logic.
  */
-export async function getBrandsForChannel(channelId: number): Promise<string[]> {
+export async function getDistinctChannelProductField(
+  channelId: number, 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  fieldExpr: any
+): Promise<string[]> {
   const sq = db
     .select({
-      brand: brandExpr.as("brand"),
+      field: fieldExpr.as("field"),
     })
     .from(channelProducts)
     .where(
@@ -241,15 +238,15 @@ export async function getBrandsForChannel(channelId: number): Promise<string[]> 
         or(ne(channelProducts.type, "variation"), isNull(channelProducts.type))
       )
     )
-    .as("brands_subquery");
+    .as("fields_subquery");
 
   const rows = await db
-    .selectDistinct({ brand: sq.brand })
+    .selectDistinct({ field: sq.field })
     .from(sq)
-    .where(sql`${sq.brand} IS NOT NULL AND ${sq.brand} != ''`)
-    .orderBy(sql`${sq.brand} ASC`);
+    .where(sql`${sq.field} IS NOT NULL AND ${sq.field} != ''`)
+    .orderBy(sql`${sq.field} ASC`);
 
-  return rows.map((r) => r.brand).filter(Boolean);
+  return rows.map((r) => r.field as string).filter(Boolean);
 }
 
 export async function upsertChannelProducts(products: {
@@ -406,24 +403,8 @@ export async function getChannelProductByIdForUser(userId: number, id: number) {
     stockQuantity: row.stockQuantity,
     rawData: row.rawData,
     lastSyncedAt: row.lastSyncedAt,
+    channelType: row.channelType,
     productUrl: sanitizeUrl(definition?.getProductUrl?.(row.externalId, credentials, row.rawData))
   };
 }
 
-/**
- * Writes a partial update to a single channel_products row.
- * Only the keys present in `patch` are written; all other columns are untouched.
- * This is a pure DAL operation — no auth or business-logic checks.
- */
-export async function updateChannelProductInDb(
-  id: number,
-  patch: {
-    name?: string;
-    sku?: string | null;
-    stockQuantity?: number | null;
-    rawData?: Record<string, unknown>;
-  }
-): Promise<void> {
-  if (Object.keys(patch).length === 0) return;
-  await db.update(channelProducts).set(patch).where(eq(channelProducts.id, id));
-}

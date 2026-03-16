@@ -1,5 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
-import type { ChannelHandler, WebhookStockChange, ExternalProduct } from "../types";
+import type { ChannelHandler, WebhookStockChange, ExternalProduct, ChannelPushSyncResult } from "../types";
+import { extractSqlField, getBrands } from "./queries";
 
 // ─── WooCommerce REST API helpers ─────────────────────────────────────────────
 // credentials JSONB keys: consumerKey, consumerSecret (encrypted),
@@ -25,33 +26,29 @@ async function wcFetch(
   return res;
 }
 
-// ─── WooCommerce product payload (minimal shape we need) ─────────────────────
+import { Product as WCProduct } from "./api/types/wcproductSchema";
+import { ShopOrder as WCOrderPayload } from "./api/types/wcorderSchema";
 
-interface WCProductListItem {
-  id: number;
-  name: string;
-  sku: string;
-  stock_quantity: number | null;
-  type: string; // "simple" | "variable" | "grouped" | "external"
-}
+import { StandardizedProductRecord } from "../types";
 
-interface WCVariation {
-  id: number;
-  sku: string;
-  stock_quantity: number | null;
-  attributes: Array<{ name: string; option: string }>;
-}
-
-// ─── WooCommerce order webhook payload (minimal shape we need) ────────────────
-
-interface WCOrderPayload {
-  id: number;
-  status: string;
-  line_items: Array<{
-    product_id: number;
-    quantity: number;
-  }>;
-}
+// ─── Scalable Field Mapping ───────────────────────────────────────────────
+// Maps standardized SeplorX UI fields to WooCommerce REST API / DB keys.
+// This avoids giant switch/case blocks and makes it easy to add new fields.
+// Key = SeplorX field, value = WooCommerce field name (keyof WCProduct or meta key).
+const FIELD_MAP: Partial<Record<keyof StandardizedProductRecord, keyof WCProduct | string>> = {
+  name:              "name",
+  sku:               "sku",
+  stockQuantity:     "stock_quantity",
+  description:       "description",
+  price:             "regular_price",
+  itemWeight:        "weight",       // Standard attribute for item weight
+  pkgWeight:         "pkg_weight",   // Use a distinct key to prevent collision with itemWeight
+  brand:             "brand-name",
+  itemCondition:     "item-condition", 
+  manufacturer:      "manufacturer", 
+  partNumber:        "part_number",  
+  color:             "color",        
+};
 
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
@@ -60,6 +57,7 @@ import {
   capabilities,
   validateConfig,
   buildConnectUrl,
+  extractProductFields,
 } from "./config";
 
 export const woocommerceHandler: ChannelHandler = {
@@ -107,17 +105,18 @@ export const woocommerceHandler: ChannelHandler = {
       const text = await res.text().catch(() => "");
       throw new Error(`WooCommerce fetchProducts failed (${res.status}): ${text.substring(0, 200)}`);
     }
-    const data = (await res.json()) as WCProductListItem[];
+    const data = (await res.json()) as WCProduct[];
 
     const results: ExternalProduct[] = [];
 
     for (const p of data) {
+      if (!p.id) continue;
       const productType = p.type === "variable" ? "variable" : "simple";
       results.push({
         id: String(p.id),
-        name: p.name,
-        sku: p.sku,
-        stockQuantity: p.stock_quantity ?? undefined,
+        name: p.name ?? "Unnamed Product",
+        sku: p.sku || undefined,
+        stockQuantity: (p.stock_quantity as number) ?? undefined,
         type: productType,
         rawPayload: p as unknown as Record<string, unknown>,
       });
@@ -128,7 +127,7 @@ export const woocommerceHandler: ChannelHandler = {
     const variationPromises = variableProducts.map(async (p) => {
       let page = 1;
       let totalPages = 1;
-      const allVariationsForProduct: WCVariation[] = [];
+      const allVariationsForProduct: WCProduct[] = [];
 
       try {
         do {
@@ -144,7 +143,7 @@ export const woocommerceHandler: ChannelHandler = {
           if (!vRes.ok) break;
 
           totalPages = parseInt(vRes.headers.get("x-wp-totalpages") || "1", 10);
-          const variations = (await vRes.json()) as WCVariation[];
+          const variations = (await vRes.json()) as WCProduct[];
           allVariationsForProduct.push(...variations);
 
           page++;
@@ -161,13 +160,16 @@ export const woocommerceHandler: ChannelHandler = {
     for (const group of variationsGroups) {
       const { parent: p, variations } = group;
       for (const v of variations) {
+        if (!v.id) continue;
         // Build a readable label from attributes (e.g. "Size: L, Color: Red")
-        const attrLabel = v.attributes.map((a) => `${a.name}: ${a.option}`).join(", ");
+        const attrLabel = (v.attributes || [])
+          .map((a: { name?: string; option?: string }) => `${a.name}: ${a.option}`)
+          .join(", ");
         results.push({
           id: String(v.id),
           name: attrLabel ? `${p.name} — ${attrLabel}` : `${p.name} #${v.id}`,
           sku: v.sku || undefined,
-          stockQuantity: v.stock_quantity ?? undefined,
+          stockQuantity: (v.stock_quantity as number) ?? undefined,
           type: "variation",
           parentId: String(p.id),
           rawPayload: v as unknown as Record<string, unknown>,
@@ -239,25 +241,27 @@ export const woocommerceHandler: ChannelHandler = {
     switch (topic) {
       case "order.created": {
         const order = JSON.parse(body) as WCOrderPayload;
-        return order.line_items
-          .filter((item) => item.product_id && item.quantity > 0)
+        const lineItems = order.line_items || [];
+        return lineItems
+          .filter((item) => item.product_id && (item.quantity ?? 0) > 0)
           .map((item): WebhookStockChange => ({
             externalProductId: String(item.product_id),
-            quantity: -item.quantity,   // sale_out: decrement
+            quantity: -(item.quantity ?? 0),   // sale_out: decrement
             type: "sale_out",
-            referenceId: order.id,
+            referenceId: order.id ?? 0,
             referenceType: "woocommerce_order",
           }));
       }
       case "order.cancelled": {
         const order = JSON.parse(body) as WCOrderPayload;
-        return order.line_items
-          .filter((item) => item.product_id && item.quantity > 0)
+        const lineItems = order.line_items || [];
+        return lineItems
+          .filter((item) => item.product_id && (item.quantity ?? 0) > 0)
           .map((item): WebhookStockChange => ({
             externalProductId: String(item.product_id),
-            quantity: item.quantity,    // return: increment
+            quantity: (item.quantity ?? 0),    // return: increment
             type: "return",
-            referenceId: order.id,
+            referenceId: order.id ?? 0,
             referenceType: "woocommerce_order",
           }));
       }
@@ -266,4 +270,169 @@ export const woocommerceHandler: ChannelHandler = {
         return [];
     }
   },
+
+  mergeProductUpdate(existingRawData, patch) {
+    const rawData = { ...(existingRawData as Record<string, unknown>) };
+    // Standard delta fields (name, sku, stock) are handled in services.ts DB columns.
+    // Everything else in the patch is checked against our mapping table.
+    for (const [key, value] of Object.entries(patch)) {
+      const wcKey = FIELD_MAP[key as keyof StandardizedProductRecord]; // Use the global FIELD_MAP
+      if (wcKey && value !== undefined) {
+        rawData[wcKey] = value;
+      } else if (!wcKey && value !== undefined) {
+        // If not in FIELD_MAP, pass through using the original key
+        rawData[key] = value;
+      }
+    }
+    return rawData;
+  },
+
+  // ─── pushPendingUpdates ───────────────────────────────────────────────────
+  // Changelog-driven delta push: reads staged changelog entries, merges deltas
+  // per product (latest value wins), and pushes only changed fields to WooCommerce.
+  async pushPendingUpdates(userId, channelId): Promise<ChannelPushSyncResult> {
+    // Lazy-import to avoid circular module deps at load time
+    const { db } = await import("@/db");
+    const { channels, channelProductMappings, channelProductChangelog } = await import("@/db/schema");
+    const { eq, and, inArray } = await import("drizzle-orm");
+    const { decryptChannelCredentials } = await import("@/lib/channels/utils");
+
+    const [channel] = await db
+      .select({ storeUrl: channels.storeUrl, credentials: channels.credentials })
+      .from(channels)
+      .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
+      .limit(1);
+
+    if (!channel) throw new Error("Channel not found.");
+    if (!channel.storeUrl) throw new Error("Channel has no store URL.");
+
+    const creds = decryptChannelCredentials(channel.credentials);
+    if (!creds.consumerKey || !creds.consumerSecret) {
+      throw new Error("WooCommerce credentials are missing. Please reconnect the channel.");
+    }
+    const auth = basicAuth(creds.consumerKey, creds.consumerSecret);
+
+    const stagedEntries = await db
+      .select({
+        id: channelProductChangelog.id,
+        externalProductId: channelProductChangelog.externalProductId,
+        delta: channelProductChangelog.delta,
+        createdAt: channelProductChangelog.createdAt,
+      })
+      .from(channelProductChangelog)
+      .where(
+        and(
+          eq(channelProductChangelog.channelId, channelId),
+          eq(channelProductChangelog.status, "staged"),
+        ),
+      )
+      .orderBy(channelProductChangelog.createdAt);
+
+    if (stagedEntries.length === 0) {
+      return { pushed: 0, failed: 0, results: [] };
+    }
+
+    const results: ChannelPushSyncResult["results"] = [];
+    const succeededMappingExtIds: string[] = [];
+    const succeededEntryIds: number[] = [];
+    const failedEntryData: { entryIds: number[]; error: string; extId: string }[] = [];
+
+    for (const entry of stagedEntries) {
+      const wooPayload = buildWcPayload(entry.delta as Record<string, unknown>);
+
+      if (Object.keys(wooPayload).length === 0) {
+        succeededEntryIds.push(entry.id);
+        succeededMappingExtIds.push(entry.externalProductId);
+        results.push({ externalProductId: entry.externalProductId, success: true });
+        continue;
+      }
+
+      try {
+        const res = await wcFetch(channel.storeUrl!, `/products/${entry.externalProductId}`, {
+          method: "PUT",
+          headers: { Authorization: auth },
+          body: JSON.stringify(wooPayload),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`WooCommerce PUT failed (${res.status}): ${text.substring(0, 200)}`);
+        }
+        results.push({ externalProductId: entry.externalProductId, success: true });
+        succeededEntryIds.push(entry.id);
+        succeededMappingExtIds.push(entry.externalProductId);
+      } catch (err) {
+        const errorMsg = String(err).replace(/^Error:\s*/, "").substring(0, 300);
+        results.push({ externalProductId: entry.externalProductId, success: false, error: errorMsg });
+        failedEntryData.push({ entryIds: [entry.id], error: errorMsg, extId: entry.externalProductId });
+      }
+    }
+
+    if (succeededEntryIds.length > 0) {
+      await db
+        .update(channelProductChangelog)
+        .set({ status: "success", publishedAt: new Date() })
+        .where(inArray(channelProductChangelog.id, succeededEntryIds));
+    }
+
+    if (succeededMappingExtIds.length > 0) {
+      const successMappings = await db
+        .select({ id: channelProductMappings.id })
+        .from(channelProductMappings)
+        .where(
+          and(
+            eq(channelProductMappings.channelId, channelId),
+            inArray(channelProductMappings.externalProductId, succeededMappingExtIds),
+          ),
+        );
+      if (successMappings.length > 0) {
+        await db
+          .update(channelProductMappings)
+          .set({ syncStatus: "in_sync", lastSyncError: null })
+          .where(inArray(channelProductMappings.id, successMappings.map((m) => m.id)));
+      }
+    }
+
+    for (const { entryIds, error, extId } of failedEntryData) {
+      await db
+        .update(channelProductChangelog)
+        .set({ status: "failed", errorLine: error })
+        .where(inArray(channelProductChangelog.id, entryIds));
+
+      await db
+        .update(channelProductMappings)
+        .set({ syncStatus: "failed", lastSyncError: error })
+        .where(
+          and(
+            eq(channelProductMappings.channelId, channelId),
+            eq(channelProductMappings.externalProductId, extId),
+          ),
+        );
+    }
+
+    return { pushed: succeededMappingExtIds.length, failed: failedEntryData.length, results };
+  },
+
+  extractSqlField,
+  getBrands,
+  extractProductFields,
 };
+
+// Internal helper for testing and reuse
+export function buildWcPayload(delta: Record<string, unknown>): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(delta)) {
+    let wcKey: string;
+    if (key === "stockQuantity") {
+      payload.manage_stock = true;
+      wcKey = "stock_quantity";
+    } else {
+      wcKey = (FIELD_MAP[key as keyof StandardizedProductRecord] as string) || (key as string);
+    }
+    let val = value;
+    if (wcKey === "regular_price" || wcKey === "weight") {
+      val = String(value ?? "");
+    }
+    payload[wcKey] = val;
+  }
+  return payload;
+}
