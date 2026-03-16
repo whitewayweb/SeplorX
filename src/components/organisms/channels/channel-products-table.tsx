@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useCallback, Fragment, useEffect } from "react";
+import { useState, useCallback, Fragment } from "react";
 import { CornerDownRight, RefreshCw, Loader2, ChevronRight, ChevronDown, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { useSetAtom } from "jotai";
 import {
     Table,
     TableBody,
@@ -25,7 +24,6 @@ import { Button } from "@/components/ui/button";
 import { getCatalogItem } from "@/app/(dashboard)/channels/actions";
 import { ProductDetailTabs } from "./product-detail-tabs";
 import { useChannelProductDetail } from "@/lib/channels/hooks/use-channel-product-detail";
-import { channelNameAtom } from "@/store/channels";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Types
@@ -72,12 +70,6 @@ export function ChannelProductsTable({
 
     const { selectedProduct, isLoading, openProduct, invalidate } = useChannelProductDetail();
     
-    // Set Jotai atom with the current channel name
-    const setChannelName = useSetAtom(channelNameAtom);
-    useEffect(() => {
-        setChannelName(channelName);
-    }, [channelName, setChannelName]);
-
     const toggleExpand = useCallback((e: React.MouseEvent, externalId: string) => {
         e.stopPropagation();
         setExpandedParents((prev) => {
@@ -364,7 +356,11 @@ export function ChannelProductsTable({
                                 </SheetDescription>
                             </SheetHeader>
                             <div className="flex-1 w-full pb-0 flex flex-col items-start px-0">
-                                <ProductDetailTabs product={selectedProduct} onSaveSuccess={invalidate} />
+                                <ProductDetailTabs 
+                                    product={selectedProduct} 
+                                    onSaveSuccess={invalidate} 
+                                    channelName={channelName} 
+                                />
                             </div>
                         </>
                     ) : null}

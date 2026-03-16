@@ -378,7 +378,6 @@ export async function updateChannelProductService(
   externalId: string,
   patch: ChannelProductUpdatePatch,
 ): Promise<void> {
-  console.log("[updateChannelProductService] starting for:", { productId, externalId, patch });
   // Verify channel ownership
   const [channel] = await db
     .select({ id: channels.id, channelType: channels.channelType })
@@ -443,8 +442,6 @@ export async function updateChannelProductService(
   const handler = getChannelHandler(channel.channelType);
   if (handler?.mergeProductUpdate && Object.keys(rawPatch).length > 0) {
     const rawDataMerge = handler.mergeProductUpdate(existingRawData, rawPatch);
-    console.log("[updateChannelProductService] rawPatch:", rawPatch);
-    console.log("[updateChannelProductService] rawDataMerge from handler:", rawDataMerge);
     if (rawDataMerge && Object.keys(rawDataMerge).length > 0) {
       dbPatch.rawData = { ...existingRawData, ...rawDataMerge };
     }
@@ -486,13 +483,13 @@ export async function updateChannelProductService(
         );
     }
 
-    await tx
-      .update(channelProductMappings)
-      .set({ syncStatus: "pending_update", lastSyncError: null })
-      .where(eq(channelProductMappings.id, mapping.id));
-
-    // Only create or update a changelog entry if something actually changed
+    // Only update mapping and changelog if something actually changed
     if (Object.keys(delta).length > 0) {
+      await tx
+        .update(channelProductMappings)
+        .set({ syncStatus: "pending_update", lastSyncError: null })
+        .where(eq(channelProductMappings.id, mapping.id));
+
       const [existingStaged] = await tx
         .select({ id: channelProductChangelog.id, delta: channelProductChangelog.delta })
         .from(channelProductChangelog)

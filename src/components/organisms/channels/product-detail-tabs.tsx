@@ -8,8 +8,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { updateChannelProductDetails } from "@/app/(dashboard)/channels/actions";
 import { toast } from "sonner";
-import { useAtomValue } from "jotai";
-import { channelNameAtom } from "@/store/channels";
 import { PORTAL_NAME } from "@/utils/constants";
 
 import { getChannelById } from "@/lib/channels/registry";
@@ -35,6 +33,7 @@ interface ProductDetailTabsProps {
     product: ChannelProductDetail;
     /** Called after a successful save so the parent can evict its cache entry. */
     onSaveSuccess?: (productId: number) => void;
+    channelName?: string;
 }
 
 type ActionState = {
@@ -57,9 +56,9 @@ const tabTriggerCls = "data-[state=active]:shadow-none data-[state=active]:bg-tr
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function ProductDetailTabs({ product, onSaveSuccess }: ProductDetailTabsProps) {
-    const channelName = useAtomValue(channelNameAtom);
+export function ProductDetailTabs({ product, onSaveSuccess, channelName: channelNameProp }: ProductDetailTabsProps) {
     const channelDef = getChannelById(product.channelType as ChannelType);
+    const channelName = channelNameProp || channelDef?.name || "provider";
     
     // Use registry extraction or fallback to an empty object
     let rawData = product.rawData || {};

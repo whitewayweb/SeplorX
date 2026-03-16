@@ -381,10 +381,12 @@ export async function fetchChannelProducts(
   channelId: number,
   productId: number,
   search?: string,
+  limit: number = 50,
+  offset: number = 0,
 ): Promise<ChannelProductWithState[] | { error: string }> {
   try {
     const userId = await getAuthenticatedUserId();
-    const products = await fetchChannelProductsService(userId, channelId, productId, search);
+    const products = await fetchChannelProductsService(userId, channelId, productId, search, limit, offset);
     return products;
   } catch (err) {
     console.error("[fetchChannelProducts]", { channelId, error: String(err) });

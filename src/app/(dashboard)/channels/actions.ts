@@ -263,7 +263,6 @@ export async function updateChannelProductDetails(_prevState: unknown, formData:
   }
 
   const { id, channelId, externalId } = identifiersParsed.data;
-  console.log("[updateChannelProductDetails] identifiers:", { id, channelId, externalId });
   
   // Detect active tab — formData.has() is false for inputs not in the DOM.
   const isDetailsTab = formData.has("name");
