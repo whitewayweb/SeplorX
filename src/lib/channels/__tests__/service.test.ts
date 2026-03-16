@@ -34,11 +34,11 @@ describe("Channel Product Service", () => {
     };
 
     // Chain mocks for Drizzle
-    const selectMock = db.select as any;
+    const selectMock = db.select as unknown as ReturnType<typeof vi.fn>;
     selectMock.mockReturnValue({
       from: vi.fn().mockReturnThis(),
       where: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockImplementation((val) => {
+      limit: vi.fn().mockImplementation(() => {
         // Return different mocks based on current query context
         // This is a bit simplified, a real mock would be more robust
         if (selectMock.mock.calls.length === 1) return [mockChannel];
@@ -48,7 +48,7 @@ describe("Channel Product Service", () => {
     });
 
     const mockHandler = {
-      mergeProductUpdate: vi.fn().mockImplementation((old, patch) => {
+      mergeProductUpdate: vi.fn().mockImplementation((old, patch: Record<string, unknown>) => {
         const result = { ...old };
         if (patch.itemWeight) result.weight = patch.itemWeight;
         if (patch.price) result.regular_price = patch.price;
@@ -56,7 +56,7 @@ describe("Channel Product Service", () => {
         return result;
       }),
     };
-    (getChannelHandler as any).mockReturnValue(mockHandler);
+    (getChannelHandler as unknown as ReturnType<typeof vi.fn>).mockReturnValue(mockHandler);
 
     const txMock = {
       update: vi.fn().mockReturnThis(),
@@ -69,7 +69,7 @@ describe("Channel Product Service", () => {
       insert: vi.fn().mockReturnThis(),
       values: vi.fn().mockReturnThis(),
     };
-    (db.transaction as any).mockImplementation((cb) => cb(txMock));
+    (db.transaction as unknown as ReturnType<typeof vi.fn>).mockImplementation((cb) => cb(txMock));
 
     // 2. Run Service
     const patch = {
@@ -87,7 +87,6 @@ describe("Channel Product Service", () => {
     expect(setCall.rawData).toMatchObject({ weight: "2.5" });
 
     // Verify delta calculation (name changed, weight changed)
-    const insertCall = txMock.insert.mock.calls[0][0]; // This is for changelog insert
     // Wait, let's check the values passed to changelog
     const changelogValues = txMock.values.mock.calls[0][0];
     expect(changelogValues.delta).toMatchObject({

@@ -36,15 +36,18 @@ import { StandardizedProductRecord } from "../types";
 // This avoids giant switch/case blocks and makes it easy to add new fields.
 // Key = SeplorX field, value = WooCommerce field name (keyof WCProduct or meta key).
 const FIELD_MAP: Partial<Record<keyof StandardizedProductRecord, keyof WCProduct | string>> = {
+  name:              "name",
+  sku:               "sku",
+  stockQuantity:     "stock_quantity",
   description:       "description",
   price:             "regular_price",
-  itemWeight:        "weight",
-  pkgWeight:         "weight",
-  brand:             "brand-name",    // WC common meta key or attribute
+  itemWeight:        "weight",       // Standard attribute for item weight
+  pkgWeight:         "pkg_weight",   // Use a distinct key to prevent collision with itemWeight
+  brand:             "brand-name",
   itemCondition:     "item-condition", 
-  manufacturer:      "manufacturer",  // Common attribute name
-  partNumber:        "part_number",   // Common attribute name
-  color:             "color",         // Common attribute name
+  manufacturer:      "manufacturer", 
+  partNumber:        "part_number",  
+  color:             "color",        
 };
 
 // ─── Handler ──────────────────────────────────────────────────────────────────

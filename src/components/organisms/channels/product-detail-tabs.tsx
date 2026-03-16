@@ -108,9 +108,9 @@ export function ProductDetailTabs({ product, onSaveSuccess }: ProductDetailTabsP
                 </TabsList>
 
                 <div className="p-4 pt-6 max-w-4xl">
-                    <DetailsTab fields={fields} product={product} fe={fe} channelName={channelName} />
+                    <DetailsTab fields={fields as StandardizedProductRecord} product={product} fe={fe} channelName={channelName} />
                     <ImagesTab images={fields.images} />
-                    <OfferTab product={product} fields={fields} fe={fe} />
+                    <OfferTab product={product} fields={fields as StandardizedProductRecord} fe={fe} />
                     <VariationsTab relationships={fields.relationships} />
                 </div>
 

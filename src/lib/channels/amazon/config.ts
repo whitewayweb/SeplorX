@@ -184,6 +184,9 @@ export function extractProductFields(rawData: Record<string, any>): Standardized
     }));
 
     return {
+        name:         getNestedValue(summaries, "itemName") || getNestedValue(attributesObj, "item_name") || "",
+        sku:          rawData.sku || "",
+        stockQuantity: rawData.stockQuantity || "",
         brand:        getNestedValue(summaries, "brand")        || getNestedValue(attributesObj, "brand")        || rawData["brand-name"] || "",
         color:        getNestedValue(summaries, "color")        || getNestedValue(attributesObj, "color")        || "",
         partNumber:   getNestedValue(summaries, "partNumber")   || getNestedValue(attributesObj, "part_number")  || rawData.sku || "",

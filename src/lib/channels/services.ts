@@ -5,7 +5,7 @@ import { encrypt } from "@/lib/crypto";
 import { getChannelById } from "@/lib/channels/registry";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
-import { upsertChannelProducts, upsertProductWithVariationsTx, updateChannelProductInDb } from "@/lib/channels/queries";
+import { upsertChannelProducts, upsertProductWithVariationsTx } from "@/lib/channels/queries";
 import type { ChannelType, ChannelPushSyncResult } from "@/lib/channels/types";
 import { env } from "@/lib/env";
 
@@ -378,6 +378,7 @@ export async function updateChannelProductService(
   externalId: string,
   patch: ChannelProductUpdatePatch,
 ): Promise<void> {
+  console.log("[updateChannelProductService] starting for:", { productId, externalId, patch });
   // Verify channel ownership
   const [channel] = await db
     .select({ id: channels.id, channelType: channels.channelType })
@@ -425,11 +426,11 @@ export async function updateChannelProductService(
   const existingRawData = (existing.rawData as Record<string, unknown>) ?? {};
 
   // Build DB patch and separate raw data fields
-  const dbPatch: any = {};
+  const dbPatch: Record<string, unknown> = {};
   const rawPatch: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(patch)) {
-    if (CHANNEL_PRODUCT_DB_COLUMNS.includes(key as any)) {
+    if ((CHANNEL_PRODUCT_DB_COLUMNS as readonly string[]).includes(key)) {
       if (value !== undefined) {
         dbPatch[key] = typeof value === "string" ? value.trim() : value;
       }
@@ -442,6 +443,8 @@ export async function updateChannelProductService(
   const handler = getChannelHandler(channel.channelType);
   if (handler?.mergeProductUpdate && Object.keys(rawPatch).length > 0) {
     const rawDataMerge = handler.mergeProductUpdate(existingRawData, rawPatch);
+    console.log("[updateChannelProductService] rawPatch:", rawPatch);
+    console.log("[updateChannelProductService] rawDataMerge from handler:", rawDataMerge);
     if (rawDataMerge && Object.keys(rawDataMerge).length > 0) {
       dbPatch.rawData = { ...existingRawData, ...rawDataMerge };
     }

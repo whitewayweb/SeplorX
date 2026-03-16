@@ -263,6 +263,8 @@ export async function updateChannelProductDetails(_prevState: unknown, formData:
   }
 
   const { id, channelId, externalId } = identifiersParsed.data;
+  console.log("[updateChannelProductDetails] identifiers:", { id, channelId, externalId });
+  
   // Detect active tab — formData.has() is false for inputs not in the DOM.
   const isDetailsTab = formData.has("name");
   const isOfferTab   = formData.has("stockQuantity") || formData.has("price") || formData.has("sku") || formData.has("itemCondition");
@@ -271,7 +273,7 @@ export async function updateChannelProductDetails(_prevState: unknown, formData:
 
   // Validate + extract "Product Details" tab fields
   if (isDetailsTab) {
-    const raw: any = {};
+    const raw: Record<string, unknown> = {};
     // Dynamically extract only the fields defined in the schema from FormData
     for (const key of Object.keys(ProductDetailsTabSchema.shape)) {
       const val = formData.get(key);
@@ -287,7 +289,7 @@ export async function updateChannelProductDetails(_prevState: unknown, formData:
 
   // Validate + extract "Offer & Inventory" tab fields
   if (isOfferTab) {
-    const raw: any = {};
+    const raw: Record<string, unknown> = {};
     for (const key of Object.keys(OfferInventoryTabSchema.shape)) {
       const val = formData.get(key);
       if (val !== null) raw[key] = val;

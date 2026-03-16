@@ -1,6 +1,9 @@
 export type ChannelType = "woocommerce" | "shopify" | "amazon" | "custom";
 
 export interface StandardizedProductRecord {
+  name: string;
+  sku: string;
+  stockQuantity: string | number;
   brand: string;
   color: string;
   partNumber: string;

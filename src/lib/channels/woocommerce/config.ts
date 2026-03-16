@@ -108,6 +108,9 @@ export function extractProductFields(rawData: WCProduct): StandardizedProductRec
     }));
 
     return {
+        name:         rawData.name || "",
+        sku:          rawData.sku || "",
+        stockQuantity: rawData.stock_quantity !== undefined && rawData.stock_quantity !== null ? String(rawData.stock_quantity) : "",
         brand:        brand,
         color:        getWooAttr("color"),
         partNumber:   getWooAttr("part_number") || rawData.sku || "",
@@ -117,8 +120,8 @@ export function extractProductFields(rawData: WCProduct): StandardizedProductRec
         category:     category,
         price:        rawData.price || rawData.regular_price || "",
         itemCondition: (rawData["item-condition"] as string) || "New",
-        pkgWeight:    rawData.weight ? `${rawData.weight} kg` : "",
-        itemWeight:   rawData.weight ? `${rawData.weight} kg` : "",
+        pkgWeight:    rawData.weight ? String(rawData.weight) : "",
+        itemWeight:   rawData.weight ? String(rawData.weight) : "",
         images,
         relationships: [],
     };
