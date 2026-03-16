@@ -15,7 +15,7 @@ DROP TABLE IF EXISTS "publish_history" CASCADE;--> statement-breakpoint
 DO $$ BEGIN
  ALTER TABLE "channel_product_changelog" ADD CONSTRAINT "channel_product_changelog_channel_id_channels_id_fk" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION
- WHEN duplicate_object THEN null;
+ WHEN duplicate_object OR duplicate_table THEN null;
 END $$;
 --> statement-breakpoint
 DO $$ BEGIN

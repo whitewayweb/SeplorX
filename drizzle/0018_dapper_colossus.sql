@@ -15,7 +15,7 @@ ALTER TABLE "channel_product_mappings" ADD COLUMN IF NOT EXISTS "staged_changes"
 DO $$ BEGIN
  ALTER TABLE "publish_history" ADD CONSTRAINT "publish_history_channel_id_channels_id_fk" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION
- WHEN duplicate_object THEN null;
+ WHEN duplicate_object OR duplicate_table THEN null;
 END $$;
 --> statement-breakpoint
 DO $$ BEGIN
