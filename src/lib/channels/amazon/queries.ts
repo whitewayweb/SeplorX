@@ -1,6 +1,6 @@
-import { sql, eq, desc, and } from "drizzle-orm";
+import { sql, eq, desc, and, or } from "drizzle-orm";
 import { db } from "@/db";
-import { channelProducts, salesOrders, salesOrderItems, channels, products } from "@/db/schema";
+import { channelProducts, salesOrders, salesOrderItems, channels } from "@/db/schema";
 import { getDistinctChannelProductField } from "../queries";
 
 // Use the generated types directly
@@ -77,7 +77,7 @@ export interface OrderItemRow {
   quantity: number;
   price: string | null;
   rawData: Record<string, unknown> | OrdersV0Schema["OrderItem"] | null;
-  productId: number | null;
+  channelProductId: number | null;
   productName: string | null;
   productSku: string | null;
 }
@@ -162,7 +162,7 @@ export async function getOrderDetail(
   return row as OrderDetail;
 }
 
-/** Order items joined with matched SeplorX product (if any). */
+/** Order items joined with matched channel product. */
 export async function getOrderItems(orderId: number): Promise<OrderItemRow[]> {
   return db
     .select({
@@ -173,12 +173,22 @@ export async function getOrderItems(orderId: number): Promise<OrderItemRow[]> {
       quantity: salesOrderItems.quantity,
       price: salesOrderItems.price,
       rawData: salesOrderItems.rawData,
-      productId: salesOrderItems.productId,
-      productName: products.name,
-      productSku: products.sku,
+      channelProductId: channelProducts.id,
+      productName: channelProducts.name,
+      productSku: channelProducts.sku,
     })
     .from(salesOrderItems)
-    .leftJoin(products, eq(salesOrderItems.productId, products.id))
+    .innerJoin(salesOrders, eq(salesOrderItems.orderId, salesOrders.id))
+    .leftJoin(
+      channelProducts,
+      and(
+        eq(channelProducts.channelId, salesOrders.channelId),
+        or(
+          eq(channelProducts.sku, salesOrderItems.sku),
+          sql`${channelProducts.externalId} = ${salesOrderItems.rawData}->>'ASIN'`
+        )
+      )
+    )
     .where(eq(salesOrderItems.orderId, orderId));
 }
 

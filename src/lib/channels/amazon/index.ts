@@ -81,8 +81,8 @@ export const amazonHandler: ChannelHandler = {
    */
   async fetchAndSaveOrders(userId: number, channelId: number): Promise<{ fetched: number; saved: number }> {
     const { db } = await import("@/db");
-    const { channels, salesOrders, salesOrderItems, channelProductMappings } = await import("@/db/schema");
-    const { eq, and, or } = await import("drizzle-orm");
+    const { channels, salesOrders, salesOrderItems, channelProductMappings, products } = await import("@/db/schema");
+    const { eq, and, or, isNull } = await import("drizzle-orm");
     const { decryptChannelCredentials } = await import("@/lib/channels/utils");
 
     const [channel] = await db
@@ -172,10 +172,24 @@ export const amazonHandler: ChannelHandler = {
                   .limit(1)
               : [];
 
+            let matchedProductId = mapping?.productId;
+
+            // Fallback: Check if the SellerSKU exactly matches a SeplorX product for this user
+            if (!matchedProductId && sku) {
+              const [localProduct] = await tx
+                .select({ id: products.id })
+                .from(products)
+                .where(eq(products.sku, sku))
+                .limit(1);
+              if (localProduct) {
+                matchedProductId = localProduct.id;
+              }
+            }
+
             await tx.insert(salesOrderItems).values({
               orderId: insertedOrder.id,
               externalItemId: item.OrderItemId,
-              productId: mapping?.productId,
+              productId: matchedProductId,
               sku: item.SellerSKU,
               title: item.Title,
               quantity: item.QuantityOrdered,
@@ -188,6 +202,70 @@ export const amazonHandler: ChannelHandler = {
       } catch (err) {
         console.error(`[Amazon Sync] Failed to save order ${amzOrder.AmazonOrderId}:`, err);
       }
+    }
+
+    // 5. Retroactive mapping check: try to match order items that still have no productId
+    try {
+      const pendingItems = await db
+        .select({
+          id: salesOrderItems.id,
+          sku: salesOrderItems.sku,
+          rawData: salesOrderItems.rawData
+        })
+        .from(salesOrderItems)
+        .innerJoin(salesOrders, eq(salesOrderItems.orderId, salesOrders.id))
+        .where(
+          and(
+            eq(salesOrders.channelId, channelId),
+            isNull(salesOrderItems.productId)
+          )
+        );
+
+      for (const item of pendingItems) {
+        const payload = item.rawData as Record<string, unknown> | null;
+        const asin = (payload?.ASIN as string) ?? "";
+        const sku = item.sku ?? "";
+
+        let matchedProductId: number | undefined;
+
+        const [mapping] = (asin || sku)
+          ? await db
+              .select({ productId: channelProductMappings.productId })
+              .from(channelProductMappings)
+              .where(
+                and(
+                  eq(channelProductMappings.channelId, channelId),
+                  or(
+                    asin ? eq(channelProductMappings.externalProductId, asin) : undefined,
+                    sku  ? eq(channelProductMappings.externalProductId, sku)  : undefined,
+                  ),
+                )
+              )
+              .limit(1)
+          : [];
+
+        matchedProductId = mapping?.productId;
+
+        if (!matchedProductId && sku) {
+          const [localProduct] = await db
+            .select({ id: products.id })
+            .from(products)
+            .where(eq(products.sku, sku))
+            .limit(1);
+          if (localProduct) {
+            matchedProductId = localProduct.id;
+          }
+        }
+
+        if (matchedProductId) {
+          await db
+            .update(salesOrderItems)
+            .set({ productId: matchedProductId })
+            .where(eq(salesOrderItems.id, item.id));
+        }
+      }
+    } catch (err) {
+      console.error("[Amazon Sync] Failed to map past items:", err);
     }
 
     return { fetched: amazonOrders.length, saved: savedCount };

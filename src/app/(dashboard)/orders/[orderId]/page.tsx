@@ -2,7 +2,7 @@ import { getAuthenticatedUserId } from "@/lib/auth";
 import { getOrderDetail, getOrderItems } from "@/lib/channels/amazon/queries";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, CheckCircle2, AlertCircle } from "lucide-react";
+import { ArrowLeft, AlertCircle } from "lucide-react";
 import OrdersV0Schema from "@/lib/channels/amazon/api/types/ordersV0Schema";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +35,7 @@ export default async function OrderDetailPage({
   const rawOrder = storedRaw?.order;
   const addr = storedRaw?.shippingAddress?.ShippingAddress;
 
-  const matchedCount = items.filter((i) => i.productId !== null).length;
+  const matchedCount = items.filter((i) => i.channelProductId !== null).length;
 
   return (
     <div className="p-8 max-w-5xl">
@@ -79,14 +79,23 @@ export default async function OrderDetailPage({
             <div className="divide-y">
               {items.map((item) => {
                 const rawItem = item.rawData as OrdersV0Schema["OrderItem"] | null;
-                const isMatched = !!item.productId;
+                const isMatched = !!item.channelProductId;
                 return (
                   <div key={item.id} className="px-6 py-4">
                     <div className="flex justify-between items-start gap-4">
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-900 text-sm leading-snug">
-                          {item.title ?? "Unknown product"}
-                        </p>
+                        {item.sku ? (
+                          <Link
+                            href={`/products/channels/${order.channelId}?q=${encodeURIComponent(item.sku)}`}
+                            className="font-medium text-blue-600 hover:text-blue-800 text-sm leading-snug hover:underline"
+                          >
+                            {item.title ?? "Unknown product"}
+                          </Link>
+                        ) : (
+                          <p className="font-medium text-gray-900 text-sm leading-snug">
+                            {item.title ?? "Unknown product"}
+                          </p>
+                        )}
                         <div className="flex flex-wrap gap-2 mt-1.5 items-center">
                           {item.sku && (
                             <span className="text-xs text-gray-400 font-mono">SKU: {item.sku}</span>
@@ -94,19 +103,10 @@ export default async function OrderDetailPage({
                           {rawItem?.ASIN && (
                             <span className="text-xs text-gray-400 font-mono">ASIN: {rawItem.ASIN}</span>
                           )}
-                          {isMatched ? (
-                            <Link
-                              href={`/products/${item.productId}`}
-                              className="inline-flex items-center gap-1 text-xs text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 rounded px-1.5 py-0.5 transition-colors"
-                            >
-                              <CheckCircle2 className="h-3 w-3" />
-                              {item.productName}
-                              {item.productSku && <span className="text-green-500">· {item.productSku}</span>}
-                            </Link>
-                          ) : (
+                          {!isMatched && (
                             <span className="inline-flex items-center gap-1 text-xs text-orange-600 bg-orange-50 border border-orange-200 rounded px-1.5 py-0.5">
                               <AlertCircle className="h-3 w-3" />
-                              Not matched — re-fetch orders after mapping products
+                              Not matched in channel products
                             </span>
                           )}
                         </div>

@@ -757,22 +757,38 @@ export class AmazonAPIClient {
     url.searchParams.set("MarketplaceIds", this.marketplaceId);
     if (createdAfter) url.searchParams.set("CreatedAfter", createdAfter);
 
-    const res = await fetch(url.toString(), {
-      headers: {
-        Accept: "application/json",
-        "x-amz-access-token": accessToken,
-      },
-      signal: AbortSignal.timeout(15_000),
-    });
+    let allOrders: NonNullable<OrdersV0Schema["GetOrdersResponse"]["payload"]>["Orders"] = [];
+    let nextToken: string | undefined = undefined;
 
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error("[Amazon SP-API] getOrders Error:", errText);
-      throw new Error(`Failed to get orders: ${res.status}`);
-    }
+    do {
+      const currentUrl = new URL(url.toString());
+      if (nextToken) {
+        currentUrl.searchParams.set("NextToken", nextToken);
+      }
 
-    const data = (await res.json()) as OrdersV0Schema["GetOrdersResponse"];
-    return data.payload;
+      const res = await fetch(currentUrl.toString(), {
+        headers: {
+          Accept: "application/json",
+          "x-amz-access-token": accessToken,
+        },
+        signal: AbortSignal.timeout(15_000),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error("[Amazon SP-API] getOrders Error:", errText);
+        throw new Error(`Failed to get orders: ${res.status}`);
+      }
+
+      const data = (await res.json()) as OrdersV0Schema["GetOrdersResponse"];
+      if (data.payload?.Orders) {
+        allOrders = allOrders.concat(data.payload.Orders);
+      }
+      
+      nextToken = data.payload?.NextToken;
+    } while (nextToken);
+
+    return { Orders: allOrders };
   }
 
   /**
