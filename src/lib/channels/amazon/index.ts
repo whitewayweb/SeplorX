@@ -95,8 +95,8 @@ export const amazonHandler: ChannelHandler = {
     const creds = decryptChannelCredentials(channel.credentials);
     const client = new AmazonAPIClient(creds, channel.storeUrl || "");
 
-    // Fetch orders from the last 7 days by default if no better logic
-    const createdAfter = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    // Fetch orders from the last 30 days
+    const createdAfter = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const ordersRes = await client.getOrders(createdAfter);
     const amazonOrders = ordersRes?.Orders || [];
 
@@ -114,26 +114,42 @@ export const amazonHandler: ChannelHandler = {
 
           if (existing) return;
 
-          // 2. Fetch Buyer Info & Address (as shown in screenshot)
+          // 2. Fetch Buyer Info, Address, and Items in parallel
           const [buyerRes, addressRes, itemsRes] = await Promise.all([
             client.getOrderBuyerInfo(amzOrder.AmazonOrderId),
             client.getOrderAddress(amzOrder.AmazonOrderId),
             client.getOrderItems(amzOrder.AmazonOrderId),
           ]);
 
-          // 3. Insert Sales Order
+          // Resolve buyer name: dedicated endpoint > embedded BuyerInfo in order > fallback
+          const resolvedBuyerName =
+            buyerRes?.BuyerName ||
+            amzOrder.BuyerInfo?.BuyerName ||
+            amzOrder.DefaultShipFromLocationAddress?.Name ||
+            addressRes?.ShippingAddress?.Name ||
+            null;
+
+          // Resolve buyer email — not exposed by v0 BuyerInfo endpoint
+          const resolvedBuyerEmail: string | null = null;
+
+          // 3. Insert Sales Order with full rawData
           const [insertedOrder] = await tx.insert(salesOrders).values({
             channelId,
             externalOrderId: amzOrder.AmazonOrderId,
             status: mapAmazonStatus(amzOrder.OrderStatus),
             totalAmount: amzOrder.OrderTotal?.Amount,
             currency: amzOrder.OrderTotal?.CurrencyCode,
-            buyerName: buyerRes?.BuyerName || amzOrder.BuyerInfo?.BuyerName,
-            buyerEmail: buyerRes?.BuyerEmail,
+            buyerName: resolvedBuyerName,
+            buyerEmail: resolvedBuyerEmail,
             purchasedAt: amzOrder.PurchaseDate ? new Date(amzOrder.PurchaseDate) : null,
+            rawData: {
+              order: amzOrder as Record<string, unknown>,
+              buyerInfo: buyerRes as Record<string, unknown>,
+              shippingAddress: addressRes as Record<string, unknown>,
+            },
           }).returning({ id: salesOrders.id });
 
-          // 4. Insert Order Items
+          // 4. Insert Order Items with full rawData
           const amzItems = itemsRes?.OrderItems || [];
           for (const item of amzItems) {
             // Try to find a product mapping in SeplorX
@@ -142,7 +158,7 @@ export const amazonHandler: ChannelHandler = {
               .from(channelProductMappings)
               .where(and(
                 eq(channelProductMappings.channelId, channelId),
-                eq(channelProductMappings.externalProductId, item.ASIN)
+                eq(channelProductMappings.externalProductId, item.ASIN ?? "")
               ))
               .limit(1);
 
@@ -154,6 +170,7 @@ export const amazonHandler: ChannelHandler = {
               title: item.Title,
               quantity: item.QuantityOrdered,
               price: item.ItemPrice?.Amount,
+              rawData: item as Record<string, unknown>,
             });
           }
           savedCount++;

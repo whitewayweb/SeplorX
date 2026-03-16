@@ -1,5 +1,5 @@
-import { Button } from "@/components/ui/button";
-import { fetchAmazonOrdersAction } from "@/app/(dashboard)/orders/actions";
+import Link from "next/link";
+import { FetchOrdersButton } from "./fetch-orders-button";
 
 interface Order {
   id: number;
@@ -23,19 +23,29 @@ interface OrdersListProps {
   title?: string;
 }
 
+const STATUS_COLORS: Record<string, string> = {
+  shipped:   "bg-green-100 text-green-800",
+  pending:   "bg-yellow-100 text-yellow-800",
+  cancelled: "bg-red-100 text-red-800",
+  returned:  "bg-orange-100 text-orange-800",
+  failed:    "bg-gray-100 text-gray-700",
+};
+
 export function OrdersList({ orders, channels = [], title = "Sales Orders" }: OrdersListProps) {
   return (
     <div className="p-8">
       <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold">{title}</h1>
+        <div>
+          <h1 className="text-3xl font-bold">{title}</h1>
+          <p className="text-gray-500 mt-1">{orders.length} order{orders.length !== 1 ? "s" : ""}</p>
+        </div>
         <div className="flex gap-2">
           {channels.map((channel) => (
-            <form key={channel.id} action={async () => {
-              "use server";
-              await fetchAmazonOrdersAction(channel.id);
-            }}>
-              <Button type="submit">Fetch {channel.name} Orders</Button>
-            </form>
+            <FetchOrdersButton
+              key={channel.id}
+              channelId={channel.id}
+              channelName={channel.name}
+            />
           ))}
         </div>
       </div>
@@ -56,33 +66,40 @@ export function OrdersList({ orders, channels = [], title = "Sales Orders" }: Or
             {orders.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-6 py-10 text-center text-gray-500">
-                  No orders found.
+                  No orders found. Use the button above to fetch orders.
                 </td>
               </tr>
             ) : (
               orders.map((order) => (
-                <tr key={order.id}>
+                <tr key={order.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {order.purchasedAt?.toLocaleDateString()}
+                    {order.purchasedAt?.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) ?? "—"}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
-                    {order.externalOrderId}
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">
+                    <Link
+                      href={`/orders/${order.id}`}
+                      className="text-blue-600 hover:underline"
+                    >
+                      {order.externalOrderId}
+                    </Link>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {order.channelName}
+                    {order.channelName ?? "—"}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {order.buyerName}
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                    {order.buyerName ?? <span className="text-gray-400 italic text-xs">Amazon Anonymized</span>}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      order.status === 'shipped' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                    <span className={`px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                      STATUS_COLORS[order.status ?? ""] ?? "bg-gray-100 text-gray-700"
                     }`}>
                       {order.status}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right font-semibold">
-                    {order.currency} {order.totalAmount}
+                    {order.currency && order.totalAmount
+                      ? `${order.currency} ${parseFloat(order.totalAmount).toFixed(2)}`
+                      : "—"}
                   </td>
                 </tr>
               ))

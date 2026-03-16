@@ -430,6 +430,7 @@ export const salesOrders = pgTable("sales_orders", {
   purchasedAt: timestamp("purchased_at"),
   syncedAt: timestamp("synced_at").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  rawData: jsonb("raw_data").$type<Record<string, unknown>>(),
 }, (table) => [
   uniqueIndex("sales_orders_channel_ext_idx").on(table.channelId, table.externalOrderId),
   index("sales_orders_channel_idx").on(table.channelId),
@@ -444,6 +445,7 @@ export const salesOrderItems = pgTable("sales_order_items", {
   title: varchar("title", { length: 500 }),
   quantity: integer("quantity").notNull(),
   price: decimal("price", { precision: 12, scale: 2 }),
+  rawData: jsonb("raw_data").$type<Record<string, unknown>>(),
 }, (table) => [
   uniqueIndex("sales_order_items_order_ext_idx").on(table.orderId, table.externalItemId),
   index("sales_order_items_order_idx").on(table.orderId),

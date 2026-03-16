@@ -19,6 +19,7 @@ export async function fetchAmazonOrdersAction(channelId: number) {
   try {
     const result = await handler.fetchAndSaveOrders(userId, channelId);
     revalidatePath("/orders");
+    revalidatePath(`/orders/channels/${channelId}`);
     return { success: true, ...result };
   } catch (err) {
     console.error("[fetchAmazonOrdersAction] Error:", err);
