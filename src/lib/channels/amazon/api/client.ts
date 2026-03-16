@@ -8,6 +8,7 @@ import { type ProductTypesSchema } from "./types/productTypesSchema";
 import { type ListingsItemsSchema } from "./types/listingsItemsSchema";
 import { type FbaInventorySchema } from "./types/fbaInventorySchema";
 import { type FeedsSchema } from "./types/feedsSchema";
+import { type OrdersV0Schema } from "./types/ordersV0Schema";
 
 const gunzipAsync = promisify(zlib.gunzip);
 
@@ -744,5 +745,111 @@ export class AmazonAPIClient {
       category: browseCategory ?? amazonProductType,
       amazonProductType,
     };
+  }
+
+  /**
+   * Fetch a list of orders.
+   * API: /orders/v0/orders (getOrders)
+   */
+  public async getOrders(createdAfter?: string): Promise<OrdersV0Schema["GetOrdersResponse"]["payload"]> {
+    const accessToken = await this.getAccessToken();
+    const url = new URL(`${this.endpoint}/orders/v0/orders`);
+    url.searchParams.set("MarketplaceIds", this.marketplaceId);
+    if (createdAfter) url.searchParams.set("CreatedAfter", createdAfter);
+
+    const res = await fetch(url.toString(), {
+      headers: {
+        Accept: "application/json",
+        "x-amz-access-token": accessToken,
+      },
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[Amazon SP-API] getOrders Error:", errText);
+      throw new Error(`Failed to get orders: ${res.status}`);
+    }
+
+    const data = (await res.json()) as OrdersV0Schema["GetOrdersResponse"];
+    return data.payload;
+  }
+
+  /**
+   * Fetch line items for a specific order.
+   * API: /orders/v0/orders/{orderId}/orderItems (getOrderItems)
+   */
+  public async getOrderItems(orderId: string): Promise<OrdersV0Schema["GetOrderItemsResponse"]["payload"]> {
+    const accessToken = await this.getAccessToken();
+    const url = new URL(`${this.endpoint}/orders/v0/orders/${encodeURIComponent(orderId)}/orderItems`);
+
+    const res = await fetch(url.toString(), {
+      headers: {
+        Accept: "application/json",
+        "x-amz-access-token": accessToken,
+      },
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[Amazon SP-API] getOrderItems Error:", errText);
+      throw new Error(`Failed to get order items for ${orderId}: ${res.status}`);
+    }
+
+    const data = (await res.json()) as OrdersV0Schema["GetOrderItemsResponse"];
+    return data.payload;
+  }
+
+  /**
+   * Fetch buyer info for a specific order.
+   * API: /orders/v0/orders/{orderId}/buyerInfo (getOrderBuyerInfo)
+   */
+  public async getOrderBuyerInfo(orderId: string): Promise<OrdersV0Schema["GetOrderBuyerInfoResponse"]["payload"]> {
+    const accessToken = await this.getAccessToken();
+    const url = new URL(`${this.endpoint}/orders/v0/orders/${encodeURIComponent(orderId)}/buyerInfo`);
+
+    const res = await fetch(url.toString(), {
+      headers: {
+        Accept: "application/json",
+        "x-amz-access-token": accessToken,
+      },
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[Amazon SP-API] getOrderBuyerInfo Error:", errText);
+      throw new Error(`Failed to get buyer info for ${orderId}: ${res.status}`);
+    }
+
+    const data = (await res.json()) as OrdersV0Schema["GetOrderBuyerInfoResponse"];
+    return data.payload;
+  }
+
+  /**
+   * Fetch shipping address for a specific order.
+   * API: /orders/v0/orders/{orderId}/address (getOrderAddress)
+   */
+  public async getOrderAddress(orderId: string): Promise<OrdersV0Schema["GetOrderAddressResponse"]["payload"]> {
+    const accessToken = await this.getAccessToken();
+    const url = new URL(`${this.endpoint}/orders/v0/orders/${encodeURIComponent(orderId)}/address`);
+
+    const res = await fetch(url.toString(), {
+      headers: {
+        Accept: "application/json",
+        "x-amz-access-token": accessToken,
+      },
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[Amazon SP-API] getOrderAddress Error:", errText);
+      throw new Error(`Failed to get address for ${orderId}: ${res.status}`);
+    }
+
+    const data = (await res.json()) as OrdersV0Schema["GetOrderAddressResponse"];
+    return data.payload;
   }
 }

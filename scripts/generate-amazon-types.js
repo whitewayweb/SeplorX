@@ -27,6 +27,7 @@ async function main() {
         "sellers-api-model",
         "reports-api-model",
         "feeds-api-model",
+        "orders-api-model",
     ];
 
     // Filter for valid OpenAPI JSON files in the `models/` folder

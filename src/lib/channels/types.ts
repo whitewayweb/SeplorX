@@ -279,5 +279,14 @@ export interface ChannelHandler {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   extractProductFields?: (rawData: Record<string, any>) => StandardizedProductRecord;
+
+  /**
+   * Fetch orders from the remote channel and persist them as sales_orders.
+   * Required when a channel supports order retrieval.
+   */
+  fetchAndSaveOrders?(
+    userId: number,
+    channelId: number,
+  ): Promise<{ fetched: number; saved: number }>;
 }
 

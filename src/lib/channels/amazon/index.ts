@@ -75,4 +75,110 @@ export const amazonHandler: ChannelHandler = {
   extractSqlField,
   getBrands,
   extractProductFields,
+
+  /**
+   * High-level orchestrator to fetch orders from Amazon and persist them.
+   */
+  async fetchAndSaveOrders(userId: number, channelId: number): Promise<{ fetched: number; saved: number }> {
+    const { db } = await import("@/db");
+    const { channels, salesOrders, salesOrderItems, channelProductMappings } = await import("@/db/schema");
+    const { eq, and } = await import("drizzle-orm");
+    const { decryptChannelCredentials } = await import("@/lib/channels/utils");
+
+    const [channel] = await db
+      .select({ storeUrl: channels.storeUrl, credentials: channels.credentials })
+      .from(channels)
+      .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
+      .limit(1);
+
+    if (!channel) throw new Error("Channel not found.");
+    const creds = decryptChannelCredentials(channel.credentials);
+    const client = new AmazonAPIClient(creds, channel.storeUrl || "");
+
+    // Fetch orders from the last 7 days by default if no better logic
+    const createdAfter = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const ordersRes = await client.getOrders(createdAfter);
+    const amazonOrders = ordersRes?.Orders || [];
+
+    let savedCount = 0;
+
+    for (const amzOrder of amazonOrders) {
+      try {
+        await db.transaction(async (tx) => {
+          // 1. Check if order already exists
+          const [existing] = await tx
+            .select({ id: salesOrders.id })
+            .from(salesOrders)
+            .where(and(eq(salesOrders.channelId, channelId), eq(salesOrders.externalOrderId, amzOrder.AmazonOrderId)))
+            .limit(1);
+
+          if (existing) return;
+
+          // 2. Fetch Buyer Info & Address (as shown in screenshot)
+          const [buyerRes, addressRes, itemsRes] = await Promise.all([
+            client.getOrderBuyerInfo(amzOrder.AmazonOrderId),
+            client.getOrderAddress(amzOrder.AmazonOrderId),
+            client.getOrderItems(amzOrder.AmazonOrderId),
+          ]);
+
+          // 3. Insert Sales Order
+          const [insertedOrder] = await tx.insert(salesOrders).values({
+            channelId,
+            externalOrderId: amzOrder.AmazonOrderId,
+            status: mapAmazonStatus(amzOrder.OrderStatus),
+            totalAmount: amzOrder.OrderTotal?.Amount,
+            currency: amzOrder.OrderTotal?.CurrencyCode,
+            buyerName: buyerRes?.BuyerName || amzOrder.BuyerInfo?.BuyerName,
+            buyerEmail: buyerRes?.BuyerEmail,
+            purchasedAt: amzOrder.PurchaseDate ? new Date(amzOrder.PurchaseDate) : null,
+          }).returning({ id: salesOrders.id });
+
+          // 4. Insert Order Items
+          const amzItems = itemsRes?.OrderItems || [];
+          for (const item of amzItems) {
+            // Try to find a product mapping in SeplorX
+            const [mapping] = await tx
+              .select({ productId: channelProductMappings.productId })
+              .from(channelProductMappings)
+              .where(and(
+                eq(channelProductMappings.channelId, channelId),
+                eq(channelProductMappings.externalProductId, item.ASIN)
+              ))
+              .limit(1);
+
+            await tx.insert(salesOrderItems).values({
+              orderId: insertedOrder.id,
+              externalItemId: item.OrderItemId,
+              productId: mapping?.productId,
+              sku: item.SellerSKU,
+              title: item.Title,
+              quantity: item.QuantityOrdered,
+              price: item.ItemPrice?.Amount,
+            });
+          }
+          savedCount++;
+        });
+      } catch (err) {
+        console.error(`[Amazon Sync] Failed to save order ${amzOrder.AmazonOrderId}:`, err);
+      }
+    }
+
+    return { fetched: amazonOrders.length, saved: savedCount };
+  },
 };
+
+/**
+ * Maps Amazon OrderStatus to SeplorX salesOrderStatusEnum
+ */
+function mapAmazonStatus(status: string): "pending" | "shipped" | "cancelled" | "returned" | "failed" {
+  switch (status) {
+    case "Shipped":
+      return "shipped";
+    case "Canceled":
+      return "cancelled";
+    case "Unfulfillable":
+      return "failed";
+    default:
+      return "pending";
+  }
+}
