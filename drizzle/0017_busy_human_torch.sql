@@ -1,1 +1,1 @@
-ALTER TABLE "channel_feeds" ADD COLUMN "mapping_ids" jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE "channel_feeds" ADD COLUMN IF NOT EXISTS "mapping_ids" jsonb DEFAULT '[]'::jsonb;

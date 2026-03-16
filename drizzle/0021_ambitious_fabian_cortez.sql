@@ -1,4 +1,4 @@
-CREATE TABLE "channel_product_changelog" (
+CREATE TABLE IF NOT EXISTS "channel_product_changelog" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"channel_id" integer NOT NULL,
 	"channel_product_id" integer NOT NULL,
@@ -11,8 +11,18 @@ CREATE TABLE "channel_product_changelog" (
 );
 --> statement-breakpoint
 ALTER TABLE "channel_product_changelog" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
-DROP TABLE "publish_history" CASCADE;--> statement-breakpoint
-ALTER TABLE "channel_product_changelog" ADD CONSTRAINT "channel_product_changelog_channel_id_channels_id_fk" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "channel_product_changelog" ADD CONSTRAINT "channel_product_changelog_channel_product_id_channel_products_id_fk" FOREIGN KEY ("channel_product_id") REFERENCES "public"."channel_products"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "channel_product_changelog_channel_idx" ON "channel_product_changelog" USING btree ("channel_id");--> statement-breakpoint
-CREATE INDEX "channel_product_changelog_product_idx" ON "channel_product_changelog" USING btree ("channel_product_id");
+DROP TABLE IF EXISTS "publish_history" CASCADE;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "channel_product_changelog" ADD CONSTRAINT "channel_product_changelog_channel_id_channels_id_fk" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object OR duplicate_table THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "channel_product_changelog" ADD CONSTRAINT "channel_product_changelog_channel_product_id_channel_products_id_fk" FOREIGN KEY ("channel_product_id") REFERENCES "public"."channel_products"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "channel_product_changelog_channel_idx" ON "channel_product_changelog" USING btree ("channel_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "channel_product_changelog_product_idx" ON "channel_product_changelog" USING btree ("channel_product_id");
