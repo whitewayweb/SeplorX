@@ -79,35 +79,34 @@ export default async function OrderDetailPage({
             <div className="divide-y">
               {items.map((item) => {
                 const rawItem = item.rawData as OrdersV0Schema["OrderItem"] | null;
-                const isMatched = !!item.channelProductId;
                 return (
                   <div key={item.id} className="px-6 py-4">
                     <div className="flex justify-between items-start gap-4">
                       <div className="flex-1 min-w-0">
-                        {item.sku ? (
-                          <Link
-                            href={`/products/channels/${order.channelId}?q=${encodeURIComponent(item.sku)}`}
-                            className="font-medium text-blue-600 hover:text-blue-800 text-sm leading-snug hover:underline"
-                          >
-                            {item.title ?? "Unknown product"}
-                          </Link>
-                        ) : (
-                          <p className="font-medium text-gray-900 text-sm leading-snug">
-                            {item.title ?? "Unknown product"}
-                          </p>
-                        )}
+                        {(() => {
+                          const searchQuery = item.sku || rawItem?.ASIN;
+                          if (searchQuery) {
+                            return (
+                              <Link
+                                href={`/products/channels/${order.channelId}?q=${encodeURIComponent(searchQuery)}`}
+                                className="font-medium text-blue-600 hover:text-blue-800 text-sm leading-snug hover:underline"
+                              >
+                                {item.title ?? "Unknown product"}
+                              </Link>
+                            );
+                          }
+                          return (
+                            <p className="font-medium text-gray-900 text-sm leading-snug">
+                              {item.title ?? "Unknown product"}
+                            </p>
+                          );
+                        })()}
                         <div className="flex flex-wrap gap-2 mt-1.5 items-center">
                           {item.sku && (
                             <span className="text-xs text-gray-400 font-mono">SKU: {item.sku}</span>
                           )}
                           {rawItem?.ASIN && (
                             <span className="text-xs text-gray-400 font-mono">ASIN: {rawItem.ASIN}</span>
-                          )}
-                          {!isMatched && (
-                            <span className="inline-flex items-center gap-1 text-xs text-orange-600 bg-orange-50 border border-orange-200 rounded px-1.5 py-0.5">
-                              <AlertCircle className="h-3 w-3" />
-                              Not matched in channel products
-                            </span>
                           )}
                         </div>
                       </div>

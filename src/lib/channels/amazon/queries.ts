@@ -220,13 +220,18 @@ export async function getOrderItems(orderId: number): Promise<OrderItemRow[]> {
       and(
         eq(channelProducts.channelId, salesOrders.channelId),
         or(
+          // Match by SKU (stored as top-level column)
           eq(channelProducts.sku, salesOrderItems.sku),
-          sql`${channelProducts.externalId} = ${salesOrderItems.rawData}->>'ASIN'`
+          // Match by ASIN (stored as externalId) using JSONB extraction from OrderItem payload
+          sql`${channelProducts.externalId} = (${salesOrderItems.rawData}->>'ASIN')`,
+          // Fallback: Match by ASIN via the externalId column directly if it was saved there
+          eq(channelProducts.externalId, salesOrderItems.sku || "")
         )
       )
     )
     .where(eq(salesOrderItems.orderId, orderId));
 }
+
 
 /** All channels for a user — used to show Fetch buttons for each channel. */
 export async function getAmazonChannelsForUser(userId: number): Promise<ChannelRow[]> {
@@ -235,3 +240,29 @@ export async function getAmazonChannelsForUser(userId: number): Promise<ChannelR
     .from(channels)
     .where(eq(channels.userId, userId));
 }
+
+/** Get the date of the most recent order for a specific channel. */
+export async function getLastOrderDate(channelId: number): Promise<Date | null> {
+  const [row] = await db
+    .select({ purchasedAt: salesOrders.purchasedAt })
+    .from(salesOrders)
+    .where(eq(salesOrders.channelId, channelId))
+    .orderBy(desc(salesOrders.purchasedAt))
+    .limit(1);
+
+  return row?.purchasedAt ?? null;
+}
+
+/** Permanently delete all orders for a specific channel instance. */
+export async function clearChannelOrders(userId: number, channelId: number): Promise<void> {
+  // Verify ownership first via subquery or join to prevent unauthorized deletes
+  await db.delete(salesOrders)
+    .where(
+      and(
+        eq(salesOrders.channelId, channelId),
+        sql`${salesOrders.channelId} IN (SELECT id FROM ${channels} WHERE user_id = ${userId})`
+      )
+    );
+}
+
+

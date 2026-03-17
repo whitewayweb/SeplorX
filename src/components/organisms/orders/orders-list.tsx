@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { FetchOrdersButton } from "./fetch-orders-button";
+import { ClearOrdersButton } from "./clear-orders-button";
 import { TablePagination } from "@/components/ui/table-pagination";
 
 interface Order {
@@ -25,6 +26,7 @@ interface OrdersListProps {
   currentPage: number;
   totalCount: number;
   pageSize: number;
+  showClear?: boolean;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -42,6 +44,7 @@ export function OrdersList({
   currentPage,
   totalCount,
   pageSize,
+  showClear = false,
 }: OrdersListProps) {
   return (
     <div className="p-8">
@@ -54,11 +57,15 @@ export function OrdersList({
         </div>
         <div className="flex gap-2">
           {channels.map((channel) => (
-            <FetchOrdersButton
-              key={channel.id}
-              channelId={channel.id}
-              channelName={channel.name}
-            />
+            <div key={channel.id} className="flex gap-2">
+              <FetchOrdersButton
+                channelId={channel.id}
+                channelName={channel.name}
+              />
+              {showClear && totalCount > 0 && (
+                <ClearOrdersButton channelId={channel.id} />
+              )}
+            </div>
           ))}
         </div>
       </div>

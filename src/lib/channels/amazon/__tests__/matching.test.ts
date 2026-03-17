@@ -104,7 +104,6 @@ describe("Amazon Order Matching Logic", () => {
     expect(result.saved).toBe(1);
 
     // Verify that the order item was inserted with our fallback productId (42)
-    const insertCalls = txMock.insert.mock.calls;
     // Call 0 = salesOrders, Call 1 = salesOrderItems
     const orderItemValues = txMock.insert.mock.results[0].value.values.mock.calls[1][0];
     

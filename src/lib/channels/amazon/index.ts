@@ -14,7 +14,7 @@ import {
   buildConnectUrl,
   extractProductFields,
 } from "./config";
-import { extractSqlField, getBrands } from "./queries";
+import { extractSqlField, getBrands, getLastOrderDate } from "./queries";
 
 export const amazonHandler: ChannelHandler = {
   id: "amazon",
@@ -95,8 +95,13 @@ export const amazonHandler: ChannelHandler = {
     const creds = decryptChannelCredentials(channel.credentials);
     const client = new AmazonAPIClient(creds, channel.storeUrl || "");
 
-    // Fetch orders from the last 30 days
-    const createdAfter = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    // Determine fetch window: last order in DB or fallback 90 days
+    const lastOrderDate = await getLastOrderDate(channelId);
+    const createdAfter = (lastOrderDate ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)).toISOString();
+    
+    // Log the sync range for debugging
+    console.log(`[Amazon Sync] Syncing orders for channel ${channelId} from ${createdAfter}`);
+    
     const ordersRes = await client.getOrders(createdAfter);
     const amazonOrders = ordersRes?.Orders || [];
 
@@ -104,22 +109,36 @@ export const amazonHandler: ChannelHandler = {
 
     for (const amzOrder of amazonOrders) {
       try {
+        // 1. Pre-check if order already exists (out of tx to save connection)
+        const [existing] = await db
+          .select({ id: salesOrders.id })
+          .from(salesOrders)
+          .where(and(eq(salesOrders.channelId, channelId), eq(salesOrders.externalOrderId, amzOrder.AmazonOrderId)))
+          .limit(1);
+
+        if (existing) {
+          continue;
+        }
+
+        // 2. Fetch Buyer Info, Address, and Items in parallel (OUTSIDE transaction)
+        const [buyerRes, addressRes, itemsRes] = await Promise.all([
+          client.getOrderBuyerInfo(amzOrder.AmazonOrderId),
+          client.getOrderAddress(amzOrder.AmazonOrderId),
+          client.getOrderItems(amzOrder.AmazonOrderId),
+        ]);
+
+        // Throttling: respect SP-API burst/restore limits (approx 0.5s restore rate for these endpoints)
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
         await db.transaction(async (tx) => {
-          // 1. Check if order already exists
-          const [existing] = await tx
+          // Double check inside tx for atomicity (optional but safer)
+          const [insideExisting] = await tx
             .select({ id: salesOrders.id })
             .from(salesOrders)
             .where(and(eq(salesOrders.channelId, channelId), eq(salesOrders.externalOrderId, amzOrder.AmazonOrderId)))
             .limit(1);
 
-          if (existing) return;
-
-          // 2. Fetch Buyer Info, Address, and Items in parallel
-          const [buyerRes, addressRes, itemsRes] = await Promise.all([
-            client.getOrderBuyerInfo(amzOrder.AmazonOrderId),
-            client.getOrderAddress(amzOrder.AmazonOrderId),
-            client.getOrderItems(amzOrder.AmazonOrderId),
-          ]);
+          if (insideExisting) return;
 
           // Resolve buyer name: dedicated endpoint > embedded BuyerInfo in order > fallback
           const resolvedBuyerName =
@@ -149,13 +168,13 @@ export const amazonHandler: ChannelHandler = {
             },
           }).returning({ id: salesOrders.id });
 
-          // 4. Insert Order Items with full rawData
+          // 4. Insert Order Items
           const amzItems = itemsRes?.OrderItems || [];
           for (const item of amzItems) {
             const asin = item.ASIN ?? "";
             const sku = item.SellerSKU ?? "";
 
-            // Match by ASIN and SKU simultaneously — whichever hits first wins
+            // Match by ASIN and SKU
             const [mapping] = (asin || sku)
               ? await tx
                   .select({ productId: channelProductMappings.productId })
@@ -174,7 +193,7 @@ export const amazonHandler: ChannelHandler = {
 
             let matchedProductId = mapping?.productId;
 
-            // Fallback: Check if the SellerSKU exactly matches a SeplorX product for this user
+            // Fallback: Check if the SellerSKU exactly matches a SeplorX product
             if (!matchedProductId && sku) {
               const [localProduct] = await tx
                 .select({ id: products.id })

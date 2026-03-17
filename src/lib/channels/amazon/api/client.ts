@@ -58,6 +58,29 @@ export class AmazonAPIClient {
     return tokenData.access_token;
   }
 
+  /**
+   * Internal helper to perform fetch with basic retry logic for 429 Quota Exceeded errors.
+   */
+  private async fetchWithRetry(url: string, headers: Record<string, string>, retries = 3): Promise<Response> {
+    for (let i = 0; i < retries; i++) {
+      const res = await fetch(url, {
+        headers,
+        signal: AbortSignal.timeout(15_000),
+      });
+
+      if (res.status === 429 && i < retries - 1) {
+        // Wait 1s and retry on quota hit
+        console.warn(`[Amazon SP-API] 429 hit for ${url}. Retrying in 1s... (${i + 1}/${retries})`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        continue;
+      }
+
+      return res;
+    }
+    // Final attempt/fall-through (shouldn't really hit here as the loop returns)
+    return fetch(url, { headers, signal: AbortSignal.timeout(15_000) });
+  }
+
   public async fetchProducts(search?: string): Promise<ExternalProduct[]> {
     const accessToken = await this.getAccessToken();
 
@@ -799,12 +822,9 @@ export class AmazonAPIClient {
     const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}/orders/v0/orders/${encodeURIComponent(orderId)}/orderItems`);
 
-    const res = await fetch(url.toString(), {
-      headers: {
-        Accept: "application/json",
-        "x-amz-access-token": accessToken,
-      },
-      signal: AbortSignal.timeout(15_000),
+    const res = await this.fetchWithRetry(url.toString(), {
+      Accept: "application/json",
+      "x-amz-access-token": accessToken,
     });
 
     if (!res.ok) {
@@ -825,12 +845,9 @@ export class AmazonAPIClient {
     const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}/orders/v0/orders/${encodeURIComponent(orderId)}/buyerInfo`);
 
-    const res = await fetch(url.toString(), {
-      headers: {
-        Accept: "application/json",
-        "x-amz-access-token": accessToken,
-      },
-      signal: AbortSignal.timeout(15_000),
+    const res = await this.fetchWithRetry(url.toString(), {
+      Accept: "application/json",
+      "x-amz-access-token": accessToken,
     });
 
     if (!res.ok) {
@@ -851,12 +868,9 @@ export class AmazonAPIClient {
     const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}/orders/v0/orders/${encodeURIComponent(orderId)}/address`);
 
-    const res = await fetch(url.toString(), {
-      headers: {
-        Accept: "application/json",
-        "x-amz-access-token": accessToken,
-      },
-      signal: AbortSignal.timeout(15_000),
+    const res = await this.fetchWithRetry(url.toString(), {
+      Accept: "application/json",
+      "x-amz-access-token": accessToken,
     });
 
     if (!res.ok) {

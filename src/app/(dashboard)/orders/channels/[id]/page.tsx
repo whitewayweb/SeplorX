@@ -41,6 +41,7 @@ export default async function ChannelOrdersPage({
       currentPage={page}
       totalCount={totalCount}
       pageSize={limit}
+      showClear={true}
     />
   );
 }
