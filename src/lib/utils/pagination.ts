@@ -6,10 +6,10 @@
  */
 
 /** Limit values exposed by the TablePagination "Rows per page" dropdown. */
-export const PAGINATION_LIMITS = [20, 25, 50, 100] as const;
+export const PAGINATION_LIMITS = [25, 50, 100, 200, 500] as const;
 export type PaginationLimit = (typeof PAGINATION_LIMITS)[number];
 
-export const DEFAULT_LIMIT: PaginationLimit = 20;
+export const DEFAULT_LIMIT: PaginationLimit = 25;
 
 export interface ParsedPaginationParams {
   /** Validated search query string (empty string when absent). */

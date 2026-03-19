@@ -86,6 +86,7 @@ export const salesOrderStatusEnum = pgEnum("sales_order_status", [
   "returned",
   "failed",
 ]);
+export type SalesOrderStatus = typeof salesOrderStatusEnum.enumValues[number];
 
 // ─── Users ───────────────────────────────────────────────────────────────────
 

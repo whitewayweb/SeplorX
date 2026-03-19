@@ -96,7 +96,7 @@ export function TablePagination({ totalItems, itemsPerPage, currentPage }: Table
               <SelectValue placeholder={itemsPerPage.toString()} />
             </SelectTrigger>
             <SelectContent side="top">
-              {[20, 25, 50, 100].map((pageSize) => (
+              {[25, 50, 100, 200, 500].map((pageSize) => (
                 <SelectItem key={pageSize} value={`${pageSize}`}>
                   {pageSize}
                 </SelectItem>

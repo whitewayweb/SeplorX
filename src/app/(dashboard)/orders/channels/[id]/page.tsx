@@ -19,6 +19,7 @@ export default async function ChannelOrdersPage({
 
   const resolvedSearchParams = await searchParams;
   const { page, limit, offset } = parsePaginationParams(resolvedSearchParams);
+  const status = (resolvedSearchParams.status as string) || "pending";
 
   const userId = await getAuthenticatedUserId();
   if (!userId) redirect("/login");
@@ -29,8 +30,8 @@ export default async function ChannelOrdersPage({
   if (!channel) notFound();
 
   const [orders, totalCount] = await Promise.all([
-    getOrdersByChannel(userId, channelId, limit, offset),
-    countOrdersByChannel(userId, channelId),
+    getOrdersByChannel(userId, channelId, limit, offset, status),
+    countOrdersByChannel(userId, channelId, status),
   ]);
 
   return (
@@ -42,6 +43,7 @@ export default async function ChannelOrdersPage({
       totalCount={totalCount}
       pageSize={limit}
       showClear={true}
+      currentStatus={status}
     />
   );
 }

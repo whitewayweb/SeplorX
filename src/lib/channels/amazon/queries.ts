@@ -1,7 +1,13 @@
 import { sql, eq, desc, and, or } from "drizzle-orm";
 import { db } from "@/db";
-import { channelProducts, salesOrders, salesOrderItems, channels } from "@/db/schema";
+import { channelProducts, salesOrders, salesOrderItems, channels, type SalesOrderStatus } from "@/db/schema";
 import { getDistinctChannelProductField } from "../queries";
+
+/** Helper to apply status filter consistently across queries */
+function getStatusFilter(status?: string) {
+  if (!status || status === "all") return undefined;
+  return eq(salesOrders.status, status as SalesOrderStatus);
+}
 
 // Use the generated types directly
 import OrdersV0Schema from "./api/types/ordersV0Schema";
@@ -91,9 +97,10 @@ export interface ChannelRow {
 export async function getAllOrders(
   userId: number,
   limit = 50,
-  offset = 0
+  offset = 0,
+  status?: string
 ): Promise<OrderRow[]> {
-  return db
+  const query = db
     .select({
       id: salesOrders.id,
       externalOrderId: salesOrders.externalOrderId,
@@ -106,19 +113,31 @@ export async function getAllOrders(
     })
     .from(salesOrders)
     .innerJoin(channels, eq(salesOrders.channelId, channels.id))
-    .where(eq(channels.userId, userId))
+    .where(
+      and(
+        eq(channels.userId, userId),
+        getStatusFilter(status)
+      )
+    )
     .orderBy(desc(salesOrders.purchasedAt))
     .limit(limit)
     .offset(offset);
+
+  return query;
 }
 
 /** Total count of all orders across all channels for a user. */
-export async function countAllOrders(userId: number): Promise<number> {
+export async function countAllOrders(userId: number, status?: string): Promise<number> {
   const [row] = await db
     .select({ count: sql<number>`count(*)` })
     .from(salesOrders)
     .innerJoin(channels, eq(salesOrders.channelId, channels.id))
-    .where(eq(channels.userId, userId));
+    .where(
+      and(
+        eq(channels.userId, userId),
+        getStatusFilter(status)
+      )
+    );
   return Number(row?.count ?? 0);
 }
 
@@ -127,9 +146,10 @@ export async function getOrdersByChannel(
   userId: number,
   channelId: number,
   limit = 50,
-  offset = 0
+  offset = 0,
+  status?: string
 ): Promise<OrderRow[]> {
-  return db
+  const query = db
     .select({
       id: salesOrders.id,
       externalOrderId: salesOrders.externalOrderId,
@@ -145,16 +165,24 @@ export async function getOrdersByChannel(
       channels,
       and(eq(salesOrders.channelId, channels.id), eq(channels.userId, userId))
     )
-    .where(eq(salesOrders.channelId, channelId))
+    .where(
+      and(
+        eq(salesOrders.channelId, channelId),
+        getStatusFilter(status)
+      )
+    )
     .orderBy(desc(salesOrders.purchasedAt))
     .limit(limit)
     .offset(offset);
+
+  return query;
 }
 
 /** Total count of orders for a single channel. */
 export async function countOrdersByChannel(
   userId: number,
-  channelId: number
+  channelId: number,
+  status?: string
 ): Promise<number> {
   const [row] = await db
     .select({ count: sql<number>`count(*)` })
@@ -163,7 +191,12 @@ export async function countOrdersByChannel(
       channels,
       and(eq(salesOrders.channelId, channels.id), eq(channels.userId, userId))
     )
-    .where(eq(salesOrders.channelId, channelId));
+    .where(
+      and(
+        eq(salesOrders.channelId, channelId),
+        getStatusFilter(status)
+      )
+    );
   return Number(row?.count ?? 0);
 }
 

@@ -1,7 +1,11 @@
+"use client";
+
 import Link from "next/link";
 import { FetchOrdersButton } from "./fetch-orders-button";
 import { ClearOrdersButton } from "./clear-orders-button";
 import { TablePagination } from "@/components/ui/table-pagination";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { cn } from "@/lib/utils";
 
 interface Order {
   id: number;
@@ -27,6 +31,7 @@ interface OrdersListProps {
   totalCount: number;
   pageSize: number;
   showClear?: boolean;
+  currentStatus?: string;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -45,7 +50,31 @@ export function OrdersList({
   totalCount,
   pageSize,
   showClear = false,
+  currentStatus = "",
 }: OrdersListProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const handleStatusChange = (status: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (status) {
+      params.set("status", status);
+    } else {
+      params.delete("status");
+    }
+    params.set("page", "1"); // Reset to first page on filter change
+    router.push(`${pathname}?${params.toString()}`);
+  };
+
+  const statusTabs = [
+    { label: "Pending", value: "pending" },
+    { label: "Shipped", value: "shipped" },
+    { label: "Cancelled", value: "cancelled" },
+    { label: "Returned", value: "returned" },
+    { label: "All", value: "all" },
+  ];
+
   return (
     <div className="p-8">
       <div className="flex justify-between items-center mb-8">
@@ -68,6 +97,23 @@ export function OrdersList({
             </div>
           ))}
         </div>
+      </div>
+
+      <div className="flex gap-1 mb-6 border-b pb-px">
+        {statusTabs.map((tab) => (
+          <button
+            key={tab.value}
+            onClick={() => handleStatusChange(tab.value)}
+            className={cn(
+              "px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px",
+              currentStatus === tab.value
+                ? "border-blue-600 text-blue-600"
+                : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       <div className="bg-white rounded-lg shadow overflow-hidden border">
@@ -93,7 +139,13 @@ export function OrdersList({
               orders.map((order) => (
                 <tr key={order.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {order.purchasedAt?.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) ?? "—"}
+                    {order.purchasedAt?.toLocaleString("en-IN", { 
+                      day: "numeric", 
+                      month: "short", 
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit"
+                    }) ?? "—"}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">
                     <Link

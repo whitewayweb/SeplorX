@@ -73,6 +73,7 @@ export default async function ChannelProductsPage({
                 width={28}
                 height={28}
                 className="object-contain rounded"
+                unoptimized
               />
             )}
           </div>

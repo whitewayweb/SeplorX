@@ -95,9 +95,13 @@ export const amazonHandler: ChannelHandler = {
     const creds = decryptChannelCredentials(channel.credentials);
     const client = new AmazonAPIClient(creds, channel.storeUrl || "");
 
-    // Determine fetch window: last order in DB or fallback 90 days
+    // Determine fetch window: last order in DB minus 1 hour for safety, or fallback 90 days
     const lastOrderDate = await getLastOrderDate(channelId);
-    const createdAfter = (lastOrderDate ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)).toISOString();
+    const bufferMs = 60 * 60 * 1000; // 1 hour buffer for safety
+    const createdAfter = (lastOrderDate 
+      ? new Date(lastOrderDate.getTime() - bufferMs) 
+      : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+    ).toISOString();
     
     // Log the sync range for debugging
     console.log(`[Amazon Sync] Syncing orders for channel ${channelId} from ${createdAfter}`);

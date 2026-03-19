@@ -13,13 +13,14 @@ export default async function OrdersPage({
 }) {
   const resolvedSearchParams = await searchParams;
   const { page, limit, offset } = parsePaginationParams(resolvedSearchParams);
+  const status = (resolvedSearchParams.status as string) || "pending";
   
   const userId = await getAuthenticatedUserId();
   if (!userId) redirect("/login");
 
   const [allOrders, totalCount, amazonChannels] = await Promise.all([
-    getAllOrders(userId, limit, offset),
-    countAllOrders(userId),
+    getAllOrders(userId, limit, offset, status),
+    countAllOrders(userId, status),
     getAmazonChannelsForUser(userId),
   ]);
 
@@ -31,6 +32,7 @@ export default async function OrdersPage({
       currentPage={page}
       totalCount={totalCount}
       pageSize={limit}
+      currentStatus={status}
     />
   );
 }

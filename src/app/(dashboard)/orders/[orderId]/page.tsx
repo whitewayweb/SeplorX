@@ -2,7 +2,7 @@ import { getAuthenticatedUserId } from "@/lib/auth";
 import { getOrderDetail, getOrderItems } from "@/lib/channels/amazon/queries";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, AlertCircle } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import OrdersV0Schema from "@/lib/channels/amazon/api/types/ordersV0Schema";
 
 export const dynamic = "force-dynamic";
@@ -51,8 +51,9 @@ export default async function OrderDetailPage({
           <div>
             <h1 className="text-2xl font-bold font-mono">{order.externalOrderId}</h1>
             <p className="text-gray-500 mt-0.5">
-              {order.purchasedAt?.toLocaleDateString("en-IN", {
+              {order.purchasedAt?.toLocaleString("en-IN", {
                 weekday: "long", day: "numeric", month: "long", year: "numeric",
+                hour: "2-digit", minute: "2-digit"
               })}
             </p>
           </div>
