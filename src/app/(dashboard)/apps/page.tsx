@@ -1,13 +1,11 @@
 export const dynamic = "force-dynamic";
 
-import { db } from "@/db";
-import { appInstallations } from "@/db/schema";
-import { eq } from "drizzle-orm";
 import { PageHeader } from "@/components/molecules/layout/page-header";
 import { appRegistry, getCategories, categoryLabels } from "@/lib/apps";
 import type { AppWithStatus } from "@/lib/apps";
 import { CategoryTabs } from "@/components/organisms/apps/category-tabs";
 import { getAuthenticatedUserId } from "@/lib/auth";
+import { getUserAppInstallations } from "@/data/apps";
 
 /** Sentinel shown in UI for password fields that have a stored (encrypted) value */
 const MASKED_VALUE = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
@@ -15,15 +13,7 @@ const MASKED_VALUE = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
 export default async function AppsPage() {
   const userId = await getAuthenticatedUserId();
 
-  const installations = await db
-    .select({
-      id: appInstallations.id,
-      appId: appInstallations.appId,
-      status: appInstallations.status,
-      config: appInstallations.config,
-    })
-    .from(appInstallations)
-    .where(eq(appInstallations.userId, userId));
+  const installations = await getUserAppInstallations(userId);
 
   const installationMap = new Map(
     installations.map((inst) => [inst.appId, inst])

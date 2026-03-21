@@ -1,6 +1,3 @@
-import { db } from "@/db";
-import { products, inventoryTransactions, channels, channelProductMappings, purchaseInvoiceItems, purchaseInvoices, companies } from "@/db/schema";
-import { eq, desc, and } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import {
@@ -22,6 +19,13 @@ import { ProductDialog } from "@/components/organisms/products/product-dialog";
 import { StockAdjustmentDialog } from "@/components/organisms/products/stock-adjustment-dialog";
 import { ChannelSyncCard } from "@/components/organisms/products/channel-sync-card";
 import { getAuthenticatedUserId } from "@/lib/auth";
+import { getConnectedChannels } from "@/data/channels";
+import {
+  getProductById,
+  getProductMappings,
+  getInventoryTransactionsForProduct,
+  getProductPurchaseHistory,
+} from "@/data/products";
 
 export const dynamic = "force-dynamic";
 
@@ -60,84 +64,16 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
 
   if (isNaN(productId)) notFound();
 
-  // 1. Fetch Product with Explicit Columns
-  const result = await db
-    .select({
-      id: products.id,
-      name: products.name,
-      sku: products.sku,
-      isActive: products.isActive,
-      unit: products.unit,
-      category: products.category,
-      purchasePrice: products.purchasePrice,
-      sellingPrice: products.sellingPrice,
-      quantityOnHand: products.quantityOnHand,
-      reorderLevel: products.reorderLevel,
-      description: products.description,
-      createdAt: products.createdAt,
-    })
-    .from(products)
-    .where(eq(products.id, productId))
-    .limit(1);
-    
-  if (result.length === 0) notFound();
-  const product = result[0];
+  const product = await getProductById(productId);
+  if (!product) notFound();
 
   const userId = await getAuthenticatedUserId();
 
-  // 2. Fetch Related Data in Parallel
   const [connectedChannels, mappings, transactions, purchaseHistory] = await Promise.all([
-    // Connected Channels
-    db
-      .select({ id: channels.id, channelType: channels.channelType, name: channels.name })
-      .from(channels)
-      .where(and(eq(channels.userId, userId), eq(channels.status, "connected"))),
-
-    // Product Mappings
-    db
-      .select({
-        id: channelProductMappings.id,
-        channelId: channelProductMappings.channelId,
-        externalProductId: channelProductMappings.externalProductId,
-        label: channelProductMappings.label,
-        syncStatus: channelProductMappings.syncStatus,
-      })
-      .from(channelProductMappings)
-      .where(eq(channelProductMappings.productId, productId)),
-
-    // Recent Transactions
-    db
-      .select({
-        id: inventoryTransactions.id,
-        type: inventoryTransactions.type,
-        quantity: inventoryTransactions.quantity,
-        referenceType: inventoryTransactions.referenceType,
-        referenceId: inventoryTransactions.referenceId,
-        notes: inventoryTransactions.notes,
-        createdAt: inventoryTransactions.createdAt,
-      })
-      .from(inventoryTransactions)
-      .where(eq(inventoryTransactions.productId, productId))
-      .orderBy(desc(inventoryTransactions.createdAt))
-      .limit(50),
-
-    // Purchase History
-    db
-      .select({
-        id: purchaseInvoiceItems.id,
-        invoiceId: purchaseInvoices.id,
-        invoiceNumber: purchaseInvoices.invoiceNumber,
-        invoiceDate: purchaseInvoices.invoiceDate,
-        companyName: companies.name,
-        quantity: purchaseInvoiceItems.quantity,
-        unitPrice: purchaseInvoiceItems.unitPrice,
-      })
-      .from(purchaseInvoiceItems)
-      .innerJoin(purchaseInvoices, eq(purchaseInvoiceItems.invoiceId, purchaseInvoices.id))
-      .innerJoin(companies, eq(purchaseInvoices.companyId, companies.id))
-      .where(eq(purchaseInvoiceItems.productId, productId))
-      .orderBy(desc(purchaseInvoices.invoiceDate))
-      .limit(20)
+    getConnectedChannels(userId),
+    getProductMappings(productId),
+    getInventoryTransactionsForProduct(productId),
+    getProductPurchaseHistory(productId),
   ]);
 
   function formatPrice(value: string | null): string {

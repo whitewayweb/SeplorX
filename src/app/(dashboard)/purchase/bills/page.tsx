@@ -1,12 +1,13 @@
-import { db } from "@/db";
-import { agentActions, companies, products, purchaseInvoices } from "@/db/schema";
 import { getAuthenticatedUserId } from "@/lib/auth";
-import { and, desc, eq, sql, inArray } from "drizzle-orm";
 import { PageHeader } from "@/components/molecules/layout/page-header";
 import { AGENT_REGISTRY } from "@/lib/agents/registry";
 import { OcrUploadTrigger } from "@/components/organisms/agents/ocr-upload-trigger";
 import { OcrApprovalCard } from "@/components/organisms/agents/ocr-approval-card";
 import type { ExtractedInvoice } from "@/lib/agents/ocr-agent";
+import { getPendingAgentTasks } from "@/data/agents";
+import { getActiveSupplierCompanies } from "@/data/companies";
+import { getActiveProductsForDropdown } from "@/data/products";
+import { getExistingInvoicesForDuplicateCheck } from "@/data/invoices";
 
 export const dynamic = "force-dynamic";
 
@@ -15,50 +16,9 @@ export default async function PurchaseBillsPage() {
 
   // Run initial queries in parallel
   const [pendingOcrTasks, supplierCompanies, activeProducts] = await Promise.all([
-    // 1. Pending OCR tasks — filtered strictly to invoice_ocr agent type
-    db
-      .select({
-        id: agentActions.id,
-        plan: agentActions.plan,
-        createdAt: agentActions.createdAt,
-      })
-      .from(agentActions)
-      .where(
-        and(
-          eq(agentActions.status, "pending_approval"),
-          eq(agentActions.agentType, "invoice_ocr")
-        )
-      )
-      .orderBy(desc(agentActions.createdAt)),
-
-    // 2. Active suppliers (type = supplier or both) for the approval card dropdown
-    db
-      .select({
-        id: companies.id,
-        name: companies.name,
-        gstNumber: companies.gstNumber,
-      })
-      .from(companies)
-      .where(
-        and(
-          eq(companies.isActive, true),
-          sql`${companies.type} IN ('supplier', 'both')`
-        )
-      )
-      .orderBy(companies.name),
-
-    // 3. Active products for line item linking in the approval card
-    db
-      .select({
-        id: products.id,
-        name: products.name,
-        sku: products.sku,
-        purchasePrice: products.purchasePrice,
-        unit: products.unit,
-      })
-      .from(products)
-      .where(eq(products.isActive, true))
-      .orderBy(products.name)
+    getPendingAgentTasks("invoice_ocr"),
+    getActiveSupplierCompanies(),
+    getActiveProductsForDropdown()
   ]);
 
   // 4. Batched Duplicate Check (Fix N+1 query)
@@ -100,21 +60,7 @@ export default async function PurchaseBillsPage() {
     const invoiceNumbers = Array.from(new Set(duplicateCheckParams.map(p => p.invoiceNumber)));
     
     // We fetch potential matches and filter them in memory to avoid complex combo queries
-    const existingInvoices = await db
-      .select({
-        invoiceDate: purchaseInvoices.invoiceDate,
-        totalAmount: purchaseInvoices.totalAmount,
-        invoiceNumber: purchaseInvoices.invoiceNumber,
-        companyId: purchaseInvoices.companyId
-      })
-      .from(purchaseInvoices)
-      .where(
-        and(
-          // Safety in case the combination is too large, first filter by invoice numbers
-          inArray(purchaseInvoices.invoiceNumber, invoiceNumbers),
-          eq(purchaseInvoices.createdBy, userId) // Scope by user
-        )
-      );
+    const existingInvoices = await getExistingInvoicesForDuplicateCheck(invoiceNumbers, userId);
 
     // Populate the map with results
     for (const param of duplicateCheckParams) {

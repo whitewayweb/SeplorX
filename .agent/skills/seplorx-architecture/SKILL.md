@@ -65,6 +65,7 @@ Data flows one way: **Server Component → props → Client Component → Server
 ## Database Queries
 
 - **Tables:** `users`, `app_installations`, `channels`, `channel_product_mappings`, `channel_product_changelog`, `companies` (type: supplier/customer/both), `products`, `purchase_invoices`, `purchase_invoice_items`, `payments`, `inventory_transactions`, `agent_actions`, `settings`. (All have RLS). Decimal(12,2) for money; integer for stock.
+- **Data Access Layer (DAL):** Do not bloat `page.tsx` Server Components with massive inline SQL queries. Extract complex, multi-join, or reusable queries into dedicated domain query files (e.g., `src/lib/products/queries.ts`, `src/lib/invoices/queries.ts`). Keep the UI layer focused strictly on parallel data fetching and rendering.
 - **Connection:** Port 6543 (transaction pooler) via `globalForDb` wrapper. Port 5432 for migrations.
 - **Always select explicit columns** — no `SELECT *`. Use `db.select({ id: t.id, name: t.name }).from(t)`.
 - **JSONB columns:** Only extract sub-fields you need via Drizzle's `sql<T>\`${table.col}->>'field'\`` syntax. Never fetch entire `rawData` or `credentials` blobs unless needed.

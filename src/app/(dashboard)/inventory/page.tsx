@@ -1,7 +1,4 @@
-import { db } from "@/db";
-import { products, inventoryTransactions, agentActions } from "@/db/schema";
 import { getAuthenticatedUserId } from "@/lib/auth";
-import { and, desc, eq, lte, sql } from "drizzle-orm";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +16,13 @@ import { AGENT_REGISTRY } from "@/lib/agents/registry";
 import { ReorderTrigger } from "@/components/organisms/agents/reorder-trigger";
 import { ReorderApprovalCard } from "@/components/organisms/agents/reorder-approval-card";
 import type { ReorderPlan } from "@/lib/agents/tools/inventory-tools";
+import { 
+  getTotalActiveProductsCount, 
+  getLowStockProducts, 
+  getTotalStockValue, 
+  getRecentInventoryTransactions 
+} from "@/data/inventory";
+import { getPendingAgentTasks } from "@/data/agents";
 
 export const dynamic = "force-dynamic";
 
@@ -34,72 +38,17 @@ export default async function InventoryPage() {
 
   // Run all 5 independent queries in parallel
   const [
-    [{ count: totalProductsCount }],
+    { count: totalProductsCount },
     lowStockProducts,
-    [{ totalValue }],
+    { totalValue },
     recentTransactions,
     pendingReorderTasks,
   ] = await Promise.all([
-    // 1. Summary stats
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(products)
-      .where(eq(products.isActive, true)),
-
-    // 2. Low stock products
-    db
-      .select({
-        id: products.id,
-        name: products.name,
-        sku: products.sku,
-        unit: products.unit,
-        quantityOnHand: products.quantityOnHand,
-        reorderLevel: products.reorderLevel,
-      })
-      .from(products)
-      .where(lte(products.quantityOnHand, products.reorderLevel))
-      .orderBy(products.quantityOnHand),
-
-    // 3. Total stock value
-    db
-      .select({
-        totalValue: sql<string>`coalesce(sum(${products.quantityOnHand}::numeric * ${products.purchasePrice}), 0)`,
-      })
-      .from(products)
-      .where(eq(products.isActive, true)),
-
-    // 4. Recent transactions
-    db
-      .select({
-        id: inventoryTransactions.id,
-        productId: inventoryTransactions.productId,
-        type: inventoryTransactions.type,
-        quantity: inventoryTransactions.quantity,
-        referenceType: inventoryTransactions.referenceType,
-        notes: inventoryTransactions.notes,
-        createdAt: inventoryTransactions.createdAt,
-        productName: products.name,
-      })
-      .from(inventoryTransactions)
-      .innerJoin(products, eq(inventoryTransactions.productId, products.id))
-      .orderBy(desc(inventoryTransactions.createdAt))
-      .limit(20),
-
-    // 5. Pending reorder recommendations
-    db
-      .select({
-        id: agentActions.id,
-        plan: agentActions.plan,
-        createdAt: agentActions.createdAt,
-      })
-      .from(agentActions)
-      .where(
-        and(
-          eq(agentActions.status, "pending_approval"),
-          eq(agentActions.agentType, "reorder")
-        )
-      )
-      .orderBy(desc(agentActions.createdAt)),
+    getTotalActiveProductsCount(),
+    getLowStockProducts(),
+    getTotalStockValue(),
+    getRecentInventoryTransactions(),
+    getPendingAgentTasks("reorder")
   ]);
 
   const outOfStock = lowStockProducts.filter((p) => p.quantityOnHand <= 0);

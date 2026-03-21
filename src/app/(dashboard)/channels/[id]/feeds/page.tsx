@@ -1,10 +1,8 @@
 import { notFound } from "next/navigation";
-import { db } from "@/db";
-import { channelProductMappings, channelFeeds } from "@/db/schema";
-import { eq, desc, sql } from "drizzle-orm";
 import { getChannelForUser } from "@/lib/channels/queries";
 import { getAuthenticatedUserId } from "@/lib/auth";
 import { FeedsDashboard } from "./feeds-dashboard";
+import { getChannelSyncStatusCounts, getChannelFeedsList } from "@/data/channels";
 
 export const dynamic = "force-dynamic";
 
@@ -29,41 +27,15 @@ export default async function ChannelFeedsPage({
   if (!channel) notFound();
   if (channel.channelType !== "amazon") notFound();
 
-  // ── Sync status overview ────────────────────────────────────────────────
-  const statusCounts = await db
-    .select({
-      syncStatus: channelProductMappings.syncStatus,
-      count: sql<number>`COUNT(*)::int`,
-    })
-    .from(channelProductMappings)
-    .where(eq(channelProductMappings.channelId, channelId))
-    .groupBy(channelProductMappings.syncStatus);
+  const [statusCounts, feeds] = await Promise.all([
+    getChannelSyncStatusCounts(channelId),
+    getChannelFeedsList(channelId)
+  ]);
 
   const statusMap: Record<string, number> = {};
   for (const row of statusCounts) {
     statusMap[row.syncStatus] = row.count;
   }
-
-  // ── Recent feed history ─────────────────────────────────────────────────
-  const feeds = await db
-    .select({
-      id: channelFeeds.id,
-      feedId: channelFeeds.feedId,
-      feedType: channelFeeds.feedType,
-      category: channelFeeds.category,
-      status: channelFeeds.status,
-      productCount: channelFeeds.productCount,
-      errorCount: channelFeeds.errorCount,
-      uploadUrl: channelFeeds.uploadUrl,
-      resultDocumentUrl: channelFeeds.resultDocumentUrl,
-      errorMessage: channelFeeds.errorMessage,
-      createdAt: channelFeeds.createdAt,
-      updatedAt: channelFeeds.updatedAt,
-    })
-    .from(channelFeeds)
-    .where(eq(channelFeeds.channelId, channelId))
-    .orderBy(desc(channelFeeds.createdAt))
-    .limit(50);
 
   return (
     <div className="p-6 space-y-6">
