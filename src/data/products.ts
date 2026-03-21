@@ -5,9 +5,11 @@ import {
   inventoryTransactions,
   purchaseInvoiceItems,
   purchaseInvoices,
-  companies
+  companies,
+  channels,
+  channelProducts
 } from "@/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { and, desc, eq, sql, or } from "drizzle-orm";
 
 export async function getProductById(productId: number) {
   const result = await db
@@ -111,4 +113,104 @@ export async function getActiveProductsForDropdown() {
     .from(products)
     .where(eq(products.isActive, true))
     .orderBy(products.name);
+}
+
+export async function getProductQuantity(productId: number) {
+  const productRows = await db
+    .select({ quantityOnHand: products.quantityOnHand })
+    .from(products)
+    .where(eq(products.id, productId))
+    .limit(1);
+
+  return productRows.length > 0 ? productRows[0].quantityOnHand : null;
+}
+
+export async function getChannelMappingsForStockPush(userId: number, productId: number) {
+  return await db
+    .select({
+      mappingId: channelProductMappings.id,
+      channelId: channelProductMappings.channelId,
+      externalProductId: channelProductMappings.externalProductId,
+      label: channelProductMappings.label,
+      channelType: channels.channelType,
+      storeUrl: channels.storeUrl,
+      credentials: channels.credentials,
+      channelName: channels.name,
+      status: channels.status,
+    })
+    .from(channelProductMappings)
+    .innerJoin(channels, eq(channelProductMappings.channelId, channels.id))
+    .where(
+      and(
+        eq(channelProductMappings.productId, productId),
+        eq(channels.userId, userId),
+        eq(channels.status, "connected"),
+      ),
+    );
+}
+
+export async function getConnectedChannel(userId: number, channelId: number) {
+  const channelRows = await db
+    .select({
+      id: channels.id,
+      status: channels.status,
+    })
+    .from(channels)
+    .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
+    .limit(1);
+
+  return channelRows.length > 0 ? channelRows[0] : null;
+}
+
+export async function getExternalProducts(channelId: number, search?: string, limit: number = 50, offset: number = 0) {
+  return await db
+    .select({
+      id: channelProducts.externalId,
+      name: channelProducts.name,
+      sku: channelProducts.sku,
+      stockQuantity: channelProducts.stockQuantity,
+      type: channelProducts.type,
+      rawPayload: channelProducts.rawData,
+      parentId: sql<string | null>`COALESCE(raw_data->>'parentId', CAST(raw_data->>'parent_id' AS TEXT))`,
+    })
+    .from(channelProducts)
+    .where(
+      and(
+        eq(channelProducts.channelId, channelId),
+        search && search.trim() !== ""
+          ? or(
+              sql`${channelProducts.name} ILIKE ${`%${search}%`}`,
+              sql`${channelProducts.sku} ILIKE ${`%${search}%`}`
+            )
+          : undefined
+      )
+    )
+    .orderBy(channelProducts.externalId)
+    .limit(limit)
+    .offset(offset);
+}
+
+export async function getExistingMappingsForChannel(channelId: number) {
+  return await db
+    .select({
+      externalProductId: channelProductMappings.externalProductId,
+      productId: channelProductMappings.productId,
+      productName: products.name,
+    })
+    .from(channelProductMappings)
+    .innerJoin(products, eq(channelProductMappings.productId, products.id))
+    .where(eq(channelProductMappings.channelId, channelId));
+}
+
+export async function insertChannelMappingQuietly(channelId: number, productId: number, externalProductId: string, label: string | null) {
+  return await db
+    .insert(channelProductMappings)
+    .values({
+      channelId,
+      productId,
+      externalProductId,
+      label,
+    })
+    .onConflictDoNothing()
+    .returning({ id: channelProductMappings.id });
 }
