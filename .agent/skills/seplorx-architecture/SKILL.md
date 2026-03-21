@@ -65,7 +65,11 @@ Data flows one way: **Server Component → props → Client Component → Server
 ## Database Queries
 
 - **Tables:** `users`, `app_installations`, `channels`, `channel_product_mappings`, `channel_product_changelog`, `companies` (type: supplier/customer/both), `products`, `purchase_invoices`, `purchase_invoice_items`, `payments`, `inventory_transactions`, `agent_actions`, `settings`. (All have RLS). Decimal(12,2) for money; integer for stock.
-- **Data Access Layer (DAL):** Do not bloat `page.tsx` Server Components with massive inline SQL queries. Extract complex, multi-join, or reusable queries into dedicated domain query files (e.g., `src/lib/products/queries.ts`, `src/lib/invoices/queries.ts`). Keep the UI layer focused strictly on parallel data fetching and rendering.
+- **Data Access Layer (DAL)** (`src/data/*.ts`):
+  - Pure TypeScript functions containing raw SQL/Drizzle queries.
+  - Extracts reusable Read logic away from UI components (Server Components) and Server Actions.
+  - **CRITICAL**: Server Components configure standard fetch via DAL. Never put `db.select()` in a `page.tsx`.
+  - **Logic Purity**: The DAL should return data in a "Ready-to-Render" state.
 - **Connection:** Port 6543 (transaction pooler) via `globalForDb` wrapper. Port 5432 for migrations.
 - **Always select explicit columns** — no `SELECT *`. Use `db.select({ id: t.id, name: t.name }).from(t)`.
 - **JSONB columns:** Only extract sub-fields you need via Drizzle's `sql<T>\`${table.col}->>'field'\`` syntax. Never fetch entire `rawData` or `credentials` blobs unless needed.
@@ -116,6 +120,9 @@ Data flows one way: **Server Component → props → Client Component → Server
 | `src/lib/auth/client.ts` | Better Auth client hooks |
 | `src/proxy.ts` | Next.js 16 Proxy — optimsitic cookie session validation |
 | `src/db/schema.ts` | Drizzle schema — all tables |
+| `src/data/` | Data Access Layer (DAL) — domain queries |
+| `src/lib/channels/registry.ts` | Channel registry (metadata) |
+| `src/lib/agents/registry.ts` | Agent registry (metadata) |
 | `src/lib/utils.ts` | `cn()` class merge helper |
 | `src/lib/env.ts` | Environment variable validation |
 | `src/lib/crypto.ts` | AES-256-GCM encrypt/decrypt |

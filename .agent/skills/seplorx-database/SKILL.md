@@ -68,6 +68,11 @@ Migrations run automatically via GitHub Actions on every push to `main`. Vercel 
 
 ## Safe Query Patterns
 
+### Always use the Data Access Layer (DAL)
+All `db.select()` queries for reading data MUST be extracted into `src/data/<domain>.ts`. 
+- **Page Components**: Call DAL functions to fetch data.
+- **Why**: Reusability, cleaner pages, and easier testing.
+
 ### Always select explicit columns
 ```typescript
 // ✅ Good
