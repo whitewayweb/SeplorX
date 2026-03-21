@@ -5,6 +5,7 @@ import { and, desc, eq, lte, sql } from "drizzle-orm";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/molecules/layout/page-header";
 import {
   Table,
   TableBody,
@@ -111,15 +112,12 @@ export default async function InventoryPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Inventory</h1>
-          <p className="text-muted-foreground">
-            Stock overview, alerts, and recent transactions.
-          </p>
-        </div>
+      <PageHeader
+        title="Inventory"
+        description="Stock overview, alerts, and recent transactions."
+      >
         {AGENT_REGISTRY.reorder.enabled && <ReorderTrigger />}
-      </div>
+      </PageHeader>
 
       {/* Pending AI Recommendations */}
       {pendingReorderTasks.length > 0 && (

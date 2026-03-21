@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { agentActions, companies, products, purchaseInvoices } from "@/db/schema";
 import { getAuthenticatedUserId } from "@/lib/auth";
 import { and, desc, eq, sql, inArray } from "drizzle-orm";
+import { PageHeader } from "@/components/molecules/layout/page-header";
 import { AGENT_REGISTRY } from "@/lib/agents/registry";
 import { OcrUploadTrigger } from "@/components/organisms/agents/ocr-upload-trigger";
 import { OcrApprovalCard } from "@/components/organisms/agents/ocr-approval-card";
@@ -126,18 +127,18 @@ export default async function PurchaseBillsPage() {
 
   return (
     <div className="p-6 space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Purchase Bills</h1>
-        <p className="text-muted-foreground mt-1">
-          Upload supplier invoices — AI extracts the details for your review.
-        </p>
-      </div>
+      <PageHeader
+        title="Purchase Bills"
+        description="Upload supplier invoices — AI extracts the details for your review."
+      />
 
       {AGENT_REGISTRY.invoice_ocr.enabled && (
         <div className="max-w-lg">
           <OcrUploadTrigger />
         </div>
       )}
+
+
 
       {pendingOcrTasks.length > 0 && (
         <div className="space-y-4">

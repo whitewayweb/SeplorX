@@ -1,7 +1,8 @@
 import { db } from "@/db";
 import { purchaseInvoices, companies, products } from "@/db/schema";
-import { desc, eq, and } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { getAuthenticatedUserId } from "@/lib/auth";
+import { PageHeader } from "@/components/molecules/layout/page-header";
 import { InvoiceList } from "@/components/organisms/invoices/invoice-list";
 import { InvoiceDialog } from "@/components/organisms/invoices/invoice-dialog";
 
@@ -55,15 +56,12 @@ export default async function InvoicesPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Purchase Invoices</h1>
-          <p className="text-muted-foreground">
-            Record and track bills from your suppliers.
-          </p>
-        </div>
+      <PageHeader
+        title="Purchase Invoices"
+        description="Record and track bills from your suppliers."
+      >
         <InvoiceDialog companies={supplierCompanies} products={activeProducts} />
-      </div>
+      </PageHeader>
 
       <InvoiceList invoices={invoiceList} />
     </div>

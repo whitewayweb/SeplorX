@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { db } from "@/db";
 import { channels, channelProductMappings, agentActions } from "@/db/schema";
 import { and, countDistinct, desc, eq, sql } from "drizzle-orm";
+import { PageHeader } from "@/components/molecules/layout/page-header";
 import { ChannelList } from "@/components/organisms/channels/channel-list";
 import { AddChannelWizard } from "@/components/organisms/channels/add-channel-wizard";
 import { ChannelMappingApprovalCard } from "@/components/organisms/agents/channel-mapping-approval-card";
@@ -75,15 +76,12 @@ export default async function ChannelsPage({
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Channels</h1>
-          <p className="text-muted-foreground mt-1">
-            Connect your e-commerce stores to sync orders automatically.
-          </p>
-        </div>
+      <PageHeader
+        title="Channels"
+        description="Connect your e-commerce stores to sync orders automatically."
+      >
         <AddChannelWizard />
-      </div>
+      </PageHeader>
 
       {/* Pending AI mapping approvals */}
       {pendingMappingTasks.length > 0 && (
