@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { products, inventoryTransactions, channels, channelProductMappings } from "@/db/schema";
+import { products, inventoryTransactions, channels, channelProductMappings, purchaseInvoiceItems, purchaseInvoices, companies } from "@/db/schema";
 import { eq, desc, and } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -86,7 +86,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
   const userId = await getAuthenticatedUserId();
 
   // 2. Fetch Related Data in Parallel
-  const [connectedChannels, mappings, transactions] = await Promise.all([
+  const [connectedChannels, mappings, transactions, purchaseHistory] = await Promise.all([
     // Connected Channels
     db
       .select({ id: channels.id, channelType: channels.channelType, name: channels.name })
@@ -112,6 +112,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
         type: inventoryTransactions.type,
         quantity: inventoryTransactions.quantity,
         referenceType: inventoryTransactions.referenceType,
+        referenceId: inventoryTransactions.referenceId,
         notes: inventoryTransactions.notes,
         createdAt: inventoryTransactions.createdAt,
       })
@@ -119,6 +120,24 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
       .where(eq(inventoryTransactions.productId, productId))
       .orderBy(desc(inventoryTransactions.createdAt))
       .limit(50),
+
+    // Purchase History
+    db
+      .select({
+        id: purchaseInvoiceItems.id,
+        invoiceId: purchaseInvoices.id,
+        invoiceNumber: purchaseInvoices.invoiceNumber,
+        invoiceDate: purchaseInvoices.invoiceDate,
+        companyName: companies.name,
+        quantity: purchaseInvoiceItems.quantity,
+        unitPrice: purchaseInvoiceItems.unitPrice,
+      })
+      .from(purchaseInvoiceItems)
+      .innerJoin(purchaseInvoices, eq(purchaseInvoiceItems.invoiceId, purchaseInvoices.id))
+      .innerJoin(companies, eq(purchaseInvoices.companyId, companies.id))
+      .where(eq(purchaseInvoiceItems.productId, productId))
+      .orderBy(desc(purchaseInvoices.invoiceDate))
+      .limit(20)
   ]);
 
   function formatPrice(value: string | null): string {
@@ -305,6 +324,64 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
           mappings={mappings}
         />
 
+        {/* ─── Purchase Price History ─── */}
+        <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
+          <div className="px-5 pt-4 pb-3 border-b border-border/40 flex items-center justify-between">
+            <h2 className="text-sm font-semibold">Purchase Price History</h2>
+            {purchaseHistory.length > 0 && (
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {purchaseHistory.length} record{purchaseHistory.length !== 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
+
+          {purchaseHistory.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-14 gap-3">
+              <div className="h-12 w-12 rounded-xl bg-muted/50 flex items-center justify-center">
+                <Banknote className="h-5 w-5 text-muted-foreground/50" />
+              </div>
+              <p className="text-sm text-muted-foreground">No purchase history found</p>
+            </div>
+          ) : (
+             <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border/40 bg-muted/30">
+                    <th className="text-left px-5 py-2.5 text-xs font-semibold text-muted-foreground">Date</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground">Invoice</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground">Vendor</th>
+                    <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground">Qty</th>
+                    <th className="text-right px-4 py-2.5 pr-5 text-xs font-semibold text-muted-foreground">Unit Price</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/30">
+                  {purchaseHistory.map((ph) => (
+                    <tr key={ph.id} className="hover:bg-muted/20 transition-colors">
+                      <td className="px-5 py-3 text-muted-foreground whitespace-nowrap">
+                        {ph.invoiceDate
+                          ? new Date(ph.invoiceDate).toLocaleDateString("en-IN", {
+                              day: "numeric",
+                              month: "short",
+                              year: "numeric",
+                            })
+                          : "—"}
+                      </td>
+                      <td className="px-4 py-3 font-medium">
+                        <Link href={`/invoices/${ph.invoiceId}`} className="text-blue-600 dark:text-blue-400 hover:underline">
+                          {ph.invoiceNumber}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground truncate max-w-[200px]">{ph.companyName}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{ph.quantity}</td>
+                      <td className="px-4 py-3 pr-5 text-right font-medium tabular-nums">{formatPrice(ph.unitPrice)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
         {/* ─── Inventory Transactions ─── */}
         <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
           <div className="px-5 pt-4 pb-3 border-b border-border/40 flex items-center justify-between">
@@ -375,7 +452,13 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
                         </td>
                         <td className="px-4 py-3 text-muted-foreground">{txn.referenceType ?? "—"}</td>
                         <td className="px-4 py-3 pr-5 text-muted-foreground max-w-[200px] truncate">
-                          {txn.notes ?? "—"}
+                          {txn.notes && txn.referenceType === "purchase_invoice" && txn.referenceId ? (
+                            <Link href={`/invoices/${txn.referenceId}`} className="text-blue-600 dark:text-blue-400 hover:underline">
+                              {txn.notes}
+                            </Link>
+                          ) : (
+                            txn.notes ?? "—"
+                          )}
                         </td>
                       </tr>
                     );
