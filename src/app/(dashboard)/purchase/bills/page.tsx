@@ -41,8 +41,7 @@ export default async function PurchaseBillsPage() {
       .where(
         and(
           eq(companies.isActive, true),
-          sql`${companies.type} IN ('supplier', 'both')`,
-          eq(companies.userId, userId)
+          sql`${companies.type} IN ('supplier', 'both')`
         )
       )
       .orderBy(companies.name),

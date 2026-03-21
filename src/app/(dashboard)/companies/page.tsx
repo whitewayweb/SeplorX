@@ -28,7 +28,6 @@ export default async function CompaniesPage() {
       createdAt: companies.createdAt,
     })
     .from(companies)
-    .where(eq(companies.userId, userId))
     .orderBy(desc(companies.createdAt));
 
   return (

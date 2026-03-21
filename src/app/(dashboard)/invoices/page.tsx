@@ -36,12 +36,7 @@ export default async function InvoicesPage() {
         name: companies.name,
       })
       .from(companies)
-      .where(
-        and(
-          eq(companies.isActive, true),
-          eq(companies.userId, userId)
-        )
-      )
+      .where(eq(companies.isActive, true))
       .orderBy(companies.name),
 
     // 3. Fetch active products for line item selection

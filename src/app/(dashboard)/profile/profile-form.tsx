@@ -49,9 +49,9 @@ export function ProfileForm({ userName, userEmail }: ProfileFormProps) {
     );
 
     return (
-        <div className="container max-w-4xl space-y-8 py-8">
+        <div className="p-6 space-y-8">
             <div className="space-y-0.5">
-                <h2 className="text-2xl font-bold tracking-tight">Profile Settings</h2>
+                <h1 className="text-3xl font-bold tracking-tight">Profile Settings</h1>
                 <p className="text-muted-foreground">
                     Manage your account settings and preferences.
                 </p>
