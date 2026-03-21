@@ -79,6 +79,21 @@ export const feedStatusEnum = pgEnum("feed_status", [
   "fatal",
 ]);
 
+export const salesOrderStatusEnum = pgEnum("sales_order_status", [
+  "pending",
+  "processing",
+  "on-hold",
+  "packed",
+  "shipped",
+  "delivered", // corresponds to WC 'completed'
+  "cancelled",
+  "returned",
+  "refunded",
+  "failed",
+  "draft"
+]);
+export type SalesOrderStatus = typeof salesOrderStatusEnum.enumValues[number];
+
 // ─── Users ───────────────────────────────────────────────────────────────────
 
 export const users = pgTable("users", {
@@ -405,4 +420,40 @@ export const channelProductChangelog = pgTable("channel_product_changelog", {
 }, (table) => [
   index("channel_product_changelog_channel_idx").on(table.channelId),
   index("channel_product_changelog_product_idx").on(table.channelProductId),
+]).enableRLS();
+
+// ─── Sales Orders ────────────────────────────────────────────────────────────
+// Tracks customer orders fetched from external channels (Amazon, etc).
+
+export const salesOrders = pgTable("sales_orders", {
+  id: serial("id").primaryKey(),
+  channelId: integer("channel_id").notNull().references(() => channels.id, { onDelete: "cascade" }),
+  externalOrderId: varchar("external_order_id", { length: 255 }).notNull(),
+  status: salesOrderStatusEnum("status").default("pending").notNull(),
+  totalAmount: decimal("total_amount", { precision: 12, scale: 2 }),
+  currency: varchar("currency", { length: 10 }),
+  buyerName: varchar("buyer_name", { length: 255 }),
+  buyerEmail: varchar("buyer_email", { length: 255 }),
+  purchasedAt: timestamp("purchased_at"),
+  syncedAt: timestamp("synced_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  rawData: jsonb("raw_data").$type<Record<string, unknown>>(),
+}, (table) => [
+  uniqueIndex("sales_orders_channel_ext_idx").on(table.channelId, table.externalOrderId),
+  index("sales_orders_channel_idx").on(table.channelId),
+]).enableRLS();
+
+export const salesOrderItems = pgTable("sales_order_items", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id").notNull().references(() => salesOrders.id, { onDelete: "cascade" }),
+  externalItemId: varchar("external_item_id", { length: 255 }).notNull(),
+  productId: integer("product_id").references(() => products.id, { onDelete: "set null" }),
+  sku: varchar("sku", { length: 255 }),
+  title: varchar("title", { length: 500 }),
+  quantity: integer("quantity").notNull(),
+  price: decimal("price", { precision: 12, scale: 2 }),
+  rawData: jsonb("raw_data").$type<Record<string, unknown>>(),
+}, (table) => [
+  uniqueIndex("sales_order_items_order_ext_idx").on(table.orderId, table.externalItemId),
+  index("sales_order_items_order_idx").on(table.orderId),
 ]).enableRLS();

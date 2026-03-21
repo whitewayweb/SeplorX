@@ -148,6 +148,34 @@
       "when": 1773598597840,
       "tag": "0021_ambitious_fabian_cortez",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1773698454138,
+      "tag": "0021_illegal_wallow",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1773700538850,
+      "tag": "0022_big_centennial",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1774108101358,
+      "tag": "0023_common_spitfire",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1774108443829,
+      "tag": "0024_sparkling_tomorrow_man",
+      "breakpoints": true
     }
   ]
 }

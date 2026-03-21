@@ -1,6 +1,6 @@
 {
-  "id": "51f0b5dc-b824-4c22-8f15-99796d4b8694",
-  "prevId": "7ff4f4fa-5f84-46fc-bafd-333b3310c23a",
+  "id": "713bbca2-fca3-445d-ba81-c682cecc7452",
+  "prevId": "b7ed8e20-5df2-4e75-a8ae-dee239ea934a",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1822,6 +1822,12 @@
           "type": "numeric(12, 2)",
           "primaryKey": false,
           "notNull": false
+        },
+        "raw_data": {
+          "name": "raw_data",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -1969,6 +1975,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "raw_data": {
+          "name": "raw_data",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -2431,7 +2443,21 @@
         "shipped",
         "cancelled",
         "returned",
-        "failed"
+        "failed",
+        "processing",
+        "on-hold",
+        "packed",
+        "completed",
+        "refunded",
+        "checkout-draft",
+        "trash",
+        "PendingAvailability",
+        "Pending",
+        "Unshipped",
+        "PartiallyShipped",
+        "InvoiceUnconfirmed",
+        "Canceled",
+        "Unfulfillable"
       ]
     },
     "public.sync_status": {

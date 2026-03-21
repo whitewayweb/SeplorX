@@ -196,3 +196,11 @@ Read these before working on related features:
 - `docs/channels-integration.md` — channels registry pattern, WooCommerce OAuth flow, multi-instance design
 - `docs/database.md` — all tables, JSONB config design, connection conventions
 - `docs/business-modules.md` — companies, products, invoices, payments, inventory
+
+## AI Agent Instructions (Mandatory Reconnaissance)
+
+To prevent hallucinations, redundant files, and ignored typings, **all AI agents MUST follow these reconnaissance steps before writing code:**
+
+1. **Directory Reconnaissance**: Before creating *any* new file (especially inside `src/lib/channels/*` or `src/lib/apps/*`), run `list_dir` on the target directory. If a file serving a similar purpose exists (e.g., `queries.ts`), integrate the new code into the existing file instead of creating a new one (e.g., `order-queries.ts`).
+2. **Type Discovery (Generated APIs)**: Before writing manual TypeScript interfaces for external API payloads or database schemas, search the codebase (via `grep_search` or `list_dir`) for existing generated types (e.g., `ordersV0Schema.ts`). Always use and import the official generated types from the `api/types/` directory instead of hacking together local ad-hoc interfaces.
+3. **No Speculative Abstractions**: Do not create wrappers or types just "to make it easier." Use the exact types outputted by the generation scripts and project layout as found in existing files.

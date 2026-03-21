@@ -15,6 +15,7 @@ import {
   Store,
   LogOut,
   User,
+  ShoppingCart,
 } from "lucide-react";
 import {
   Sidebar,
@@ -40,6 +41,7 @@ const navItems = [
   { title: "Invoices", href: "/invoices", icon: FileText },
   { title: "Purchase Bills", href: "/purchase/bills", icon: Receipt },
   { title: "Inventory", href: "/inventory", icon: Warehouse },
+  { title: "Orders", href: "/orders", icon: ShoppingCart },
   { title: "Channels", href: "/channels", icon: Store },
   { title: "Apps", href: "/apps", icon: Puzzle },
 ];
@@ -72,8 +74,8 @@ export function AppSidebarClient({
                   <SidebarMenuButton
                     asChild
                     isActive={
-                      item.title === "Products"
-                        ? pathname.startsWith(item.href) && !pathname.includes("/products/channels")
+                      item.title === "Products" || item.title === "Orders"
+                        ? pathname.startsWith(item.href) && !pathname.includes(`${item.href}/channels`)
                         : item.href === "/"
                           ? pathname === "/"
                           : pathname.startsWith(item.href)
@@ -102,6 +104,31 @@ export function AppSidebarClient({
                             isActive={pathname === `/products/channels/${channel.id}`}
                           >
                             <Link href={`/products/channels/${channel.id}`}>
+                              {channel.name}
+                            </Link>
+                          </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
+                      ))}
+                    </SidebarMenuSub>
+                  )}
+
+                  {item.title === "Orders" && (
+                    <SidebarMenuSub>
+                      <SidebarMenuSubItem>
+                        <SidebarMenuSubButton
+                          asChild
+                          isActive={pathname === "/orders"}
+                        >
+                          <Link href="/orders">All Orders</Link>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                      {userChannels.map((channel) => (
+                        <SidebarMenuSubItem key={channel.id}>
+                          <SidebarMenuSubButton
+                            asChild
+                            isActive={pathname === `/orders/channels/${channel.id}`}
+                          >
+                            <Link href={`/orders/channels/${channel.id}`}>
                               {channel.name}
                             </Link>
                           </SidebarMenuSubButton>
