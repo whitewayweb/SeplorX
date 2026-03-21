@@ -1,5 +1,6 @@
 import { db } from "@/db";
 import { products } from "@/db/schema";
+import { getAuthenticatedUserId } from "@/lib/auth";
 import { desc } from "drizzle-orm";
 import { ProductList } from "@/components/organisms/products/product-list";
 import { ProductDialog } from "@/components/organisms/products/product-dialog";
@@ -7,6 +8,8 @@ import { ProductDialog } from "@/components/organisms/products/product-dialog";
 export const dynamic = "force-dynamic";
 
 export default async function ProductsPage() {
+  await getAuthenticatedUserId();
+
   const productList = await db
     .select({
       id: products.id,

@@ -60,42 +60,66 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
 
   if (isNaN(productId)) notFound();
 
-  const result = await db.select().from(products).where(eq(products.id, productId)).limit(1);
+  // 1. Fetch Product with Explicit Columns
+  const result = await db
+    .select({
+      id: products.id,
+      name: products.name,
+      sku: products.sku,
+      isActive: products.isActive,
+      unit: products.unit,
+      category: products.category,
+      purchasePrice: products.purchasePrice,
+      sellingPrice: products.sellingPrice,
+      quantityOnHand: products.quantityOnHand,
+      reorderLevel: products.reorderLevel,
+      description: products.description,
+      createdAt: products.createdAt,
+    })
+    .from(products)
+    .where(eq(products.id, productId))
+    .limit(1);
+    
   if (result.length === 0) notFound();
-
   const product = result[0];
 
   const userId = await getAuthenticatedUserId();
 
-  const connectedChannels = await db
-    .select({ id: channels.id, channelType: channels.channelType, name: channels.name })
-    .from(channels)
-    .where(and(eq(channels.userId, userId), eq(channels.status, "connected")));
+  // 2. Fetch Related Data in Parallel
+  const [connectedChannels, mappings, transactions] = await Promise.all([
+    // Connected Channels
+    db
+      .select({ id: channels.id, channelType: channels.channelType, name: channels.name })
+      .from(channels)
+      .where(and(eq(channels.userId, userId), eq(channels.status, "connected"))),
 
-  const mappings = await db
-    .select({
-      id: channelProductMappings.id,
-      channelId: channelProductMappings.channelId,
-      externalProductId: channelProductMappings.externalProductId,
-      label: channelProductMappings.label,
-      syncStatus: channelProductMappings.syncStatus,
-    })
-    .from(channelProductMappings)
-    .where(eq(channelProductMappings.productId, productId));
+    // Product Mappings
+    db
+      .select({
+        id: channelProductMappings.id,
+        channelId: channelProductMappings.channelId,
+        externalProductId: channelProductMappings.externalProductId,
+        label: channelProductMappings.label,
+        syncStatus: channelProductMappings.syncStatus,
+      })
+      .from(channelProductMappings)
+      .where(eq(channelProductMappings.productId, productId)),
 
-  const transactions = await db
-    .select({
-      id: inventoryTransactions.id,
-      type: inventoryTransactions.type,
-      quantity: inventoryTransactions.quantity,
-      referenceType: inventoryTransactions.referenceType,
-      notes: inventoryTransactions.notes,
-      createdAt: inventoryTransactions.createdAt,
-    })
-    .from(inventoryTransactions)
-    .where(eq(inventoryTransactions.productId, productId))
-    .orderBy(desc(inventoryTransactions.createdAt))
-    .limit(50);
+    // Recent Transactions
+    db
+      .select({
+        id: inventoryTransactions.id,
+        type: inventoryTransactions.type,
+        quantity: inventoryTransactions.quantity,
+        referenceType: inventoryTransactions.referenceType,
+        notes: inventoryTransactions.notes,
+        createdAt: inventoryTransactions.createdAt,
+      })
+      .from(inventoryTransactions)
+      .where(eq(inventoryTransactions.productId, productId))
+      .orderBy(desc(inventoryTransactions.createdAt))
+      .limit(50),
+  ]);
 
   function formatPrice(value: string | null): string {
     if (!value) return "—";

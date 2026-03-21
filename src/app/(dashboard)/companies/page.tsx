@@ -1,12 +1,15 @@
 import { db } from "@/db";
 import { companies } from "@/db/schema";
-import { desc } from "drizzle-orm";
+import { getAuthenticatedUserId } from "@/lib/auth";
+import { desc, eq } from "drizzle-orm";
 import { CompanyList } from "@/components/organisms/companies/company-list";
 import { CompanyDialog } from "@/components/organisms/companies/company-dialog";
 
 export const dynamic = "force-dynamic";
 
 export default async function CompaniesPage() {
+  const userId = await getAuthenticatedUserId();
+
   const companyList = await db
     .select({
       id: companies.id,
@@ -25,6 +28,7 @@ export default async function CompaniesPage() {
       createdAt: companies.createdAt,
     })
     .from(companies)
+    .where(eq(companies.userId, userId))
     .orderBy(desc(companies.createdAt));
 
   return (

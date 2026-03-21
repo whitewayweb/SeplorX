@@ -12,6 +12,23 @@ metadata:
 
 # SeplorX Architecture
 
+## Commands
+
+```bash
+yarn dev              # Start dev server
+yarn build            # Production build
+yarn lint             # ESLint
+yarn knip             # Find unused code/deps
+yarn fix              # lint --fix + knip --fix + build
+yarn db:generate      # Generate Drizzle migrations
+yarn db:migrate       # Run migrations (needs POSTGRES_URL_NON_POOLING, port 5432 direct)
+yarn db               # Generate + migrate
+yarn db:studio        # Drizzle Studio GUI
+```
+
+**Migration flow:** Migrations run automatically via GitHub Actions on every push to `main` (`.github/workflows/migrate.yml`). Vercel auto-deploys in parallel.
+**Local:** Set `POSTGRES_URL_NON_POOLING` (port 5432 direct) in `.env.local` alongside `POSTGRES_URL` (port 6543 pooler).
+
 ## Stack
 
 - **Framework:** Next.js 16 (App Router), React 19, TypeScript (strict)
@@ -36,7 +53,7 @@ Data flows one way: **Server Component → props → Client Component → Server
 
 - Auth uses `better-auth`. Server config and helpers are in `src/lib/auth/index.ts`, client hooks in `src/lib/auth/client.ts`.
 - **Always call `getAuthenticatedUserId()`** in Server Components and Server Actions to get the current user's ID. Never hardcode user IDs.
-- The Edge middleware at `src/proxy.ts` handles session validation. **Never use `fetch()` to internal API routes inside `src/proxy.ts`** — it adds ~2s latency. Call `auth.api.getSession()` directly.
+- The Next.js 16 proxy middleware is at `src/proxy.ts`. **Use `getSessionCookie(request)` from `better-auth/cookies`** for fast, optimistic route protection. **Never use `fetch()` or full DB validation in proxy.ts** inside this app because it adds ~2s latency and recursion loops. Real security validations happen in Server Components via `getAuthenticatedUserId()`.
 - All dashboard routes live inside `src/app/(dashboard)/`.
 
 ## Security — IDOR Prevention (Mandatory)
@@ -47,6 +64,8 @@ Data flows one way: **Server Component → props → Client Component → Server
 
 ## Database Queries
 
+- **Tables:** `users`, `app_installations`, `channels`, `channel_product_mappings`, `channel_product_changelog`, `companies` (type: supplier/customer/both), `products`, `purchase_invoices`, `purchase_invoice_items`, `payments`, `inventory_transactions`, `agent_actions`, `settings`. (All have RLS). Decimal(12,2) for money; integer for stock.
+- **Connection:** Port 6543 (transaction pooler) via `globalForDb` wrapper. Port 5432 for migrations.
 - **Always select explicit columns** — no `SELECT *`. Use `db.select({ id: t.id, name: t.name }).from(t)`.
 - **JSONB columns:** Only extract sub-fields you need via Drizzle's `sql<T>\`${table.col}->>'field'\`` syntax. Never fetch entire `rawData` or `credentials` blobs unless needed.
 - **Scalable JSONB filtering:** Delegate JSONB field extraction logic to `handler.extractSqlField(fieldName)` in `src/lib/channels/{channel_id}/queries.ts`. Don't write global `CASE` statements.
@@ -63,7 +82,9 @@ Data flows one way: **Server Component → props → Client Component → Server
 
 ## Performance
 
-- **Batched processing:** Process large API results (e.g. Amazon reports) in batches of 100 items.
+- **Query Parallelization:** Always use `Promise.all` for independent `db.select()` queries on dashboard pages to prevent waterfall delays.
+- **N+1 Queries:** Never loop independent queries (e.g., checking duplicates in a `for` loop). Use `inArray` to fetch in batches.
+- **Batched processing:** Process large API results (e.g. Amazon reports) in batches of 100 items. 
 - **Safe upserts:** Use `COALESCE(NULLIF(EXCLUDED.col, ''), table.col)` in `onConflictDoUpdate` to prevent overwriting with empty strings during partial syncs.
 - **Module-level caching:** Initialise once at module scope (`let cache: T | null = null`) and guard with `if (!cache)`. Expose a `refresh*()` escape-hatch for dev hot-reload.
 
@@ -85,8 +106,16 @@ Data flows one way: **Server Component → props → Client Component → Server
 |------|---------|
 | `src/lib/auth/index.ts` | Better Auth server config |
 | `src/lib/auth/client.ts` | Better Auth client hooks |
-| `src/proxy.ts` | Edge middleware — session validation |
+| `src/proxy.ts` | Next.js 16 Proxy — optimsitic cookie session validation |
 | `src/db/schema.ts` | Drizzle schema — all tables |
 | `src/lib/utils.ts` | `cn()` class merge helper |
 | `src/lib/env.ts` | Environment variable validation |
 | `src/lib/crypto.ts` | AES-256-GCM encrypt/decrypt |
+
+## AI Agent Instructions (Mandatory Reconnaissance)
+
+To prevent hallucinations, redundant files, and ignored typings, **all AI agents MUST follow these reconnaissance steps before writing code:**
+
+1. **Directory Reconnaissance**: Before creating *any* new file, run `list_dir` on the target directory. If a file serving a similar purpose exists (e.g., `queries.ts`), integrate the new code into the existing file instead of creating a new one.
+2. **Type Discovery (Generated APIs)**: Before writing manual TypeScript interfaces for external API payloads or DB schemas, search the codebase (via `grep_search` or `list_dir`) for existing generated types (e.g., `ordersV0Schema.ts`). Always use official generated types from `api/types/`.
+3. **No Speculative Abstractions**: Do not create wrappers or types just "to make it easier." Use exactly what's provided.

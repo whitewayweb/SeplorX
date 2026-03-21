@@ -15,7 +15,12 @@ export default async function AppsPage() {
   const userId = await getAuthenticatedUserId();
 
   const installations = await db
-    .select()
+    .select({
+      id: appInstallations.id,
+      appId: appInstallations.appId,
+      status: appInstallations.status,
+      config: appInstallations.config,
+    })
     .from(appInstallations)
     .where(eq(appInstallations.userId, userId));
 

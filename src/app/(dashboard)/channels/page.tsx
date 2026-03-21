@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { db } from "@/db";
 import { channels, channelProductMappings, agentActions } from "@/db/schema";
-import { and, countDistinct, desc, eq } from "drizzle-orm";
+import { and, countDistinct, desc, eq, sql } from "drizzle-orm";
 import { ChannelList } from "@/components/organisms/channels/channel-list";
 import { AddChannelWizard } from "@/components/organisms/channels/add-channel-wizard";
 import { ChannelMappingApprovalCard } from "@/components/organisms/agents/channel-mapping-approval-card";
@@ -19,59 +19,59 @@ export default async function ChannelsPage({
   const { connected } = await searchParams;
   const userId = await getAuthenticatedUserId();
 
-  // Fetch credentials only to derive hasWebhooks — never sent to the client
-  const rows = await db
-    .select({
-      id: channels.id,
-      channelType: channels.channelType,
-      name: channels.name,
-      status: channels.status,
-      storeUrl: channels.storeUrl,
-      defaultPickupLocation: channels.defaultPickupLocation,
-      createdAt: channels.createdAt,
-      credentials: channels.credentials,
-    })
-    .from(channels)
-    .where(eq(channels.userId, userId))
-    .orderBy(channels.createdAt);
+  // Run the 4 independent data fetching operations in parallel
+  const [channelsRows, cachedProductCountMap, mappingCounts, pendingMappingTasks] = await Promise.all([
+    // 1. Fetch channels (Compute hasWebhooks via SQL without pulling full credentials blob)
+    db
+      .select({
+        id: channels.id,
+        channelType: channels.channelType,
+        name: channels.name,
+        status: channels.status,
+        storeUrl: channels.storeUrl,
+        defaultPickupLocation: channels.defaultPickupLocation,
+        createdAt: channels.createdAt,
+        hasWebhooks: sql<boolean>`coalesce((${channels.credentials}->>'webhookSecret'), '') != ''`.as("hasWebhooks"),
+      })
+      .from(channels)
+      .where(eq(channels.userId, userId))
+      .orderBy(channels.createdAt),
 
-  const channelInstances: ChannelInstance[] = rows.map(({ credentials, ...row }) => ({
+    // 2. Fetch cached product counts
+    getCachedProductCountsByChannel(),
+
+    // 3. Count DISTINCT mapped products per channel
+    db
+      .select({
+        channelId: channelProductMappings.channelId,
+        count: countDistinct(channelProductMappings.productId),
+      })
+      .from(channelProductMappings)
+      .groupBy(channelProductMappings.channelId),
+
+    // 4. Pending AI channel mapping approvals
+    db
+      .select({
+        id: agentActions.id,
+        plan: agentActions.plan,
+        createdAt: agentActions.createdAt,
+      })
+      .from(agentActions)
+      .where(
+        and(
+          eq(agentActions.status, "pending_approval"),
+          eq(agentActions.agentType, "channel_mapping")
+        )
+      )
+      .orderBy(desc(agentActions.createdAt))
+  ]);
+
+  const channelInstances: ChannelInstance[] = channelsRows.map((row) => ({
     ...row,
-    hasWebhooks: typeof credentials?.webhookSecret === "string" && credentials.webhookSecret.length > 0,
-    cachedProductCount: 0, // populated below
+    cachedProductCount: cachedProductCountMap.get(row.id) ?? 0,
   }));
 
-  const cachedProductCountMap = await getCachedProductCountsByChannel();
-  for (const instance of channelInstances) {
-    instance.cachedProductCount = cachedProductCountMap.get(instance.id) ?? 0;
-  }
-
-  // Count DISTINCT mapped products per channel (for the "Mapped Products" column)
-  const mappingCounts = await db
-    .select({
-      channelId: channelProductMappings.channelId,
-      count: countDistinct(channelProductMappings.productId),
-    })
-    .from(channelProductMappings)
-    .groupBy(channelProductMappings.channelId);
-
   const mappedProductCounts = new Map(mappingCounts.map((r) => [r.channelId, r.count]));
-
-  // Pending AI channel mapping approvals
-  const pendingMappingTasks = await db
-    .select({
-      id: agentActions.id,
-      plan: agentActions.plan,
-      createdAt: agentActions.createdAt,
-    })
-    .from(agentActions)
-    .where(
-      and(
-        eq(agentActions.status, "pending_approval"),
-        eq(agentActions.agentType, "channel_mapping"),
-      ),
-    )
-    .orderBy(desc(agentActions.createdAt));
 
   return (
     <div className="p-6 space-y-6">
