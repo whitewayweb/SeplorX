@@ -29,6 +29,16 @@ export default async function ChannelOrdersPage({
   const isValid = (salesOrderStatusEnum.enumValues as readonly string[]).includes(rawStatus);
   const statusFilter = isValid ? rawStatus : undefined;
 
+  const fromParam = resolvedSearchParams.from as string;
+  const toParam = resolvedSearchParams.to as string;
+  
+  // Define default range (30 days ago to now)
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+  const dateFrom = fromParam === "all" ? undefined : (fromParam ? new Date(fromParam) : thirtyDaysAgo);
+  const dateTo = toParam ? new Date(toParam) : (fromParam === "all" ? undefined : now);
+
   const userId = await getAuthenticatedUserId();
   if (!userId) redirect("/login");
 
@@ -38,9 +48,9 @@ export default async function ChannelOrdersPage({
   if (!channel) notFound();
 
   const [orders, totalCount, statusCounts] = await Promise.all([
-    getOrdersByChannel(userId, channelId, limit, offset, statusFilter),
-    countOrdersByChannel(userId, channelId, statusFilter),
-    getOrderStatusCounts(userId, channelId),
+    getOrdersByChannel(userId, channelId, limit, offset, statusFilter, dateFrom, dateTo),
+    countOrdersByChannel(userId, channelId, statusFilter, dateFrom, dateTo),
+    getOrderStatusCounts(userId, channelId, dateFrom, dateTo),
   ]);
 
   return (

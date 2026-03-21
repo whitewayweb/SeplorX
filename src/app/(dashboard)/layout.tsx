@@ -9,8 +9,8 @@ export default function DashboardLayout({
     return (
         <SidebarProvider>
             <AppSidebar />
-            <SidebarInset>
-                <main className="flex-1 relative">
+            <SidebarInset className="overflow-hidden">
+                <main className="flex-1 relative min-w-0 overflow-hidden">
                     <div className="absolute top-6 left-6 z-50 md:top-[28px] md:left-[24px]">
                         <SidebarTrigger className="-ml-1 bg-background/50 backdrop-blur-sm" />
                     </div>

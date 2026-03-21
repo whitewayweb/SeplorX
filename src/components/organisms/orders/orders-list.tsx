@@ -6,6 +6,7 @@ import { ClearOrdersButton } from "./clear-orders-button";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { DateRangePicker } from "@/components/organisms/orders/date-range-picker";
 
 interface Order {
   id: number;
@@ -94,15 +95,17 @@ export function OrdersList({
   ];
 
   return (
-    <div className="p-8">
-      <div className="flex justify-between items-center mb-8">
-        <div>
-          <h1 className="text-3xl font-bold">{title}</h1>
-          <p className="text-muted-foreground mt-1">
-            Total {totalCount} order{totalCount !== 1 ? "s" : ""}
-          </p>
+    <div className="p-4 sm:p-8 max-w-full overflow-hidden">
+      <div className="mb-8 min-w-0">
+        <h1 className="text-3xl font-bold truncate">{title}</h1>
+      </div>
+
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
+        <div className="flex-shrink-0">
+          <DateRangePicker />
         </div>
-        <div className="flex gap-2">
+        
+        <div className="flex flex-wrap gap-2 shrink-0 lg:justify-end">
           {channels.map((channel) => (
             <div key={channel.id} className="flex gap-2">
               <FetchOrdersButton
@@ -117,35 +120,39 @@ export function OrdersList({
         </div>
       </div>
 
-      <div className="flex gap-1 mb-6 border-b pb-px overflow-x-auto whitespace-nowrap scrollbar-hide">
-        {statusTabs.map((tab) => {
-          const isActive = currentStatus === tab.value || (tab.value === "all" && !currentStatus);
-          return (
-            <button
-              key={tab.value}
-              onClick={() => handleStatusChange(tab.value)}
-              className={cn(
-                "group px-2 py-2 text-sm font-medium border-b-2 transition-colors -mb-px flex-shrink-0 flex items-center gap-2",
-                isActive
-                  ? "border-blue-600 text-blue-600"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-              )}
-            >
-              <span>{tab.label}</span>
-              <span
-                className={cn(
-                  "inline-flex items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold transition-colors",
-                  STATUS_COLORS[tab.value] || "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                )}
-              >
-                {tab.count}
-              </span>
-            </button>
-          );
-        })}
+      <div className="flex flex-col gap-4 mb-6 border-b">
+        <div className="overflow-x-auto scrollbar-hide pb-0.5">
+          <div className="flex gap-1 min-w-max">
+            {statusTabs.map((tab) => {
+              const isActive = currentStatus === tab.value || (tab.value === "all" && !currentStatus);
+              return (
+                <button
+                  key={tab.value}
+                  onClick={() => handleStatusChange(tab.value)}
+                  className={cn(
+                    "group px-2 py-2 text-sm font-medium border-b-2 transition-colors -mb-[2px] flex-shrink-0 flex items-center gap-2",
+                    isActive
+                      ? "border-blue-600 text-blue-600"
+                      : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  )}
+                >
+                  <span>{tab.label}</span>
+                  <span
+                    className={cn(
+                      "inline-flex items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold transition-colors",
+                      STATUS_COLORS[tab.value] || "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                    )}
+                  >
+                    {tab.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden border">
+      <div className="bg-white rounded-lg shadow border overflow-x-auto overflow-y-hidden max-w-full">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>

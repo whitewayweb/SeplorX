@@ -1,12 +1,21 @@
-import { sql, eq, desc, and, or } from "drizzle-orm";
+import { sql, eq, desc, and, or, gte, lte } from "drizzle-orm";
 import { db } from "@/db";
 import { channelProducts, salesOrders, salesOrderItems, channels, type SalesOrderStatus } from "@/db/schema";
 import { getDistinctChannelProductField } from "../queries";
 
-/** Helper to apply status filter consistently across queries */
 function getStatusFilter(status?: string) {
   if (!status || status === "all") return undefined;
   return eq(salesOrders.status, status as SalesOrderStatus);
+}
+
+/** Helper to apply date filter consistently across queries */
+function getDateFilter(dateFrom?: Date, dateTo?: Date) {
+  if (dateFrom && dateTo) {
+    return and(gte(salesOrders.purchasedAt, dateFrom), lte(salesOrders.purchasedAt, dateTo));
+  }
+  if (dateFrom) return gte(salesOrders.purchasedAt, dateFrom);
+  if (dateTo) return lte(salesOrders.purchasedAt, dateTo);
+  return undefined;
 }
 
 // Type-only import — OrdersV0Schema is an interface, not a runtime value.
@@ -92,7 +101,9 @@ export async function getAllOrders(
   userId: number,
   limit = 50,
   offset = 0,
-  status?: string
+  status?: string,
+  dateFrom?: Date,
+  dateTo?: Date
 ): Promise<OrderRow[]> {
   const query = db
     .select({
@@ -110,7 +121,8 @@ export async function getAllOrders(
     .where(
       and(
         eq(channels.userId, userId),
-        getStatusFilter(status)
+        getStatusFilter(status),
+        getDateFilter(dateFrom, dateTo)
       )
     )
     .orderBy(desc(salesOrders.purchasedAt))
@@ -121,7 +133,12 @@ export async function getAllOrders(
 }
 
 /** Total count of all orders across all channels for a user. */
-export async function countAllOrders(userId: number, status?: string): Promise<number> {
+export async function countAllOrders(
+  userId: number, 
+  status?: string,
+  dateFrom?: Date,
+  dateTo?: Date
+): Promise<number> {
   const [row] = await db
     .select({ count: sql<number>`count(*)` })
     .from(salesOrders)
@@ -129,23 +146,31 @@ export async function countAllOrders(userId: number, status?: string): Promise<n
     .where(
       and(
         eq(channels.userId, userId),
-        getStatusFilter(status)
+        getStatusFilter(status),
+        getDateFilter(dateFrom, dateTo)
       )
     );
   return Number(row?.count ?? 0);
 }
 
 /** Grouped count of orders by status for a user's channel(s) */
-export async function getOrderStatusCounts(userId: number, channelId?: number): Promise<Record<string, number>> {
-  const baseFilter = channelId
-    ? and(eq(channels.userId, userId), eq(salesOrders.channelId, channelId))
-    : eq(channels.userId, userId);
-
+export async function getOrderStatusCounts(
+  userId: number, 
+  channelId?: number,
+  dateFrom?: Date,
+  dateTo?: Date
+): Promise<Record<string, number>> {
   const results = await db
     .select({ status: salesOrders.status, count: sql<number>`count(*)` })
     .from(salesOrders)
     .innerJoin(channels, eq(salesOrders.channelId, channels.id))
-    .where(baseFilter)
+    .where(
+      and(
+        channelId ? eq(salesOrders.channelId, channelId) : undefined,
+        eq(channels.userId, userId),
+        getDateFilter(dateFrom, dateTo)
+      )
+    )
     .groupBy(salesOrders.status);
 
   return results.reduce((acc, row) => {
@@ -154,13 +179,14 @@ export async function getOrderStatusCounts(userId: number, channelId?: number): 
   }, {} as Record<string, number>);
 }
 
-/** Orders for a single channel, scoped to the authenticated user (IDOR-safe). */
 export async function getOrdersByChannel(
   userId: number,
   channelId: number,
   limit = 50,
   offset = 0,
-  status?: string
+  status?: string,
+  dateFrom?: Date,
+  dateTo?: Date
 ): Promise<OrderRow[]> {
   const query = db
     .select({
@@ -181,7 +207,8 @@ export async function getOrdersByChannel(
     .where(
       and(
         eq(salesOrders.channelId, channelId),
-        getStatusFilter(status)
+        getStatusFilter(status),
+        getDateFilter(dateFrom, dateTo)
       )
     )
     .orderBy(desc(salesOrders.purchasedAt))
@@ -191,11 +218,12 @@ export async function getOrdersByChannel(
   return query;
 }
 
-/** Total count of orders for a single channel. */
 export async function countOrdersByChannel(
   userId: number,
   channelId: number,
-  status?: string
+  status?: string,
+  dateFrom?: Date,
+  dateTo?: Date
 ): Promise<number> {
   const [row] = await db
     .select({ count: sql<number>`count(*)` })
@@ -207,7 +235,8 @@ export async function countOrdersByChannel(
     .where(
       and(
         eq(salesOrders.channelId, channelId),
-        getStatusFilter(status)
+        getStatusFilter(status),
+        getDateFilter(dateFrom, dateTo)
       )
     );
   return Number(row?.count ?? 0);

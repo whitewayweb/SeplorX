@@ -23,13 +23,23 @@ export default async function OrdersPage({
   const isValid = (salesOrderStatusEnum.enumValues as readonly string[]).includes(rawStatus);
   const statusFilter = isValid ? rawStatus : undefined;
   
+  const fromParam = resolvedSearchParams.from as string;
+  const toParam = resolvedSearchParams.to as string;
+  
+  // Define default range (30 days ago to now)
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+  const dateFrom = fromParam === "all" ? undefined : (fromParam ? new Date(fromParam) : thirtyDaysAgo);
+  const dateTo = toParam ? new Date(toParam) : (fromParam === "all" ? undefined : now);
+
   const userId = await getAuthenticatedUserId();
   if (!userId) redirect("/login");
 
   const [allOrders, totalCount, statusCounts, connectedChannels] = await Promise.all([
-    getAllOrders(userId, limit, offset, statusFilter),
-    countAllOrders(userId, statusFilter),
-    getOrderStatusCounts(userId),
+    getAllOrders(userId, limit, offset, statusFilter, dateFrom, dateTo),
+    countAllOrders(userId, statusFilter, dateFrom, dateTo),
+    getOrderStatusCounts(userId, undefined, dateFrom, dateTo),
     getConnectedChannelsForUser(userId),
   ]);
 
