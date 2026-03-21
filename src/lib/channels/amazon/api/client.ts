@@ -7,8 +7,8 @@ import { type CatalogItemsSchema } from "./types/catalogItemsSchema";
 import { type ProductTypesSchema } from "./types/productTypesSchema";
 import { type ListingsItemsSchema } from "./types/listingsItemsSchema";
 import { type FbaInventorySchema } from "./types/fbaInventorySchema";
-import { type FeedsSchema } from "./types/feedsSchema";
-import { type OrdersV0Schema } from "./types/ordersV0Schema";
+import type { FeedsSchema } from "./types/feedsSchema";
+import type { OrdersV0Schema } from "./types/ordersV0Schema";
 
 const gunzipAsync = promisify(zlib.gunzip);
 
@@ -771,16 +771,16 @@ export class AmazonAPIClient {
   }
 
   /**
-   * Fetch a list of orders.
+   * Fetch a list of orders (paginated sync generator).
+   * Yields one page of orders at a time to keep memory bounded.
    * API: /orders/v0/orders (getOrders)
    */
-  public async getOrders(createdAfter?: string): Promise<OrdersV0Schema["GetOrdersResponse"]["payload"]> {
+  public async *getOrdersPagedGenerator(createdAfter?: string): AsyncGenerator<NonNullable<OrdersV0Schema["GetOrdersResponse"]["payload"]>["Orders"]> {
     const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}/orders/v0/orders`);
     url.searchParams.set("MarketplaceIds", this.marketplaceId);
     if (createdAfter) url.searchParams.set("CreatedAfter", createdAfter);
 
-    let allOrders: NonNullable<OrdersV0Schema["GetOrdersResponse"]["payload"]>["Orders"] = [];
     let nextToken: string | undefined = undefined;
 
     do {
@@ -804,13 +804,25 @@ export class AmazonAPIClient {
       }
 
       const data = (await res.json()) as OrdersV0Schema["GetOrdersResponse"];
-      if (data.payload?.Orders) {
-        allOrders = allOrders.concat(data.payload.Orders);
+      if (data.payload?.Orders && data.payload.Orders.length > 0) {
+        yield data.payload.Orders;
       }
       
       nextToken = data.payload?.NextToken;
     } while (nextToken);
+  }
 
+  /**
+   * Fetch all orders by accumulating pages (legacy wrapper, use getOrdersPagedGenerator when possible).
+   */
+  public async getOrders(createdAfter?: string): Promise<OrdersV0Schema["GetOrdersResponse"]["payload"]> {
+    const generator = this.getOrdersPagedGenerator(createdAfter);
+    let allOrders: NonNullable<OrdersV0Schema["GetOrdersResponse"]["payload"]>["Orders"] = [];
+    
+    for await (const pageOrders of generator) {
+      allOrders = allOrders.concat(pageOrders);
+    }
+    
     return { Orders: allOrders };
   }
 

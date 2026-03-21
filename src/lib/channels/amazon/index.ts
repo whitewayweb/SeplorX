@@ -86,12 +86,18 @@ export const amazonHandler: ChannelHandler = {
     const { decryptChannelCredentials } = await import("@/lib/channels/utils");
 
     const [channel] = await db
-      .select({ storeUrl: channels.storeUrl, credentials: channels.credentials })
+      .select({ 
+        storeUrl: channels.storeUrl, 
+        credentials: channels.credentials,
+        channelType: channels.channelType 
+      })
       .from(channels)
       .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
       .limit(1);
 
     if (!channel) throw new Error("Channel not found.");
+    if (channel.channelType !== "amazon") throw new Error("Channel is not an Amazon channel");
+
     const creds = decryptChannelCredentials(channel.credentials);
     const client = new AmazonAPIClient(creds, channel.storeUrl || "");
 
@@ -105,125 +111,128 @@ export const amazonHandler: ChannelHandler = {
     
     // Log the sync range for debugging
     console.log(`[Amazon Sync] Syncing orders for channel ${channelId} from ${createdAfter}`);
-    
-    const ordersRes = await client.getOrders(createdAfter);
-    const amazonOrders = ordersRes?.Orders || [];
+    const ordersGenerator = client.getOrdersPagedGenerator(createdAfter);
 
+    let fetchedCount = 0;
     let savedCount = 0;
 
-    for (const amzOrder of amazonOrders) {
-      try {
-        // 1. Pre-check if order already exists (out of tx to save connection)
-        const [existing] = await db
-          .select({ id: salesOrders.id })
-          .from(salesOrders)
-          .where(and(eq(salesOrders.channelId, channelId), eq(salesOrders.externalOrderId, amzOrder.AmazonOrderId)))
-          .limit(1);
-
-        if (existing) {
-          continue;
-        }
-
-        // 2. Fetch Buyer Info, Address, and Items in parallel (OUTSIDE transaction)
-        const [buyerRes, addressRes, itemsRes] = await Promise.all([
-          client.getOrderBuyerInfo(amzOrder.AmazonOrderId),
-          client.getOrderAddress(amzOrder.AmazonOrderId),
-          client.getOrderItems(amzOrder.AmazonOrderId),
-        ]);
-
-        // Throttling: respect SP-API burst/restore limits (approx 0.5s restore rate for these endpoints)
-        await new Promise((resolve) => setTimeout(resolve, 500));
-
-        await db.transaction(async (tx) => {
-          // Double check inside tx for atomicity (optional but safer)
-          const [insideExisting] = await tx
+    for await (const pageOrders of ordersGenerator) {
+      fetchedCount += pageOrders.length;
+      
+      for (const amzOrder of pageOrders) {
+        try {
+          // 1. Pre-check if order already exists (out of tx to save connection)
+          const [existing] = await db
             .select({ id: salesOrders.id })
             .from(salesOrders)
             .where(and(eq(salesOrders.channelId, channelId), eq(salesOrders.externalOrderId, amzOrder.AmazonOrderId)))
             .limit(1);
 
-          if (insideExisting) return;
-
-          // Resolve buyer name: dedicated endpoint > embedded BuyerInfo in order > fallback
-          const resolvedBuyerName =
-            buyerRes?.BuyerName ||
-            amzOrder.BuyerInfo?.BuyerName ||
-            amzOrder.DefaultShipFromLocationAddress?.Name ||
-            addressRes?.ShippingAddress?.Name ||
-            null;
-
-          // Resolve buyer email — not exposed by v0 BuyerInfo endpoint
-          const resolvedBuyerEmail: string | null = null;
-
-          // 3. Insert Sales Order with full rawData
-          const [insertedOrder] = await tx.insert(salesOrders).values({
-            channelId,
-            externalOrderId: amzOrder.AmazonOrderId,
-            status: mapAmazonStatus(amzOrder.OrderStatus),
-            totalAmount: amzOrder.OrderTotal?.Amount,
-            currency: amzOrder.OrderTotal?.CurrencyCode,
-            buyerName: resolvedBuyerName,
-            buyerEmail: resolvedBuyerEmail,
-            purchasedAt: amzOrder.PurchaseDate ? new Date(amzOrder.PurchaseDate) : null,
-            rawData: {
-              order: amzOrder as Record<string, unknown>,
-              buyerInfo: buyerRes as Record<string, unknown>,
-              shippingAddress: addressRes as Record<string, unknown>,
-            },
-          }).returning({ id: salesOrders.id });
-
-          // 4. Insert Order Items
-          const amzItems = itemsRes?.OrderItems || [];
-          for (const item of amzItems) {
-            const asin = item.ASIN ?? "";
-            const sku = item.SellerSKU ?? "";
-
-            // Match by ASIN and SKU
-            const [mapping] = (asin || sku)
-              ? await tx
-                  .select({ productId: channelProductMappings.productId })
-                  .from(channelProductMappings)
-                  .where(
-                    and(
-                      eq(channelProductMappings.channelId, channelId),
-                      or(
-                        asin ? eq(channelProductMappings.externalProductId, asin) : undefined,
-                        sku  ? eq(channelProductMappings.externalProductId, sku)  : undefined,
-                      ),
-                    )
-                  )
-                  .limit(1)
-              : [];
-
-            let matchedProductId = mapping?.productId;
-
-            // Fallback: Check if the SellerSKU exactly matches a SeplorX product
-            if (!matchedProductId && sku) {
-              const [localProduct] = await tx
-                .select({ id: products.id })
-                .from(products)
-                .where(eq(products.sku, sku))
-                .limit(1);
-              if (localProduct) {
-                matchedProductId = localProduct.id;
-              }
-            }
-
-            await tx.insert(salesOrderItems).values({
-              orderId: insertedOrder.id,
-              externalItemId: item.OrderItemId,
-              productId: matchedProductId,
-              sku: item.SellerSKU,
-              title: item.Title,
-              quantity: item.QuantityOrdered,
-              price: item.ItemPrice?.Amount,
-              rawData: item as Record<string, unknown>,
-            });
+          if (existing) {
+            continue;
           }
-          savedCount++;
-        });
-      } catch (err) {
-        console.error(`[Amazon Sync] Failed to save order ${amzOrder.AmazonOrderId}:`, err);
+
+          // 2. Fetch Buyer Info, Address, and Items in parallel (OUTSIDE transaction)
+          const [buyerRes, addressRes, itemsRes] = await Promise.all([
+            client.getOrderBuyerInfo(amzOrder.AmazonOrderId),
+            client.getOrderAddress(amzOrder.AmazonOrderId),
+            client.getOrderItems(amzOrder.AmazonOrderId),
+          ]);
+
+          // Throttling: respect SP-API burst/restore limits (approx 0.5s restore rate for these endpoints)
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
+          await db.transaction(async (tx) => {
+            // Double check inside tx for atomicity (optional but safer)
+            const [insideExisting] = await tx
+              .select({ id: salesOrders.id })
+              .from(salesOrders)
+              .where(and(eq(salesOrders.channelId, channelId), eq(salesOrders.externalOrderId, amzOrder.AmazonOrderId)))
+              .limit(1);
+
+            if (insideExisting) return;
+
+            // Resolve buyer name: dedicated endpoint > embedded BuyerInfo in order > fallback
+            const resolvedBuyerName =
+              buyerRes?.BuyerName ||
+              amzOrder.BuyerInfo?.BuyerName ||
+              amzOrder.DefaultShipFromLocationAddress?.Name ||
+              addressRes?.ShippingAddress?.Name ||
+              null;
+
+            // Resolve buyer email — not exposed by v0 BuyerInfo endpoint
+            const resolvedBuyerEmail: string | null = null;
+
+            // 3. Insert Sales Order with full rawData
+            const [insertedOrder] = await tx.insert(salesOrders).values({
+              channelId,
+              externalOrderId: amzOrder.AmazonOrderId,
+              status: mapAmazonStatus(amzOrder.OrderStatus),
+              totalAmount: amzOrder.OrderTotal?.Amount,
+              currency: amzOrder.OrderTotal?.CurrencyCode,
+              buyerName: resolvedBuyerName,
+              buyerEmail: resolvedBuyerEmail,
+              purchasedAt: amzOrder.PurchaseDate ? new Date(amzOrder.PurchaseDate) : null,
+              rawData: {
+                order: amzOrder as Record<string, unknown>,
+                buyerInfo: buyerRes as Record<string, unknown>,
+                shippingAddress: addressRes as Record<string, unknown>,
+              },
+            }).returning({ id: salesOrders.id });
+
+            // 4. Insert Order Items
+            const amzItems = itemsRes?.OrderItems || [];
+            for (const item of amzItems) {
+              const asin = item.ASIN ?? "";
+              const sku = item.SellerSKU ?? "";
+
+              // Match by ASIN and SKU
+              const [mapping] = (asin || sku)
+                ? await tx
+                    .select({ productId: channelProductMappings.productId })
+                    .from(channelProductMappings)
+                    .where(
+                      and(
+                        eq(channelProductMappings.channelId, channelId),
+                        or(
+                          asin ? eq(channelProductMappings.externalProductId, asin) : undefined,
+                          sku  ? eq(channelProductMappings.externalProductId, sku)  : undefined,
+                        ),
+                      )
+                    )
+                    .limit(1)
+                : [];
+
+              let matchedProductId = mapping?.productId;
+
+              // Fallback: Check if the SellerSKU exactly matches a SeplorX product
+              if (!matchedProductId && sku) {
+                const [localProduct] = await tx
+                  .select({ id: products.id })
+                  .from(products)
+                  .where(eq(products.sku, sku))
+                  .limit(1);
+                if (localProduct) {
+                  matchedProductId = localProduct.id;
+                }
+              }
+
+              await tx.insert(salesOrderItems).values({
+                orderId: insertedOrder.id,
+                externalItemId: item.OrderItemId,
+                productId: matchedProductId,
+                sku: item.SellerSKU,
+                title: item.Title,
+                quantity: item.QuantityOrdered,
+                price: item.ItemPrice?.Amount,
+                rawData: item as Record<string, unknown>,
+              });
+            }
+            savedCount++;
+          });
+        } catch (err) {
+          console.error(`[Amazon Sync] Failed to save order ${amzOrder.AmazonOrderId}:`, err);
+        }
       }
     }
 
@@ -291,7 +300,7 @@ export const amazonHandler: ChannelHandler = {
       console.error("[Amazon Sync] Failed to map past items:", err);
     }
 
-    return { fetched: amazonOrders.length, saved: savedCount };
+    return { fetched: fetchedCount, saved: savedCount };
   },
 };
 

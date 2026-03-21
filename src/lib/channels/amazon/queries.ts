@@ -9,8 +9,8 @@ function getStatusFilter(status?: string) {
   return eq(salesOrders.status, status as SalesOrderStatus);
 }
 
-// Use the generated types directly
-import OrdersV0Schema from "./api/types/ordersV0Schema";
+// Type-only import — OrdersV0Schema is an interface, not a runtime value.
+import type { OrdersV0Schema } from "./api/types/ordersV0Schema";
 
 /**
  * Returns the Drizzle SQL expression to extract a given filter field (e.g. "brand", "category") 
@@ -68,11 +68,9 @@ export interface OrderDetail {
   purchasedAt: Date | null;
   channelId: number;
   channelName: string | null;
-  rawData: Record<string, unknown> | {
-    order?: OrdersV0Schema["Order"];
-    buyerInfo?: OrdersV0Schema["OrderBuyerInfo"];
-    shippingAddress?: OrdersV0Schema["OrderAddress"];
-  } | null;
+  /** Extracted sub-fields from rawData JSONB — only what the UI needs. */
+  rawOrder: OrdersV0Schema["Order"] | null;
+  shippingAddress: OrdersV0Schema["OrderAddress"] | null;
 }
 
 export interface OrderItemRow {
@@ -82,7 +80,8 @@ export interface OrderItemRow {
   title: string | null;
   quantity: number;
   price: string | null;
-  rawData: Record<string, unknown> | OrdersV0Schema["OrderItem"] | null;
+  /** Stored as the full OrderItem shape from the Amazon SP-API. */
+  rawData: OrdersV0Schema["OrderItem"] | null;
   channelProductId: number | null;
   productName: string | null;
   productSku: string | null;
@@ -200,7 +199,9 @@ export async function countOrdersByChannel(
   return Number(row?.count ?? 0);
 }
 
-/** Single order detail — IDOR-safe via user-scoped channel join. */
+/** Single order detail — IDOR-safe via user-scoped channel join.
+ * Only the sub-fields the UI needs are extracted from rawData JSONB.
+ */
 export async function getOrderDetail(
   userId: number,
   orderId: number
@@ -217,7 +218,10 @@ export async function getOrderDetail(
       purchasedAt: salesOrders.purchasedAt,
       channelId: salesOrders.channelId,
       channelName: channels.name,
-      rawData: salesOrders.rawData,
+      // Extract only the sub-fields the page actually renders — avoids shipping
+      // the full rawData blob across the network.
+      rawOrder: sql<OrdersV0Schema["Order"] | null>`(${salesOrders.rawData}->>'order')::jsonb`,
+      shippingAddress: sql<OrdersV0Schema["OrderAddress"] | null>`(${salesOrders.rawData}->>'shippingAddress')::jsonb`,
     })
     .from(salesOrders)
     .innerJoin(
@@ -231,9 +235,8 @@ export async function getOrderDetail(
   return row as OrderDetail;
 }
 
-/** Order items joined with matched channel product. */
-export async function getOrderItems(orderId: number): Promise<OrderItemRow[]> {
-  return db
+export async function getOrderItems(userId: number, orderId: number): Promise<OrderItemRow[]> {
+  const rows = await db
     .select({
       id: salesOrderItems.id,
       externalItemId: salesOrderItems.externalItemId,
@@ -247,7 +250,17 @@ export async function getOrderItems(orderId: number): Promise<OrderItemRow[]> {
       productSku: channelProducts.sku,
     })
     .from(salesOrderItems)
-    .innerJoin(salesOrders, eq(salesOrderItems.orderId, salesOrders.id))
+    // innerJoin enforces ownership: orderId must belong to a channel owned by userId
+    .innerJoin(
+      salesOrders,
+      and(
+        eq(salesOrderItems.orderId, salesOrders.id),
+        // ownership scope via channel join
+        sql`${salesOrders.channelId} IN (
+          SELECT id FROM ${channels} WHERE user_id = ${userId}
+        )`
+      )
+    )
     .leftJoin(
       channelProducts,
       and(
@@ -263,15 +276,17 @@ export async function getOrderItems(orderId: number): Promise<OrderItemRow[]> {
       )
     )
     .where(eq(salesOrderItems.orderId, orderId));
+
+  return rows as unknown as OrderItemRow[];
 }
 
 
-/** All channels for a user — used to show Fetch buttons for each channel. */
+/** Amazon channels for a user — filtered to channelType='amazon'. */
 export async function getAmazonChannelsForUser(userId: number): Promise<ChannelRow[]> {
   return db
     .select({ id: channels.id, name: channels.name })
     .from(channels)
-    .where(eq(channels.userId, userId));
+    .where(and(eq(channels.userId, userId), eq(channels.channelType, "amazon")));
 }
 
 /** Get the date of the most recent order for a specific channel. */

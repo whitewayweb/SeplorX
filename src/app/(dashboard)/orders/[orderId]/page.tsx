@@ -3,7 +3,7 @@ import { getOrderDetail, getOrderItems } from "@/lib/channels/amazon/queries";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import OrdersV0Schema from "@/lib/channels/amazon/api/types/ordersV0Schema";
+import type { OrdersV0Schema } from "@/lib/channels/amazon/api/types/ordersV0Schema";
 
 export const dynamic = "force-dynamic";
 
@@ -19,21 +19,15 @@ export default async function OrderDetailPage({
   const userId = await getAuthenticatedUserId();
   if (!userId) redirect("/login");
 
-  const [order, items] = await Promise.all([
-    getOrderDetail(userId, orderIdNum),
-    getOrderItems(orderIdNum),
-  ]);
-
+  // Sequential fetch: Order detail ensures ownership before items are fetched
+  const order = await getOrderDetail(userId, orderIdNum);
   if (!order) notFound();
 
-  // Extract only needed fields from rawData JSONB
-  const storedRaw = order.rawData as {
-    order?: OrdersV0Schema["Order"];
-    shippingAddress?: OrdersV0Schema["OrderAddress"];
-  } | null;
-  
-  const rawOrder = storedRaw?.order;
-  const addr = storedRaw?.shippingAddress?.ShippingAddress;
+  const items = await getOrderItems(userId, orderIdNum);
+
+  // Read from the narrowed JSONB fields directly
+  const rawOrder = order.rawOrder;
+  const addr = order.shippingAddress?.ShippingAddress;
 
   const matchedCount = items.filter((i) => i.channelProductId !== null).length;
 

@@ -25,11 +25,11 @@ vi.mock("@/lib/channels/utils", () => ({
 vi.mock("../api/client", () => {
   return {
     AmazonAPIClient: class {
-      getOrders = vi.fn().mockResolvedValue({
-        Orders: [
-          { AmazonOrderId: "123-1234567-1234567", OrderStatus: "Shipped" }
-        ]
-      });
+      async *getOrdersPagedGenerator() {
+        yield [
+          { AmazonOrderId: "123-1234567-1234567", OrderStatus: "Shipped", BuyerInfo: { BuyerName: "John Doe" } }
+        ];
+      }
       getOrderBuyerInfo = vi.fn().mockResolvedValue({ BuyerName: "John Doe" });
       getOrderAddress = vi.fn().mockResolvedValue({});
       getOrderItems = vi.fn().mockResolvedValue({
@@ -54,17 +54,19 @@ describe("Amazon Order Matching Logic", () => {
     innerJoin: Mock;
     where: Mock;
     limit: Mock;
+    orderBy: Mock;
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
 
-    selectMock = {
+    selectMock = Object.assign(Promise.resolve([]), {
       from: vi.fn().mockReturnThis(),
       innerJoin: vi.fn().mockReturnThis(),
       where: vi.fn().mockReturnThis(),
       limit: vi.fn().mockReturnThis(),
-    };
+      orderBy: vi.fn().mockReturnThis(),
+    }) as unknown as any;
 
     txMock = {
       select: vi.fn().mockReturnValue(selectMock),
@@ -79,12 +81,24 @@ describe("Amazon Order Matching Logic", () => {
   });
 
   it("should attempt to match a product via channelProductMappings first, then fallback to local SKU", async () => {
-    // 1. Mock the channel validation query (first db query before transaction)
-    (db.select as unknown as Mock).mockReturnValue({
-      from: vi.fn().mockReturnThis(),
-      innerJoin: vi.fn().mockReturnThis(),
-      where: vi.fn().mockImplementation(() => Object.assign(Promise.resolve([]), { limit: vi.fn().mockResolvedValue([{ storeUrl: "https://amazon.com", credentials: "encrypted" }]) })),
-      limit: vi.fn().mockResolvedValue([{ storeUrl: "https://amazon.com", credentials: "encrypted" }])
+    let dbQueryNum = 0;
+    (db.select as unknown as Mock).mockImplementation(() => {
+      const mockChain: any = Object.assign(Promise.resolve([]), {
+        from: vi.fn().mockReturnThis(),
+        innerJoin: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        orderBy: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockImplementation(() => {
+          dbQueryNum++;
+          if (dbQueryNum === 1) return [{ storeUrl: "https://amazon.com", credentials: "encrypted", channelType: "amazon" }];
+          return [];
+        })
+      });
+      mockChain.from.mockReturnValue(mockChain);
+      mockChain.innerJoin.mockReturnValue(mockChain);
+      mockChain.where.mockReturnValue(mockChain);
+      mockChain.orderBy.mockReturnValue(mockChain);
+      return mockChain;
     });
 
     // 2. Mock queries inside the transaction
@@ -115,14 +129,28 @@ describe("Amazon Order Matching Logic", () => {
   });
 
   it("should leave productId as undefined if neither mapping nor local SKU exists", async () => {
-    (db.select as unknown as Mock).mockReturnValue({
-      from: vi.fn().mockReturnThis(),
-      innerJoin: vi.fn().mockReturnThis(),
-      where: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue([{ storeUrl: "https://amazon.com", credentials: "encrypted" }])
+    let dbQueryNum = 0;
+    (db.select as unknown as Mock).mockImplementation(() => {
+      const mockChain: any = Object.assign(Promise.resolve([]), {
+        from: vi.fn().mockReturnThis(),
+        innerJoin: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        orderBy: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockImplementation(() => {
+          dbQueryNum++;
+          if (dbQueryNum === 1) return [{ storeUrl: "https://amazon.com", credentials: "encrypted", channelType: "amazon" }];
+          return [];
+        })
+      });
+      mockChain.from.mockReturnValue(mockChain);
+      mockChain.innerJoin.mockReturnValue(mockChain);
+      mockChain.where.mockReturnValue(mockChain);
+      mockChain.orderBy.mockReturnValue(mockChain);
+      return mockChain;
     });
 
-    selectMock.limit.mockImplementation(() => []); // All queries return empty
+    selectMock.limit.mockImplementation(() => []);
+    selectMock.where.mockImplementation(() => Object.assign(Promise.resolve([]), selectMock));
 
     await amazonHandler.fetchAndSaveOrders!(1, 1);
 
