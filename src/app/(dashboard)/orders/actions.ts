@@ -3,20 +3,22 @@
 import { getAuthenticatedUserId } from "@/lib/auth";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { revalidatePath } from "next/cache";
-import { z } from "zod";
+
 import { db } from "@/db";
 import { channels, salesOrders } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
-
-const channelIdSchema = z.coerce.number().int().positive();
+import { ChannelIdSchema } from "@/lib/validations/channels";
 
 /**
  * Server Action to fetch orders from a specific channel instance.
  */
 export async function fetchChannelOrdersAction(rawChannelId: unknown) {
-  const parsed = channelIdSchema.safeParse(rawChannelId);
-  if (!parsed.success) return { success: false, error: "Invalid channelId" };
-  const channelId = parsed.data;
+  const parsed = ChannelIdSchema.safeParse({ id: rawChannelId });
+  if (!parsed.success) {
+    console.error("[fetchChannelOrdersAction]", { channelId: rawChannelId, userId: "unknown", error: "Validation failed" });
+    return { success: false, error: "Invalid channelId" };
+  }
+  const channelId = parsed.data.id;
 
   const userId = await getAuthenticatedUserId();
   if (!userId) throw new Error("Unauthorized");
@@ -49,12 +51,18 @@ export async function fetchChannelOrdersAction(rawChannelId: unknown) {
  * Permanently delete all syncronized orders for a channel.
  */
 export async function clearChannelOrdersAction(rawChannelId: unknown) {
-  const parsed = channelIdSchema.safeParse(rawChannelId);
-  if (!parsed.success) return { error: "Invalid channelId" };
-  const channelId = parsed.data;
+  const parsed = ChannelIdSchema.safeParse({ id: rawChannelId });
+  if (!parsed.success) {
+    console.error("[clearChannelOrdersAction]", { channelId: rawChannelId, userId: "unknown", error: "Validation failed" });
+    return { error: "Invalid channelId" };
+  }
+  const channelId = parsed.data.id;
 
   const userId = await getAuthenticatedUserId();
-  if (!userId) throw new Error("Unauthorized");
+  if (!userId) {
+    console.error("[clearChannelOrdersAction]", { channelId, userId: null, error: "Unauthorized" });
+    throw new Error("Unauthorized");
+  }
 
   try {
     const [channel] = await db

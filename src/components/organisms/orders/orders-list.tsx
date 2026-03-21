@@ -6,7 +6,6 @@ import { ClearOrdersButton } from "./clear-orders-button";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { salesOrderStatusEnum } from "@/db/schema";
 
 interface Order {
   id: number;
@@ -37,20 +36,17 @@ interface OrdersListProps {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  shipped: "bg-green-100 text-green-800",
-  delivered: "bg-green-100 text-green-800",
-
   pending: "bg-yellow-100 text-yellow-800",
-  processing: "bg-yellow-100 text-yellow-800",
-  "on-hold": "bg-yellow-100 text-yellow-800",
-  packed: "bg-blue-100 text-blue-800",
-
+  processing: "bg-blue-100 text-blue-800",
+  "on-hold": "bg-purple-100 text-purple-800",
+  packed: "bg-cyan-100 text-cyan-800",
+  shipped: "bg-teal-100 text-teal-800",
+  delivered: "bg-green-100 text-green-800",
   cancelled: "bg-red-100 text-red-800",
-  returned: "bg-orange-100 text-orange-800",
+  returned: "bg-pink-100 text-pink-800",
   refunded: "bg-orange-100 text-orange-800",
-
-  failed: "bg-gray-100 text-gray-700",
-  draft: "bg-gray-100 text-gray-700",
+  failed: "bg-stone-100 text-stone-800",
+  draft: "bg-gray-100 text-gray-800",
 };
 
 export function OrdersList({
@@ -79,8 +75,13 @@ export function OrdersList({
     router.push(`${pathname}?${params.toString()}`);
   };
 
+  const ALL_STATUSES = [
+    "pending", "processing", "on-hold", "packed", "shipped",
+    "delivered", "cancelled", "returned", "refunded", "failed", "draft"
+  ];
+
   const statusTabs = [
-    ...salesOrderStatusEnum.enumValues.map((status) => ({
+    ...ALL_STATUSES.map((status) => ({
       label: status.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
       value: status,
       count: statusCounts[status] || 0,
@@ -134,9 +135,7 @@ export function OrdersList({
               <span
                 className={cn(
                   "inline-flex items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold transition-colors",
-                  isActive
-                    ? "bg-blue-100 text-blue-700"
-                    : "bg-gray-100 text-gray-600 group-hover:bg-gray-200"
+                  STATUS_COLORS[tab.value] || "bg-slate-100 text-slate-700 hover:bg-slate-200"
                 )}
               >
                 {tab.count}

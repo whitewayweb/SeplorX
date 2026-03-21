@@ -4,6 +4,7 @@ import { getConnectedChannelsForUser } from "@/lib/channels/queries";
 import { OrdersList } from "@/components/organisms/orders/orders-list";
 import { notFound, redirect } from "next/navigation";
 import { parsePaginationParams } from "@/lib/utils/pagination";
+import { salesOrderStatusEnum } from "@/db/schema";
 
 export const dynamic = "force-dynamic";
 
@@ -20,8 +21,13 @@ export default async function ChannelOrdersPage({
 
   const resolvedSearchParams = await searchParams;
   const { page, limit, offset } = parsePaginationParams(resolvedSearchParams);
-  const rawStatus = (resolvedSearchParams.status as string) || "pending";
-  const statusFilter = rawStatus === "all" ? undefined : rawStatus;
+  
+  const rawParam = resolvedSearchParams.status;
+  const statusString = Array.isArray(rawParam) ? rawParam[0] : rawParam;
+  const rawStatus = statusString || "all";
+  
+  const isValid = (salesOrderStatusEnum.enumValues as readonly string[]).includes(rawStatus);
+  const statusFilter = isValid ? rawStatus : undefined;
 
   const userId = await getAuthenticatedUserId();
   if (!userId) redirect("/login");
