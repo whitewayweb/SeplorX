@@ -1,9 +1,11 @@
 import { db } from "@/db";
 import { products, inventoryTransactions, agentActions } from "@/db/schema";
+import { getAuthenticatedUserId } from "@/lib/auth";
 import { and, desc, eq, lte, sql } from "drizzle-orm";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/molecules/layout/page-header";
 import {
   Table,
   TableBody,
@@ -28,87 +30,94 @@ const TRANSACTION_TYPE_LABELS: Record<string, { label: string; variant: "default
 };
 
 export default async function InventoryPage() {
-  // Summary stats
-  const [totalProducts] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(products)
-    .where(eq(products.isActive, true));
+  await getAuthenticatedUserId();
 
-  const lowStockProducts = await db
-    .select({
-      id: products.id,
-      name: products.name,
-      sku: products.sku,
-      unit: products.unit,
-      quantityOnHand: products.quantityOnHand,
-      reorderLevel: products.reorderLevel,
-    })
-    .from(products)
-    .where(
-      lte(products.quantityOnHand, products.reorderLevel),
-    )
-    .orderBy(products.quantityOnHand);
+  // Run all 5 independent queries in parallel
+  const [
+    [{ count: totalProductsCount }],
+    lowStockProducts,
+    [{ totalValue }],
+    recentTransactions,
+    pendingReorderTasks,
+  ] = await Promise.all([
+    // 1. Summary stats
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(products)
+      .where(eq(products.isActive, true)),
+
+    // 2. Low stock products
+    db
+      .select({
+        id: products.id,
+        name: products.name,
+        sku: products.sku,
+        unit: products.unit,
+        quantityOnHand: products.quantityOnHand,
+        reorderLevel: products.reorderLevel,
+      })
+      .from(products)
+      .where(lte(products.quantityOnHand, products.reorderLevel))
+      .orderBy(products.quantityOnHand),
+
+    // 3. Total stock value
+    db
+      .select({
+        totalValue: sql<string>`coalesce(sum(${products.quantityOnHand}::numeric * ${products.purchasePrice}), 0)`,
+      })
+      .from(products)
+      .where(eq(products.isActive, true)),
+
+    // 4. Recent transactions
+    db
+      .select({
+        id: inventoryTransactions.id,
+        productId: inventoryTransactions.productId,
+        type: inventoryTransactions.type,
+        quantity: inventoryTransactions.quantity,
+        referenceType: inventoryTransactions.referenceType,
+        notes: inventoryTransactions.notes,
+        createdAt: inventoryTransactions.createdAt,
+        productName: products.name,
+      })
+      .from(inventoryTransactions)
+      .innerJoin(products, eq(inventoryTransactions.productId, products.id))
+      .orderBy(desc(inventoryTransactions.createdAt))
+      .limit(20),
+
+    // 5. Pending reorder recommendations
+    db
+      .select({
+        id: agentActions.id,
+        plan: agentActions.plan,
+        createdAt: agentActions.createdAt,
+      })
+      .from(agentActions)
+      .where(
+        and(
+          eq(agentActions.status, "pending_approval"),
+          eq(agentActions.agentType, "reorder")
+        )
+      )
+      .orderBy(desc(agentActions.createdAt)),
+  ]);
 
   const outOfStock = lowStockProducts.filter((p) => p.quantityOnHand <= 0);
   const lowStock = lowStockProducts.filter((p) => p.quantityOnHand > 0);
 
-  // Total stock value (sum of quantity * purchase_price for active products)
-  const [stockValue] = await db
-    .select({
-      totalValue: sql<string>`coalesce(sum(${products.quantityOnHand}::numeric * ${products.purchasePrice}), 0)`,
-    })
-    .from(products)
-    .where(eq(products.isActive, true));
-
-  // Recent transactions
-  const recentTransactions = await db
-    .select({
-      id: inventoryTransactions.id,
-      productId: inventoryTransactions.productId,
-      type: inventoryTransactions.type,
-      quantity: inventoryTransactions.quantity,
-      referenceType: inventoryTransactions.referenceType,
-      notes: inventoryTransactions.notes,
-      createdAt: inventoryTransactions.createdAt,
-      productName: products.name,
-    })
-    .from(inventoryTransactions)
-    .innerJoin(products, eq(inventoryTransactions.productId, products.id))
-    .orderBy(desc(inventoryTransactions.createdAt))
-    .limit(20);
-
-  // Pending reorder recommendations from the AI agent — filtered to reorder type only
-  const pendingReorderTasks = await db
-    .select({
-      id: agentActions.id,
-      plan: agentActions.plan,
-      createdAt: agentActions.createdAt,
-    })
-    .from(agentActions)
-    .where(
-      and(
-        eq(agentActions.status, "pending_approval"),
-        eq(agentActions.agentType, "reorder"),
-      ),
-    )
-    .orderBy(desc(agentActions.createdAt));
-
-  const stockValueNum = parseFloat(stockValue.totalValue);
+  const stockValueNum = parseFloat(totalValue);
   const formattedStockValue = isNaN(stockValueNum)
     ? "₹0.00"
     : `₹${stockValueNum.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Inventory</h1>
-          <p className="text-muted-foreground">
-            Stock overview, alerts, and recent transactions.
-          </p>
-        </div>
+      <PageHeader
+        title="Inventory"
+        description="Stock overview, alerts, and recent transactions."
+      >
         {AGENT_REGISTRY.reorder.enabled && <ReorderTrigger />}
-      </div>
+      </PageHeader>
 
       {/* Pending AI Recommendations */}
       {pendingReorderTasks.length > 0 && (
@@ -132,7 +141,7 @@ export default async function InventoryPage() {
             <Package className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">{totalProducts.count}</p>
+            <p className="text-2xl font-bold">{totalProductsCount}</p>
           </CardContent>
         </Card>
         <Card>

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { User, Lock, Mail, Loader2 } from "lucide-react";
+import { PageHeader } from "@/components/molecules/layout/page-header";
 import { updateProfileName, updateProfilePassword } from "./actions";
 
 interface ProfileFormProps {
@@ -49,13 +50,11 @@ export function ProfileForm({ userName, userEmail }: ProfileFormProps) {
     );
 
     return (
-        <div className="container max-w-4xl space-y-8 py-8">
-            <div className="space-y-0.5">
-                <h2 className="text-2xl font-bold tracking-tight">Profile Settings</h2>
-                <p className="text-muted-foreground">
-                    Manage your account settings and preferences.
-                </p>
-            </div>
+        <div className="p-6 space-y-8">
+            <PageHeader
+                title="Profile Settings"
+                description="Manage your account settings and preferences."
+            />
 
             <div className="grid gap-8 md:grid-cols-2">
                 <Card>

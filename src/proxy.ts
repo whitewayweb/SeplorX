@@ -1,38 +1,27 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { getSession } from "@/lib/auth/edge";
+import { getSessionCookie } from "better-auth/cookies";
 
 const PUBLIC_ROUTES = ["/login"];
 
 /**
- * Middleware function that handles route protection and session validation.
+ * Middleware function that handles route protection conceptually.
+ * It uses a fast, optimistic cookie check to avoid DB roundtrips on every request.
+ * Real, secure session validation happens in the Server Components/Actions via getAuthenticatedUserId().
  */
 export async function proxy(request: NextRequest) {
     const { pathname } = request.nextUrl;
     const isPublicRoute = PUBLIC_ROUTES.includes(pathname);
 
-    // Optimized: Check session directly from the Auth API
-    // This avoids internal HTTP fetch overhead (~2s delay) and recursion loops.
-    let sessionResponse = null;
-    try {
-        sessionResponse = await getSession(request.headers, request.nextUrl.origin);
-    } catch (e) {
-        console.error("Auth session fetch error", e);
-    }
-    const session = sessionResponse?.session;
-    const user = sessionResponse?.user;
-    const isAuthenticated = !!(session && user);
+    // Optimized: Use Better Auth's cookie check
+    // This eliminates the internal HTTP fetch overhead (~2s delay) and prevents recursion loops
+    // in the Next.js 16 Node.js runtime proxy.
+    const sessionCookie = getSessionCookie(request);
 
     if (!isPublicRoute) {
-        // Protected route
-        if (!isAuthenticated) {
+        // Protected route — optimistically redirect if no session cookie exists
+        if (!sessionCookie) {
             return NextResponse.redirect(new URL("/login", request.url));
-        }
-    } else {
-        // Public route (e.g., /login)
-        // If already authenticated, redirect to dashboard
-        if (isAuthenticated) {
-            return NextResponse.redirect(new URL("/", request.url));
         }
     }
 

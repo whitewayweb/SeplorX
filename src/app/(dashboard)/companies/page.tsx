@@ -1,12 +1,16 @@
 import { db } from "@/db";
 import { companies } from "@/db/schema";
+import { getAuthenticatedUserId } from "@/lib/auth";
 import { desc } from "drizzle-orm";
+import { PageHeader } from "@/components/molecules/layout/page-header";
 import { CompanyList } from "@/components/organisms/companies/company-list";
 import { CompanyDialog } from "@/components/organisms/companies/company-dialog";
 
 export const dynamic = "force-dynamic";
 
 export default async function CompaniesPage() {
+  await getAuthenticatedUserId();
+
   const companyList = await db
     .select({
       id: companies.id,
@@ -29,15 +33,12 @@ export default async function CompaniesPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Companies</h1>
-          <p className="text-muted-foreground">
-            Manage your suppliers, customers, and business partners.
-          </p>
-        </div>
+      <PageHeader
+        title="Companies"
+        description="Manage your suppliers, customers, and business partners."
+      >
         <CompanyDialog />
-      </div>
+      </PageHeader>
 
       <CompanyList companies={companyList} />
     </div>

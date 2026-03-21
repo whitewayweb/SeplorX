@@ -8,7 +8,12 @@ Supabase PostgreSQL with two connection modes:
 
 ## Connection
 
-Single `postgres-js` connection cached in module scope (`globalForDb` pattern) to prevent leaks during Next.js hot reload. Max 1 connection per serverless instance — PgBouncer handles pooling.
+Single `postgres-js` connection cached in module scope (`globalForDb` pattern) to prevent leaks during Next.js hot reload. 
+
+**Connection Pool Size:**
+Managed via **`src/lib/constants.ts`** to keep the environment clean.
+- Current setting: **`DB_POOL_MAX = 5`**. 
+- Balanced to support parallel dashboard queries (`Promise.all`) while remaining within safe Supabase transaction pooler limits.
 
 File: `src/db/index.ts`
 

@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { db } from "@/db";
 import { appInstallations } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { PageHeader } from "@/components/molecules/layout/page-header";
 import { appRegistry, getCategories, categoryLabels } from "@/lib/apps";
 import type { AppWithStatus } from "@/lib/apps";
 import { CategoryTabs } from "@/components/organisms/apps/category-tabs";
@@ -15,7 +16,12 @@ export default async function AppsPage() {
   const userId = await getAuthenticatedUserId();
 
   const installations = await db
-    .select()
+    .select({
+      id: appInstallations.id,
+      appId: appInstallations.appId,
+      status: appInstallations.status,
+      config: appInstallations.config,
+    })
     .from(appInstallations)
     .where(eq(appInstallations.userId, userId));
 
@@ -54,12 +60,11 @@ export default async function AppsPage() {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold tracking-tight">Apps</h1>
-        <p className="text-muted-foreground mt-2">
-          Connect third-party services to extend your shipping workflow.
-        </p>
-      </div>
+      <PageHeader
+        title="Apps"
+        description="Connect third-party services to extend your shipping workflow."
+        className="mb-6"
+      />
       <CategoryTabs
         categories={categories}
         categoryLabels={categoryLabels}

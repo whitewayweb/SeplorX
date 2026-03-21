@@ -261,7 +261,7 @@ SeplorX uses **Better Auth** for secure session management and authentication.
 
 - **Server-Side**: Configured in `src/lib/auth/index.ts` using the Drizzle adapter.
 - **Client-Side**: React hooks provided in `src/lib/auth/client.ts`.
-- **Proxy Middleware**: `src/proxy.ts` performs Edge-side session validation. **CRITICAL PERFORMANCE RULE**: Use the internal `auth.api.getSession` method directly. NEVER use `fetch()` to an internal API route (e.g., `/api/auth/get-session`) within the middleware. Internal fetches introduce significant latency (~2s in dev), trigger unnecessary network overhead, and cause re-render loops due to delayed headers.
+- **Proxy Middleware**: `src/proxy.ts` performs Edge-side optimistic session protection. **CRITICAL PERFORMANCE RULE**: Use `getSessionCookie(request)` from `better-auth/cookies` for a fast, optimistic check. NEVER use `fetch()` or `auth.api.getSession` (DB-bound validation) within the middleware. Full, secure session validation happens later in Server Components and Server Actions via `getAuthenticatedUserId()`. This approach avoids significant latency (~2s) and recursion loops in Next.js 16.
 - **Auth Helper**: `src/lib/auth/index.ts` exports `getAuthenticatedUserId()` and `getAuthenticatedSession()` — used in all Server Components and Server Actions to obtain the authenticated user context. Never hardcode user IDs.
 - **Database**: Tightly coupled with the PostgreSQL schema (`users`, `sessions`, `accounts`, `verifications`).
 - **Profile Mutations**: Profile name and password updates use dedicated Server Actions in `src/app/(dashboard)/profile/actions.ts` with Zod validation.

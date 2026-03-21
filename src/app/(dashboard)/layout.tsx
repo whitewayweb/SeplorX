@@ -14,8 +14,8 @@ export default function DashboardLayout({
                     <div className="absolute top-6 left-6 z-50 md:top-[28px] md:left-[24px]">
                         <SidebarTrigger className="-ml-1 bg-background/50 backdrop-blur-sm" />
                     </div>
-                    {/* We use a CSS selector to push the page headers specifically to the right to make room for the floating trigger, avoiding wasted vertical space. */}
-                    <div className="[&>div>div.flex.items-center.justify-between>div:first-child]:ml-10 [&>div>h1.text-3xl]:ml-10 [&>div>p.text-muted-foreground]:ml-10">
+                    {/* We use a CSS :has() selector to push the page headers specifically to the right to make room for the floating trigger, avoiding wasted vertical space. */}
+                    <div className="[&_div:has(>h1.text-3xl)]:ml-12">
                         {children}
                     </div>
                 </main>

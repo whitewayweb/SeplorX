@@ -13,19 +13,19 @@ Using `fetch()` to an internal API route (e.g., `/api/auth/get-session`) inside 
 - Causes re-render loops if session cookies aren't updated until the internal fetch completes.
 
 **Optimized Solution:**
-Call `auth.api.getSession()` directly from `@/lib/auth`.
+Use `getSessionCookie(request)` from `better-auth/cookies` for a fast, optimistic edge check.
 
 ```typescript
 // src/proxy.ts
-import { auth } from "@/lib/auth";
+import { getSessionCookie } from "better-auth/cookies";
 
 export async function proxy(request: NextRequest) {
-    const session = await auth.api.getSession({
-        headers: request.headers,
-    });
-    // ... logic ...
+    const sessionCookie = getSessionCookie(request);
+    // ... optimistic logic ...
 }
 ```
+
+**Note:** Delay full session validation (DB queries) to Server Components via `getAuthenticatedUserId()`. Avoid any DB work in `proxy.ts`.
 
 ## 2. Database Column Selection
 

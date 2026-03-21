@@ -5,6 +5,7 @@ import * as schema from "@/db/schema";
 import { nextCookies } from "better-auth/next-js";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { cache } from "react";
 
 export const auth = betterAuth({
     database: drizzleAdapter(db, {
@@ -32,8 +33,11 @@ export const auth = betterAuth({
 /**
  * Get the authenticated user's session.
  * Redirects to /login if the session is invalid or expired.
+ * 
+ * Wrapped in React `cache` so multiple server components calling this
+ * in the same request only hit the DB once.
  */
-export async function getAuthenticatedSession() {
+export const getAuthenticatedSession = cache(async () => {
     const session = await auth.api.getSession({
         headers: await headers(),
     });
@@ -43,7 +47,7 @@ export async function getAuthenticatedSession() {
     }
 
     return session;
-}
+});
 
 /**
  * Get the authenticated user's numeric ID from the session.
