@@ -6,6 +6,7 @@ import { ClearOrdersButton } from "./clear-orders-button";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { salesOrderStatusEnum } from "@/db/schema";
 
 interface Order {
   id: number;
@@ -32,25 +33,36 @@ interface OrdersListProps {
   pageSize: number;
   showClear?: boolean;
   currentStatus?: string;
+  statusCounts?: Record<string, number>;
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  shipped:   "bg-green-100 text-green-800",
-  pending:   "bg-yellow-100 text-yellow-800",
+  shipped: "bg-green-100 text-green-800",
+  delivered: "bg-green-100 text-green-800",
+
+  pending: "bg-yellow-100 text-yellow-800",
+  processing: "bg-yellow-100 text-yellow-800",
+  "on-hold": "bg-yellow-100 text-yellow-800",
+  packed: "bg-blue-100 text-blue-800",
+
   cancelled: "bg-red-100 text-red-800",
-  returned:  "bg-orange-100 text-orange-800",
-  failed:    "bg-gray-100 text-gray-700",
+  returned: "bg-orange-100 text-orange-800",
+  refunded: "bg-orange-100 text-orange-800",
+
+  failed: "bg-gray-100 text-gray-700",
+  draft: "bg-gray-100 text-gray-700",
 };
 
-export function OrdersList({ 
-  orders, 
-  channels = [], 
+export function OrdersList({
+  orders,
+  channels = [],
   title = "Sales Orders",
   currentPage,
   totalCount,
   pageSize,
   showClear = false,
   currentStatus = "",
+  statusCounts = {},
 }: OrdersListProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -68,11 +80,16 @@ export function OrdersList({
   };
 
   const statusTabs = [
-    { label: "Pending", value: "pending" },
-    { label: "Shipped", value: "shipped" },
-    { label: "Cancelled", value: "cancelled" },
-    { label: "Returned", value: "returned" },
-    { label: "All", value: "all" },
+    ...salesOrderStatusEnum.enumValues.map((status) => ({
+      label: status.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      value: status,
+      count: statusCounts[status] || 0,
+    })),
+    {
+      label: "All",
+      value: "all",
+      count: Object.values(statusCounts).reduce((a, b) => a + b, 0)
+    },
   ];
 
   return (
@@ -99,21 +116,34 @@ export function OrdersList({
         </div>
       </div>
 
-      <div className="flex gap-1 mb-6 border-b pb-px">
-        {statusTabs.map((tab) => (
-          <button
-            key={tab.value}
-            onClick={() => handleStatusChange(tab.value)}
-            className={cn(
-              "px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px",
-              currentStatus === tab.value
-                ? "border-blue-600 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-            )}
-          >
-            {tab.label}
-          </button>
-        ))}
+      <div className="flex gap-1 mb-6 border-b pb-px overflow-x-auto whitespace-nowrap scrollbar-hide">
+        {statusTabs.map((tab) => {
+          const isActive = currentStatus === tab.value || (tab.value === "all" && !currentStatus);
+          return (
+            <button
+              key={tab.value}
+              onClick={() => handleStatusChange(tab.value)}
+              className={cn(
+                "group px-2 py-2 text-sm font-medium border-b-2 transition-colors -mb-px flex-shrink-0 flex items-center gap-2",
+                isActive
+                  ? "border-blue-600 text-blue-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              )}
+            >
+              <span>{tab.label}</span>
+              <span
+                className={cn(
+                  "inline-flex items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold transition-colors",
+                  isActive
+                    ? "bg-blue-100 text-blue-700"
+                    : "bg-gray-100 text-gray-600 group-hover:bg-gray-200"
+                )}
+              >
+                {tab.count}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       <div className="bg-white rounded-lg shadow overflow-hidden border">
@@ -139,9 +169,9 @@ export function OrdersList({
               orders.map((order) => (
                 <tr key={order.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {order.purchasedAt?.toLocaleString("en-IN", { 
-                      day: "numeric", 
-                      month: "short", 
+                    {order.purchasedAt?.toLocaleString("en-IN", {
+                      day: "numeric",
+                      month: "short",
                       year: "numeric",
                       hour: "2-digit",
                       minute: "2-digit"
@@ -162,9 +192,8 @@ export function OrdersList({
                     {order.buyerName ?? <span className="text-gray-400 italic text-xs">Amazon Anonymized</span>}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      STATUS_COLORS[order.status ?? ""] ?? "bg-gray-100 text-gray-700"
-                    }`}>
+                    <span className={`px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${STATUS_COLORS[order.status ?? ""] ?? "bg-gray-100 text-gray-700"
+                      }`}>
                       {order.status}
                     </span>
                   </td>
@@ -180,10 +209,10 @@ export function OrdersList({
         </table>
 
         <div className="px-6 py-4 bg-gray-50 border-t">
-          <TablePagination 
-            totalItems={totalCount} 
-            itemsPerPage={pageSize} 
-            currentPage={currentPage} 
+          <TablePagination
+            totalItems={totalCount}
+            itemsPerPage={pageSize}
+            currentPage={currentPage}
           />
         </div>
       </div>

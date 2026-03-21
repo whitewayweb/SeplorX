@@ -66,6 +66,7 @@ describe("Amazon Order Matching Logic", () => {
       where: vi.fn().mockReturnThis(),
       limit: vi.fn().mockReturnThis(),
       orderBy: vi.fn().mockReturnThis(),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     }) as unknown as any;
 
     txMock = {
@@ -83,6 +84,7 @@ describe("Amazon Order Matching Logic", () => {
   it("should attempt to match a product via channelProductMappings first, then fallback to local SKU", async () => {
     let dbQueryNum = 0;
     (db.select as unknown as Mock).mockImplementation(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const mockChain: any = Object.assign(Promise.resolve([]), {
         from: vi.fn().mockReturnThis(),
         innerJoin: vi.fn().mockReturnThis(),
@@ -131,6 +133,7 @@ describe("Amazon Order Matching Logic", () => {
   it("should leave productId as undefined if neither mapping nor local SKU exists", async () => {
     let dbQueryNum = 0;
     (db.select as unknown as Mock).mockImplementation(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const mockChain: any = Object.assign(Promise.resolve([]), {
         from: vi.fn().mockReturnThis(),
         innerJoin: vi.fn().mockReturnThis(),

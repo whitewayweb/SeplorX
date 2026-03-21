@@ -304,13 +304,20 @@ export const amazonHandler: ChannelHandler = {
   },
 };
 
-/**
- * Maps Amazon OrderStatus to SeplorX salesOrderStatusEnum
- */
-function mapAmazonStatus(status: string): "pending" | "shipped" | "cancelled" | "returned" | "failed" {
+function mapAmazonStatus(status: string | undefined): "pending" | "processing" | "on-hold" | "packed" | "shipped" | "delivered" | "cancelled" | "returned" | "refunded" | "failed" | "draft" {
+  if (!status) return "pending";
   switch (status) {
+    case "PendingAvailability":
+    case "Pending":
+      return "pending";
+    case "Unshipped":
+      return "processing"; // Amazon Unshipped aligns with WooCommerce Processing
+    case "PartiallyShipped":
+      return "packed";     // Amazon PartiallyShipped aligns with WooCommerce Packed
     case "Shipped":
       return "shipped";
+    case "InvoiceUnconfirmed":
+      return "on-hold";
     case "Canceled":
       return "cancelled";
     case "Unfulfillable":
@@ -319,3 +326,4 @@ function mapAmazonStatus(status: string): "pending" | "shipped" | "cancelled" | 
       return "pending";
   }
 }
+

@@ -35,6 +35,19 @@ export async function getUserChannels(userId: number) {
     .where(eq(channels.userId, userId));
 }
 
+/** Fetches all connected channels for a user (any channelType) */
+export async function getConnectedChannelsForUser(userId: number) {
+  return await db
+    .select({
+      id: channels.id,
+      name: channels.name,
+      channelType: channels.channelType,
+      status: channels.status,
+    })
+    .from(channels)
+    .where(and(eq(channels.userId, userId), eq(channels.status, "connected")));
+}
+
 export async function getChannel(id: number) {
   const [channel] = await db
     .select({

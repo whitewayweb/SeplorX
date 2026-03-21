@@ -3,15 +3,17 @@
 import { getAuthenticatedUserId } from "@/lib/auth";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { revalidatePath } from "next/cache";
-import { clearChannelOrders } from "@/lib/channels/amazon/queries";
 import { z } from "zod";
+import { db } from "@/db";
+import { channels, salesOrders } from "@/db/schema";
+import { eq, and } from "drizzle-orm";
 
 const channelIdSchema = z.coerce.number().int().positive();
 
 /**
- * Server Action to fetch orders from a specific Amazon channel.
+ * Server Action to fetch orders from a specific channel instance.
  */
-export async function fetchAmazonOrdersAction(rawChannelId: unknown) {
+export async function fetchChannelOrdersAction(rawChannelId: unknown) {
   const parsed = channelIdSchema.safeParse(rawChannelId);
   if (!parsed.success) return { success: false, error: "Invalid channelId" };
   const channelId = parsed.data;
@@ -19,9 +21,17 @@ export async function fetchAmazonOrdersAction(rawChannelId: unknown) {
   const userId = await getAuthenticatedUserId();
   if (!userId) throw new Error("Unauthorized");
 
-  const handler = getChannelHandler("amazon");
+  const [channel] = await db
+    .select({ channelType: channels.channelType })
+    .from(channels)
+    .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
+    .limit(1);
+
+  if (!channel) return { success: false, error: "Channel not found" };
+
+  const handler = getChannelHandler(channel.channelType);
   if (!handler || !handler.fetchAndSaveOrders) {
-    throw new Error("Amazon order handler not implemented or configured.");
+    throw new Error(`${channel.channelType} order handler not implemented or configured.`);
   }
 
   try {
@@ -30,7 +40,7 @@ export async function fetchAmazonOrdersAction(rawChannelId: unknown) {
     revalidatePath(`/orders/channels/${channelId}`);
     return { success: true, ...result };
   } catch (err) {
-    console.error("[fetchAmazonOrdersAction]", { channelId, userId, error: String(err) });
+    console.error("[fetchChannelOrdersAction]", { channelId, userId, error: String(err) });
     return { success: false, error: String(err) };
   }
 }
@@ -47,7 +57,16 @@ export async function clearChannelOrdersAction(rawChannelId: unknown) {
   if (!userId) throw new Error("Unauthorized");
 
   try {
-    await clearChannelOrders(userId, channelId);
+    const [channel] = await db
+      .select({ id: channels.id })
+      .from(channels)
+      .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
+      .limit(1);
+      
+    if (!channel) throw new Error("Not authorized");
+
+    await db.delete(salesOrders).where(eq(salesOrders.channelId, channelId));
+    
     revalidatePath("/orders");
     revalidatePath(`/orders/channels/${channelId}`);
     return { success: true };

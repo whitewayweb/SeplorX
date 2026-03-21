@@ -415,7 +415,259 @@ export const woocommerceHandler: ChannelHandler = {
   extractSqlField,
   getBrands,
   extractProductFields,
+
+  /**
+   * Fetch orders from the remote channel and persist them as sales_orders.
+   */
+  async fetchAndSaveOrders(userId: number, channelId: number): Promise<{ fetched: number; saved: number }> {
+    const { db } = await import("@/db");
+    const { channels, salesOrders, salesOrderItems, channelProductMappings, products } = await import("@/db/schema");
+    const { eq, and, isNull } = await import("drizzle-orm");
+    const { decryptChannelCredentials } = await import("@/lib/channels/utils");
+    const { getLastOrderDate } = await import("./queries");
+
+    const [channel] = await db
+      .select({ 
+        storeUrl: channels.storeUrl, 
+        credentials: channels.credentials,
+        channelType: channels.channelType 
+      })
+      .from(channels)
+      .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
+      .limit(1);
+
+    if (!channel) throw new Error("Channel not found.");
+    if (channel.channelType !== "woocommerce") throw new Error("Channel is not a WooCommerce channel");
+    if (!channel.storeUrl) throw new Error("Channel has no store URL");
+
+    const creds = decryptChannelCredentials(channel.credentials);
+    const auth = basicAuth(creds.consumerKey, creds.consumerSecret);
+
+    // Determine fetch window
+    const lastOrderDate = await getLastOrderDate(channelId);
+    let afterParam = "";
+    if (lastOrderDate) {
+      // 1 hour buffer for safety
+      const bufferDate = new Date(lastOrderDate.getTime() - 60 * 60 * 1000);
+      afterParam = `&after=${bufferDate.toISOString()}`;
+    } else {
+      // Fallback 90 days
+      const fallbackDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      afterParam = `&after=${fallbackDate.toISOString()}`;
+    }
+
+    console.log(`[WooCommerce Sync] Syncing orders for channel ${channelId} with ${afterParam}`);
+
+    let fetchedCount = 0;
+    let savedCount = 0;
+    let page = 1;
+    let totalPages = 1;
+
+    do {
+      const res = await wcFetch(channel.storeUrl, `/orders?per_page=100&page=${page}${afterParam}`, {
+        method: "GET",
+        headers: { Authorization: auth },
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`WooCommerce order fetch failed (${res.status}): ${text.substring(0, 200)}`);
+      }
+
+      totalPages = parseInt(res.headers.get("x-wp-totalpages") || "1", 10);
+      const orders = (await res.json()) as WCOrderPayload[];
+
+      fetchedCount += orders.length;
+
+      for (const wcOrder of orders) {
+        if (!wcOrder.id) continue;
+        const externalOrderId = String(wcOrder.id);
+
+        try {
+          // Pre-check out of tx
+          const [existing] = await db
+            .select({ id: salesOrders.id })
+            .from(salesOrders)
+            .where(and(eq(salesOrders.channelId, channelId), eq(salesOrders.externalOrderId, externalOrderId)))
+            .limit(1);
+
+          if (existing) continue;
+
+          await db.transaction(async (tx) => {
+            const [insideExisting] = await tx
+              .select({ id: salesOrders.id })
+              .from(salesOrders)
+              .where(and(eq(salesOrders.channelId, channelId), eq(salesOrders.externalOrderId, externalOrderId)))
+              .limit(1);
+
+            if (insideExisting) return;
+
+            const buyerName = wcOrder.billing 
+              ? `${wcOrder.billing.first_name || ""} ${wcOrder.billing.last_name || ""}`.trim() || null 
+              : null;
+            const buyerEmail = wcOrder.billing?.email || null;
+
+            const [insertedOrder] = await tx.insert(salesOrders).values({
+              channelId,
+              externalOrderId,
+              status: mapWooCommerceStatus(wcOrder.status),
+              totalAmount: wcOrder.total ? String(wcOrder.total) : null,
+              currency: wcOrder.currency,
+              buyerName,
+              buyerEmail,
+              purchasedAt: wcOrder.date_created_gmt ? new Date(wcOrder.date_created_gmt as unknown as string + "Z") : (wcOrder.date_created ? new Date(wcOrder.date_created as unknown as string) : null),
+              rawData: wcOrder as Record<string, unknown>,
+            }).returning({ id: salesOrders.id });
+
+            const lineItems = wcOrder.line_items || [];
+            
+            for (const item of lineItems) {
+              if (!item.id) continue;
+              
+              const sku = item.sku ?? "";
+              const wcProductId = String(item.product_id || "");
+              const wcVariationId = String(item.variation_id || "");
+              
+              // We match by Variation ID if it exists, otherwise Product ID. 
+              const searchId = item.variation_id && item.variation_id !== 0 ? wcVariationId : wcProductId;
+
+              let matchedProductId: number | undefined;
+
+              if (searchId && searchId !== "0") {
+                const [mapping] = await tx
+                  .select({ productId: channelProductMappings.productId })
+                  .from(channelProductMappings)
+                  .where(
+                    and(
+                      eq(channelProductMappings.channelId, channelId),
+                      eq(channelProductMappings.externalProductId, searchId),
+                    )
+                  )
+                  .limit(1);
+                
+                matchedProductId = mapping?.productId;
+              }
+
+              if (!matchedProductId && sku) {
+                const [localProduct] = await tx
+                  .select({ id: products.id })
+                  .from(products)
+                  .where(eq(products.sku, sku))
+                  .limit(1);
+                if (localProduct) {
+                  matchedProductId = localProduct.id;
+                }
+              }
+
+              await tx.insert(salesOrderItems).values({
+                orderId: insertedOrder.id,
+                externalItemId: String(item.id),
+                productId: matchedProductId,
+                sku: item.sku || null,
+                title: typeof item.name === "string" ? item.name : (item.name ? String(item.name) : null),
+                quantity: item.quantity || 0,
+                price: item.price !== undefined && item.price !== null ? String(item.price) : null,
+                rawData: item as Record<string, unknown>,
+              });
+            }
+            savedCount++;
+          });
+        } catch (err) {
+          console.error(`[WooCommerce Sync] Failed to save order ${externalOrderId}:`, err);
+        }
+      }
+      
+      page++;
+    } while (page <= totalPages);
+
+    // Retroactive mapping check
+    try {
+      const pendingItems = await db
+        .select({
+          id: salesOrderItems.id,
+          sku: salesOrderItems.sku,
+          rawData: salesOrderItems.rawData
+        })
+        .from(salesOrderItems)
+        .innerJoin(salesOrders, eq(salesOrderItems.orderId, salesOrders.id))
+        .where(
+          and(
+            eq(salesOrders.channelId, channelId),
+            isNull(salesOrderItems.productId)
+          )
+        );
+
+      for (const item of pendingItems) {
+        const payload = item.rawData as Record<string, unknown> | null;
+        if (!payload) continue;
+
+        const variationId = payload.variation_id as number;
+        const productId = payload.product_id as number;
+        const searchId = variationId ? String(variationId) : String(productId);
+        const sku = item.sku ?? "";
+
+        let matchedProductId: number | undefined;
+
+        if (searchId && searchId !== "0") {
+          const [mapping] = await db
+            .select({ productId: channelProductMappings.productId })
+            .from(channelProductMappings)
+            .where(
+              and(
+                eq(channelProductMappings.channelId, channelId),
+                eq(channelProductMappings.externalProductId, searchId)
+              )
+            )
+            .limit(1);
+          matchedProductId = mapping?.productId;
+        }
+
+        if (!matchedProductId && sku) {
+          const [localProduct] = await db
+            .select({ id: products.id })
+            .from(products)
+            .where(eq(products.sku, sku))
+            .limit(1);
+          if (localProduct) {
+            matchedProductId = localProduct.id;
+          }
+        }
+
+        if (matchedProductId) {
+          await db
+            .update(salesOrderItems)
+            .set({ productId: matchedProductId })
+            .where(eq(salesOrderItems.id, item.id));
+        }
+      }
+    } catch (err) {
+      console.error("[WooCommerce Sync] Failed to map past items:", err);
+    }
+
+    return { fetched: fetchedCount, saved: savedCount };
+  },
 };
+
+function mapWooCommerceStatus(rawStatus: string | undefined): "pending" | "processing" | "on-hold" | "packed" | "shipped" | "delivered" | "cancelled" | "returned" | "refunded" | "failed" | "draft" {
+  if (!rawStatus) return "pending";
+  
+  const status = rawStatus.startsWith("wc-") ? rawStatus.substring(3) : rawStatus;
+  
+  switch (status) {
+    case "pending": return "pending";
+    case "processing": return "processing";
+    case "on-hold": return "on-hold";
+    case "packed": return "packed";
+    case "shipped": return "shipped";
+    case "completed": return "delivered";
+    case "cancelled": return "cancelled";
+    case "refunded": return "refunded";
+    case "failed": return "failed";
+    case "checkout-draft":
+    case "draft": return "draft";
+    default: return "pending";
+  }
+}
 
 // Internal helper for testing and reuse
 export function buildWcPayload(delta: Record<string, unknown>): Record<string, unknown> {

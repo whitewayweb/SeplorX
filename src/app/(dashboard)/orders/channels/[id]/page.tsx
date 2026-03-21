@@ -1,5 +1,6 @@
 import { getAuthenticatedUserId } from "@/lib/auth";
-import { getOrdersByChannel, getAmazonChannelsForUser, countOrdersByChannel } from "@/lib/channels/amazon/queries";
+import { getOrdersByChannel, countOrdersByChannel, getOrderStatusCounts } from "@/lib/channels/amazon/queries";
+import { getConnectedChannelsForUser } from "@/lib/channels/queries";
 import { OrdersList } from "@/components/organisms/orders/orders-list";
 import { notFound, redirect } from "next/navigation";
 import { parsePaginationParams } from "@/lib/utils/pagination";
@@ -19,19 +20,21 @@ export default async function ChannelOrdersPage({
 
   const resolvedSearchParams = await searchParams;
   const { page, limit, offset } = parsePaginationParams(resolvedSearchParams);
-  const status = (resolvedSearchParams.status as string) || "pending";
+  const rawStatus = (resolvedSearchParams.status as string) || "pending";
+  const statusFilter = rawStatus === "all" ? undefined : rawStatus;
 
   const userId = await getAuthenticatedUserId();
   if (!userId) redirect("/login");
 
   // Fetching channels for the user so we can confirm ownership and get channel name
-  const userChannels = await getAmazonChannelsForUser(userId);
+  const userChannels = await getConnectedChannelsForUser(userId);
   const channel = userChannels.find((c) => c.id === channelId);
   if (!channel) notFound();
 
-  const [orders, totalCount] = await Promise.all([
-    getOrdersByChannel(userId, channelId, limit, offset, status),
-    countOrdersByChannel(userId, channelId, status),
+  const [orders, totalCount, statusCounts] = await Promise.all([
+    getOrdersByChannel(userId, channelId, limit, offset, statusFilter),
+    countOrdersByChannel(userId, channelId, statusFilter),
+    getOrderStatusCounts(userId, channelId),
   ]);
 
   return (
@@ -43,7 +46,8 @@ export default async function ChannelOrdersPage({
       totalCount={totalCount}
       pageSize={limit}
       showClear={true}
-      currentStatus={status}
+      currentStatus={rawStatus}
+      statusCounts={statusCounts}
     />
   );
 }

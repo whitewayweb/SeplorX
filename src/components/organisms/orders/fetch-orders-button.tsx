@@ -3,7 +3,7 @@
 import { useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
-import { fetchAmazonOrdersAction } from "@/app/(dashboard)/orders/actions";
+import { fetchChannelOrdersAction } from "@/app/(dashboard)/orders/actions";
 import { useRouter } from "next/navigation";
 
 export function FetchOrdersButton({
@@ -18,7 +18,7 @@ export function FetchOrdersButton({
 
   function handleFetch() {
     startTransition(async () => {
-      const result = await fetchAmazonOrdersAction(channelId);
+      const result = await fetchChannelOrdersAction(channelId);
       if (result.success) {
         router.refresh();
       }

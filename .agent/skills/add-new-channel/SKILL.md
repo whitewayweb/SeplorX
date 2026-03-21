@@ -110,6 +110,11 @@ export const shopifyHandler: ChannelHandler = {
     // Call Shopify products API, return ExternalProduct[]
     return [];
   },
+  // Optional: fetch orders from the channel and save them to SeplorX
+  async fetchAndSaveOrders(userId, channelId) {
+    // Call channel API, insert into sales_orders and sales_order_items
+    return { fetched: 0, saved: 0 };
+  },
 };
 ```
 
@@ -194,6 +199,15 @@ The generic webhook route validates the signature, calls `handler.processWebhook
 **Loop prevention:** Set `referenceType: "{channel}_order"` on webhook-triggered transactions. The stock push only runs for `referenceType: "purchase_invoice"` — never for channel orders.
 
 **Idempotency:** The webhook route checks for existing transactions with the same `referenceType + referenceId` before inserting — duplicate webhooks are silently skipped.
+
+## Step 9 — Order Syncing (optional)
+
+If the channel supports pulling historical or new orders via an API, implement `fetchAndSaveOrders(userId, channelId)`.
+1. Fetch recent orders via the channel's REST/GraphQL API. Use `getLastOrderDate(channelId)` from your `queries.ts` to only fetch new orders.
+2. Transform them into SeplorX format (`salesOrders` and `salesOrderItems`).
+3. If it exists, the generic server action `/orders/actions.ts -> fetchChannelOrdersAction` will execute it when the user clicks **Sync Orders** in the UI. 
+
+**Note**: Order syncing should use API polling via `fetchAndSaveOrders` as the primary mechanism to ensure historical orders can be pulled. Webhooks are currently for real-time inventory adjustments (`WebhookStockChange[]`), not order creation.
 
 ## Security
 

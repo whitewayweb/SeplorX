@@ -87,11 +87,6 @@ export interface OrderItemRow {
   productSku: string | null;
 }
 
-export interface ChannelRow {
-  id: number;
-  name: string;
-}
-
 /** All orders across all channels for a user (joined with channel name). */
 export async function getAllOrders(
   userId: number,
@@ -138,6 +133,25 @@ export async function countAllOrders(userId: number, status?: string): Promise<n
       )
     );
   return Number(row?.count ?? 0);
+}
+
+/** Grouped count of orders by status for a user's channel(s) */
+export async function getOrderStatusCounts(userId: number, channelId?: number): Promise<Record<string, number>> {
+  const baseFilter = channelId
+    ? and(eq(channels.userId, userId), eq(salesOrders.channelId, channelId))
+    : eq(channels.userId, userId);
+
+  const results = await db
+    .select({ status: salesOrders.status, count: sql<number>`count(*)` })
+    .from(salesOrders)
+    .innerJoin(channels, eq(salesOrders.channelId, channels.id))
+    .where(baseFilter)
+    .groupBy(salesOrders.status);
+
+  return results.reduce((acc, row) => {
+    acc[row.status] = Number(row.count);
+    return acc;
+  }, {} as Record<string, number>);
 }
 
 /** Orders for a single channel, scoped to the authenticated user (IDOR-safe). */
@@ -281,13 +295,6 @@ export async function getOrderItems(userId: number, orderId: number): Promise<Or
 }
 
 
-/** Amazon channels for a user — filtered to channelType='amazon'. */
-export async function getAmazonChannelsForUser(userId: number): Promise<ChannelRow[]> {
-  return db
-    .select({ id: channels.id, name: channels.name })
-    .from(channels)
-    .where(and(eq(channels.userId, userId), eq(channels.channelType, "amazon")));
-}
 
 /** Get the date of the most recent order for a specific channel. */
 export async function getLastOrderDate(channelId: number): Promise<Date | null> {
@@ -301,16 +308,6 @@ export async function getLastOrderDate(channelId: number): Promise<Date | null> 
   return row?.purchasedAt ?? null;
 }
 
-/** Permanently delete all orders for a specific channel instance. */
-export async function clearChannelOrders(userId: number, channelId: number): Promise<void> {
-  // Verify ownership first via subquery or join to prevent unauthorized deletes
-  await db.delete(salesOrders)
-    .where(
-      and(
-        eq(salesOrders.channelId, channelId),
-        sql`${salesOrders.channelId} IN (SELECT id FROM ${channels} WHERE user_id = ${userId})`
-      )
-    );
-}
+
 
 

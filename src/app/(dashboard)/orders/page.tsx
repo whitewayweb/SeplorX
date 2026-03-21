@@ -1,5 +1,6 @@
 import { getAuthenticatedUserId } from "@/lib/auth";
-import { getAllOrders, getAmazonChannelsForUser, countAllOrders } from "@/lib/channels/amazon/queries";
+import { getAllOrders, countAllOrders, getOrderStatusCounts } from "@/lib/channels/amazon/queries";
+import { getConnectedChannelsForUser } from "@/lib/channels/queries";
 import { OrdersList } from "@/components/organisms/orders/orders-list";
 import { redirect } from "next/navigation";
 import { parsePaginationParams } from "@/lib/utils/pagination";
@@ -13,26 +14,29 @@ export default async function OrdersPage({
 }) {
   const resolvedSearchParams = await searchParams;
   const { page, limit, offset } = parsePaginationParams(resolvedSearchParams);
-  const status = (resolvedSearchParams.status as string) || "pending";
+  const rawStatus = (resolvedSearchParams.status as string) || "pending";
+  const statusFilter = rawStatus === "all" ? undefined : rawStatus;
   
   const userId = await getAuthenticatedUserId();
   if (!userId) redirect("/login");
 
-  const [allOrders, totalCount, amazonChannels] = await Promise.all([
-    getAllOrders(userId, limit, offset, status),
-    countAllOrders(userId, status),
-    getAmazonChannelsForUser(userId),
+  const [allOrders, totalCount, statusCounts, connectedChannels] = await Promise.all([
+    getAllOrders(userId, limit, offset, statusFilter),
+    countAllOrders(userId, statusFilter),
+    getOrderStatusCounts(userId),
+    getConnectedChannelsForUser(userId),
   ]);
 
   return (
     <OrdersList
       orders={allOrders}
-      channels={amazonChannels}
+      channels={connectedChannels}
       title="All Sales Orders"
       currentPage={page}
       totalCount={totalCount}
       pageSize={limit}
-      currentStatus={status}
+      currentStatus={rawStatus}
+      statusCounts={statusCounts}
     />
   );
 }

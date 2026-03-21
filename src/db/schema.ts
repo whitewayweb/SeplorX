@@ -81,10 +81,16 @@ export const feedStatusEnum = pgEnum("feed_status", [
 
 export const salesOrderStatusEnum = pgEnum("sales_order_status", [
   "pending",
+  "processing",
+  "on-hold",
+  "packed",
   "shipped",
+  "delivered", // corresponds to WC 'completed'
   "cancelled",
   "returned",
+  "refunded",
   "failed",
+  "draft"
 ]);
 export type SalesOrderStatus = typeof salesOrderStatusEnum.enumValues[number];
 
