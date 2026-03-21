@@ -82,11 +82,18 @@ Data flows one way: **Server Component → props → Client Component → Server
 
 ## Performance
 
-- **Query Parallelization:** Always use `Promise.all` for independent `db.select()` queries on dashboard pages to prevent waterfall delays.
+- **Query Parallelization:** Always use `Promise.all` for independent `db.select()` queries on dashboard pages to prevent waterfall delays. 
+- **Memoized Auth:** Always wrap `getAuthenticatedSession` in React's `cache()` to prevent redundant DB calls within a single request cycle.
 - **N+1 Queries:** Never loop independent queries (e.g., checking duplicates in a `for` loop). Use `inArray` to fetch in batches.
 - **Batched processing:** Process large API results (e.g. Amazon reports) in batches of 100 items. 
 - **Safe upserts:** Use `COALESCE(NULLIF(EXCLUDED.col, ''), table.col)` in `onConflictDoUpdate` to prevent overwriting with empty strings during partial syncs.
 - **Module-level caching:** Initialise once at module scope (`let cache: T | null = null`) and guard with `if (!cache)`. Expose a `refresh*()` escape-hatch for dev hot-reload.
+
+## UI & Layout Patterns
+
+- **PageHeader Molecule:** Use `<PageHeader title="..." description="..." />` from `@/components/molecules/layout/page-header` for all dashboard pages. This component handles the 48px left-margin (`ml-12`) needed to clear the floating sidebar trigger.
+- **No `container mx-auto`:** Dashboard pages should use `p-6 space-y-6` on the root div. Avoid `container` or `mx-auto` as they conflict with the layout's sidebar-aware margin selectors.
+- **Header Actions:** Pass buttons or triggers (like `Add Button`) as children to `PageHeader` to have them appear on the top-right.
 
 ## Design Principles
 

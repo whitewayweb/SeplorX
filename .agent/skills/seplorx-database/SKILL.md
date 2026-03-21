@@ -19,7 +19,9 @@ metadata:
 | App queries (pooled) | `POSTGRES_URL` | **6543** (PgBouncer transaction pooler) |
 | Migrations (direct) | `POSTGRES_URL_NON_POOLING` | **5432** (direct connection) |
 
-DB instance: `db` from `@/db`. Config: `max: 1` connection, PgBouncer handles pooling.
+DB instance: `db` from `@/db`. Config: **`max: 10`** concurrent connections to support parallel dashboard queries.
+
+**Session Caching:** `getAuthenticatedSession` in `src/lib/auth/index.ts` is wrapped in React's `cache()`. This is critical because `max: 10` is still limited; memoizing the auth session prevents exhausting the pool with redundant auth checks on the same page.
 
 **Never point migrations at port 6543 — migrations need a direct connection.**
 
