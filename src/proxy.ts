@@ -23,11 +23,6 @@ export async function proxy(request: NextRequest) {
         if (!sessionCookie) {
             return NextResponse.redirect(new URL("/login", request.url));
         }
-    } else {
-        // Public route (e.g., /login) — if session cookie exists, optimistic redirect to dashboard
-        if (sessionCookie) {
-            return NextResponse.redirect(new URL("/", request.url));
-        }
     }
 
     return NextResponse.next();
