@@ -208,27 +208,33 @@ export async function deleteProduct(_prevState: unknown, formData: FormData) {
   }
 
   const { id } = parsed.data;
+  const force = formData.get("force") === "true";
 
   try {
     await db.transaction(async (tx) => {
       const existing = await tx
-        .select({ id: products.id })
-        .from(products)
-        .where(eq(products.id, id))
-        .limit(1);
+          .select({ id: products.id })
+          .from(products)
+          .where(eq(products.id, id))
+          .limit(1);
 
       if (existing.length === 0) {
         throw new Error("Product not found.");
       }
 
       const hasTransactions = await tx
-        .select({ id: inventoryTransactions.id })
-        .from(inventoryTransactions)
-        .where(eq(inventoryTransactions.productId, id))
-        .limit(1);
+          .select({ id: inventoryTransactions.id })
+          .from(inventoryTransactions)
+          .where(eq(inventoryTransactions.productId, id))
+          .limit(1);
 
       if (hasTransactions.length > 0) {
-        throw new Error("Cannot delete product with existing inventory records. Deactivate instead.");
+        if (force) {
+          // Purge inventory history as requested by force flag
+          await tx.delete(inventoryTransactions).where(eq(inventoryTransactions.productId, id));
+        } else {
+          throw new Error("HISTORY_BLOCK");
+        }
       }
 
       await tx.delete(products).where(eq(products.id, id));
@@ -237,13 +243,18 @@ export async function deleteProduct(_prevState: unknown, formData: FormData) {
     console.error("[deleteProduct]", { productId: id, error: String(err) });
     if (err instanceof Error) {
       if (err.message === "Product not found.") return { error: err.message };
-      if (err.message === "Cannot delete product with existing inventory records. Deactivate instead.") return { error: err.message };
+      if (err.message === "HISTORY_BLOCK") {
+        return {
+          error: "Cannot delete product with existing inventory transactions. This is required for your audit trail. You can either Deactivate the product to hide it, or use 'Force Delete' to purge all history.",
+          code: "HISTORY_BLOCK"
+        };
+      }
     }
     if (
-      err &&
-      typeof err === "object" &&
-      "code" in err &&
-      err.code === "23503"
+        err &&
+        typeof err === "object" &&
+        "code" in err &&
+        err.code === "23503"
     ) {
       return { error: "Cannot delete product because it is referenced in other records (e.g., invoices or channels)." };
     }
