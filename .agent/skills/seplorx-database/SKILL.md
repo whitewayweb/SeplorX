@@ -133,6 +133,12 @@ await db.transaction(async (tx) => {
 });
 ```
 
+### Data Integrity for Deletions
+When deleting a record that has side effects or downstream impacts (e.g., a Purchase Invoice that increased stock), you MUST reverse those impacts in the same transaction:
+1. **Fetch impacts**: Get all related items (e.g., `purchaseInvoiceItems`) before deleting the parent.
+2. **Reverse logic**: Decrement stock (`quantity_on_hand`) and delete metadata/logs (e.g., `inventory_transactions`).
+3. **Atomic deletion**: Wrap the reversal and final deletion in a `db.transaction`.
+
 ### Always scope queries by userId (IDOR prevention)
 ```typescript
 // ✅ Good

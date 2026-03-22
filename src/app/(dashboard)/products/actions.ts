@@ -18,6 +18,7 @@ import {
   getProductQuantity,
   getChannelMappingsForStockPush,
   getConnectedChannel,
+  getProductById,
   getExternalProducts,
   getExistingMappingsForChannel,
   insertChannelMappingQuietly
@@ -212,13 +213,9 @@ export async function deleteProduct(_prevState: unknown, formData: FormData) {
 
   try {
     await db.transaction(async (tx) => {
-      const existing = await tx
-          .select({ id: products.id })
-          .from(products)
-          .where(eq(products.id, id))
-          .limit(1);
+      const product = await getProductById(id, tx);
 
-      if (existing.length === 0) {
+      if (!product) {
         throw new Error("Product not found.");
       }
 

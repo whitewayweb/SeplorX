@@ -1,9 +1,9 @@
-import { db } from "@/db";
+import { db, type QueryClient } from "@/db";
 import { purchaseInvoices, purchaseInvoiceItems, payments, companies, products } from "@/db/schema";
 import { and, desc, eq, inArray } from "drizzle-orm";
 
-export async function getInvoicesList(userId: number) {
-  return await db
+export async function getInvoicesList(userId: number, tx: QueryClient = db) {
+  return await tx
     .select({
       id: purchaseInvoices.id,
       invoiceNumber: purchaseInvoices.invoiceNumber,
@@ -21,8 +21,8 @@ export async function getInvoicesList(userId: number) {
     .orderBy(desc(purchaseInvoices.createdAt));
 }
 
-export async function getInvoiceDetails(invoiceId: number) {
-  const result = await db
+export async function getInvoiceDetails(invoiceId: number, tx: QueryClient = db) {
+  const result = await tx
     .select({
       id: purchaseInvoices.id,
       invoiceNumber: purchaseInvoices.invoiceNumber,
@@ -47,8 +47,8 @@ export async function getInvoiceDetails(invoiceId: number) {
   return result[0];
 }
 
-export async function getInvoiceLineItems(invoiceId: number) {
-  return await db
+export async function getInvoiceLineItems(invoiceId: number, tx: QueryClient = db) {
+  return await tx
     .select({
       id: purchaseInvoiceItems.id,
       productId: purchaseInvoiceItems.productId,
@@ -67,8 +67,8 @@ export async function getInvoiceLineItems(invoiceId: number) {
     .orderBy(purchaseInvoiceItems.sortOrder);
 }
 
-export async function getInvoicePayments(invoiceId: number) {
-  return await db
+export async function getInvoicePayments(invoiceId: number, tx: QueryClient = db) {
+  return await tx
     .select({
       id: payments.id,
       amount: payments.amount,
@@ -83,8 +83,8 @@ export async function getInvoicePayments(invoiceId: number) {
     .orderBy(desc(payments.createdAt));
 }
 
-export async function getExistingInvoicesForDuplicateCheck(invoiceNumbers: string[], userId: number) {
-  return await db
+export async function getExistingInvoicesForDuplicateCheck(invoiceNumbers: string[], userId: number, tx: QueryClient = db) {
+  return await tx
     .select({
       invoiceDate: purchaseInvoices.invoiceDate,
       totalAmount: purchaseInvoices.totalAmount,

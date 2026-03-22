@@ -1,4 +1,4 @@
-import { db } from "@/db";
+import { db, type QueryClient } from "@/db";
 import {
   products,
   channelProductMappings,
@@ -7,12 +7,12 @@ import {
   purchaseInvoices,
   companies,
   channels,
-  channelProducts
+  channelProducts,
 } from "@/db/schema";
 import { and, desc, eq, sql, or } from "drizzle-orm";
 
-export async function getProductById(productId: number) {
-  const result = await db
+export async function getProductById(productId: number, tx: QueryClient = db) {
+  const result = await tx
     .select({
       id: products.id,
       name: products.name,
@@ -30,12 +30,12 @@ export async function getProductById(productId: number) {
     .from(products)
     .where(eq(products.id, productId))
     .limit(1);
-    
+
   return result[0];
 }
 
-export async function getProductMappings(productId: number) {
-  return await db
+export async function getProductMappings(productId: number, tx: QueryClient = db) {
+  return await tx
     .select({
       id: channelProductMappings.id,
       channelId: channelProductMappings.channelId,
@@ -47,8 +47,8 @@ export async function getProductMappings(productId: number) {
     .where(eq(channelProductMappings.productId, productId));
 }
 
-export async function getInventoryTransactionsForProduct(productId: number) {
-  return await db
+export async function getInventoryTransactionsForProduct(productId: number, tx: QueryClient = db) {
+  return await tx
     .select({
       id: inventoryTransactions.id,
       type: inventoryTransactions.type,
@@ -64,8 +64,8 @@ export async function getInventoryTransactionsForProduct(productId: number) {
     .limit(50);
 }
 
-export async function getProductPurchaseHistory(productId: number) {
-  return await db
+export async function getProductPurchaseHistory(productId: number, tx: QueryClient = db) {
+  return await tx
     .select({
       id: purchaseInvoiceItems.id,
       invoiceId: purchaseInvoices.id,
@@ -83,8 +83,8 @@ export async function getProductPurchaseHistory(productId: number) {
     .limit(20);
 }
 
-export async function getProductsList() {
-  return await db
+export async function getProductsList(tx: QueryClient = db) {
+  return await tx
     .select({
       id: products.id,
       name: products.name,
@@ -101,8 +101,8 @@ export async function getProductsList() {
     .orderBy(desc(products.createdAt));
 }
 
-export async function getActiveProductsForDropdown() {
-  return await db
+export async function getActiveProductsForDropdown(tx: QueryClient = db) {
+  return await tx
     .select({
       id: products.id,
       name: products.name,
@@ -115,8 +115,8 @@ export async function getActiveProductsForDropdown() {
     .orderBy(products.name);
 }
 
-export async function getProductQuantity(productId: number) {
-  const productRows = await db
+export async function getProductQuantity(productId: number, tx: QueryClient = db) {
+  const productRows = await tx
     .select({ quantityOnHand: products.quantityOnHand })
     .from(products)
     .where(eq(products.id, productId))
@@ -125,8 +125,12 @@ export async function getProductQuantity(productId: number) {
   return productRows.length > 0 ? productRows[0].quantityOnHand : null;
 }
 
-export async function getChannelMappingsForStockPush(userId: number, productId: number) {
-  return await db
+export async function getChannelMappingsForStockPush(
+  userId: number,
+  productId: number,
+  tx: QueryClient = db,
+) {
+  return await tx
     .select({
       mappingId: channelProductMappings.id,
       channelId: channelProductMappings.channelId,
@@ -149,8 +153,8 @@ export async function getChannelMappingsForStockPush(userId: number, productId: 
     );
 }
 
-export async function getConnectedChannel(userId: number, channelId: number) {
-  const channelRows = await db
+export async function getConnectedChannel(userId: number, channelId: number, tx: QueryClient = db) {
+  const channelRows = await tx
     .select({
       id: channels.id,
       status: channels.status,
@@ -162,8 +166,14 @@ export async function getConnectedChannel(userId: number, channelId: number) {
   return channelRows.length > 0 ? channelRows[0] : null;
 }
 
-export async function getExternalProducts(channelId: number, search?: string, limit: number = 50, offset: number = 0) {
-  return await db
+export async function getExternalProducts(
+  channelId: number,
+  search?: string,
+  limit: number = 50,
+  offset: number = 0,
+  tx: QueryClient = db,
+) {
+  return await tx
     .select({
       id: channelProducts.externalId,
       name: channelProducts.name,
@@ -171,7 +181,9 @@ export async function getExternalProducts(channelId: number, search?: string, li
       stockQuantity: channelProducts.stockQuantity,
       type: channelProducts.type,
       rawPayload: channelProducts.rawData,
-      parentId: sql<string | null>`COALESCE(raw_data->>'parentId', CAST(raw_data->>'parent_id' AS TEXT))`,
+      parentId: sql<
+        string | null
+      >`COALESCE(raw_data->>'parentId', CAST(raw_data->>'parent_id' AS TEXT))`,
     })
     .from(channelProducts)
     .where(
@@ -180,18 +192,18 @@ export async function getExternalProducts(channelId: number, search?: string, li
         search && search.trim() !== ""
           ? or(
               sql`${channelProducts.name} ILIKE ${`%${search}%`}`,
-              sql`${channelProducts.sku} ILIKE ${`%${search}%`}`
+              sql`${channelProducts.sku} ILIKE ${`%${search}%`}`,
             )
-          : undefined
-      )
+          : undefined,
+      ),
     )
     .orderBy(channelProducts.externalId)
     .limit(limit)
     .offset(offset);
 }
 
-export async function getExistingMappingsForChannel(channelId: number) {
-  return await db
+export async function getExistingMappingsForChannel(channelId: number, tx: QueryClient = db) {
+  return await tx
     .select({
       externalProductId: channelProductMappings.externalProductId,
       productId: channelProductMappings.productId,
@@ -202,8 +214,14 @@ export async function getExistingMappingsForChannel(channelId: number) {
     .where(eq(channelProductMappings.channelId, channelId));
 }
 
-export async function insertChannelMappingQuietly(channelId: number, productId: number, externalProductId: string, label: string | null) {
-  return await db
+export async function insertChannelMappingQuietly(
+  channelId: number,
+  productId: number,
+  externalProductId: string,
+  label: string | null,
+  tx: QueryClient = db,
+) {
+  return await tx
     .insert(channelProductMappings)
     .values({
       channelId,
