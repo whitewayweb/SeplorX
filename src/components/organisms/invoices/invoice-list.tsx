@@ -56,17 +56,20 @@ function DeleteButton({ invoice }: { invoice: Invoice }) {
   useEffect(() => {
     if (state?.error) {
       toast.error(state.error);
+    } else if (state?.success) {
+      toast.success("Invoice deleted successfully");
     }
   }, [state]);
 
-  const handleSubmit = (formData: FormData) => {
-    if (window.confirm(`Are you sure you want to delete invoice ${invoice.invoiceNumber}? This will also reverse its stock impact.`)) {
-      action(formData);
-    }
-  };
-
   return (
-    <form action={handleSubmit}>
+    <form
+      action={action}
+      onSubmit={(e) => {
+        if (!window.confirm(`Are you sure you want to delete invoice ${invoice.invoiceNumber}? This will also reverse its stock impact.`)) {
+          e.preventDefault();
+        }
+      }}
+    >
       <input type="hidden" name="id" value={invoice.id} />
       <Button
         variant="ghost"

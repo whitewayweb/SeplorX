@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { createProduct, updateProduct } from "@/app/(dashboard)/products/actions";
 import { useState } from "react";
-import { Plus, Pencil } from "lucide-react";
+import { Plus, Pencil, X } from "lucide-react";
 
 type Product = {
   id: number;
@@ -24,6 +24,7 @@ type Product = {
   sku: string | null;
   description?: string | null;
   category: string | null;
+  attributes?: Record<string, string>;
   unit: string;
   purchasePrice: string | null;
   sellingPrice: string | null;
@@ -51,6 +52,35 @@ export function ProductDialog({ product }: ProductDialogProps) {
   const [open, setOpen] = useState(false);
   const [formKey, setFormKey] = useState(0);
 
+  // ── Attributes state ────────────────────────────────────────────────────────
+  const [attrs, setAttrs] = useState<Array<{ key: string; value: string }>>(() => {
+    const initial = isEdit && product.attributes ? product.attributes : {};
+    const entries = Object.entries(initial);
+    return entries.length > 0 ? entries.map(([k, v]) => ({ key: k, value: v })) : [];
+  });
+
+  function addAttr() {
+    setAttrs((prev) => [...prev, { key: "", value: "" }]);
+  }
+
+  function removeAttr(idx: number) {
+    setAttrs((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function updateAttr(idx: number, field: "key" | "value", val: string) {
+    setAttrs((prev) => prev.map((a, i) => (i === idx ? { ...a, [field]: val } : a)));
+  }
+
+  // Serialize attributes as JSON for the hidden input
+  function serializeAttrs(): string {
+    const obj: Record<string, string> = {};
+    for (const a of attrs) {
+      const k = a.key.trim();
+      if (k && a.value.trim()) obj[k] = a.value.trim();
+    }
+    return JSON.stringify(obj);
+  }
+
   const [state, action, pending] = useActionState(
     async (prev: unknown, formData: FormData) => {
       const result = isEdit
@@ -67,8 +97,18 @@ export function ProductDialog({ product }: ProductDialogProps) {
     null,
   );
 
+  // Reset attributes when dialog re-opens (formKey changes on close after success)
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (nextOpen) {
+      const initial = isEdit && product.attributes ? product.attributes : {};
+      const entries = Object.entries(initial);
+      setAttrs(entries.length > 0 ? entries.map(([k, v]) => ({ key: k, value: v })) : []);
+    }
+  };
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         {isEdit ? (
           <Button variant="ghost" size="icon">
@@ -93,6 +133,7 @@ export function ProductDialog({ product }: ProductDialogProps) {
 
         <form key={formKey} action={action} className="space-y-4">
           {isEdit && <input type="hidden" name="id" value={product.id} />}
+          <input type="hidden" name="attributes" value={serializeAttrs()} />
 
           {PRODUCT_FIELDS.map((field) => {
             let defaultValue = "";
@@ -141,6 +182,38 @@ export function ProductDialog({ product }: ProductDialogProps) {
               rows={3}
               placeholder="Product description..."
             />
+          </div>
+
+          {/* ── Attributes ──────────────────────────────────────────────────── */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-medium">Attributes</Label>
+              <Button type="button" variant="ghost" size="sm" onClick={addAttr} className="h-7 text-xs">
+                <Plus className="h-3 w-3 mr-1" /> Add
+              </Button>
+            </div>
+            {attrs.length === 0 && (
+              <p className="text-xs text-muted-foreground">No attributes. Click &quot;Add&quot; to add one (e.g., color, size).</p>
+            )}
+            {attrs.map((attr, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <Input
+                  className="h-8 text-sm flex-1"
+                  placeholder="Key (e.g., color)"
+                  value={attr.key}
+                  onChange={(e) => updateAttr(idx, "key", e.target.value)}
+                />
+                <Input
+                  className="h-8 text-sm flex-1"
+                  placeholder="Value (e.g., Yellow)"
+                  value={attr.value}
+                  onChange={(e) => updateAttr(idx, "value", e.target.value)}
+                />
+                <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => removeAttr(idx)}>
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ))}
           </div>
 
           {state?.error && !state.fieldErrors && (

@@ -33,11 +33,18 @@ export type ChannelProductWithState = ExternalProduct & {
 import { getAuthenticatedUserId } from "@/lib/auth";
 
 export async function createProduct(_prevState: unknown, formData: FormData) {
+  const rawAttrs = formData.get("attributes");
+  let parsedAttrs: Record<string, string> = {};
+  if (rawAttrs && typeof rawAttrs === "string" && rawAttrs.trim()) {
+    try { parsedAttrs = JSON.parse(rawAttrs); } catch { /* ignore invalid JSON */ }
+  }
+
   const parsed = CreateProductSchema.safeParse({
     name: formData.get("name"),
     sku: formData.get("sku"),
     description: formData.get("description"),
     category: formData.get("category"),
+    attributes: parsedAttrs,
     unit: formData.get("unit"),
     purchasePrice: formData.get("purchasePrice"),
     sellingPrice: formData.get("sellingPrice"),
@@ -91,12 +98,19 @@ export async function createProduct(_prevState: unknown, formData: FormData) {
 }
 
 export async function updateProduct(_prevState: unknown, formData: FormData) {
+  const rawAttrs = formData.get("attributes");
+  let parsedAttrs: Record<string, string> = {};
+  if (rawAttrs && typeof rawAttrs === "string" && rawAttrs.trim()) {
+    try { parsedAttrs = JSON.parse(rawAttrs); } catch { /* ignore invalid JSON */ }
+  }
+
   const parsed = UpdateProductSchema.safeParse({
     id: formData.get("id"),
     name: formData.get("name"),
     sku: formData.get("sku"),
     description: formData.get("description"),
     category: formData.get("category"),
+    attributes: parsedAttrs,
     unit: formData.get("unit"),
     purchasePrice: formData.get("purchasePrice"),
     sellingPrice: formData.get("sellingPrice"),

@@ -5,6 +5,7 @@ export const CreateProductSchema = z.object({
   sku: z.string().trim().optional().or(z.literal("")),
   description: z.string().trim().optional().or(z.literal("")),
   category: z.string().trim().optional().or(z.literal("")),
+  attributes: z.record(z.string(), z.string()).optional().default({}),
   unit: z.string().trim().min(1, "Unit is required"),
   purchasePrice: z.coerce.number().min(0, "Must be ≥ 0").optional().or(z.literal("")),
   sellingPrice: z.coerce.number().min(0, "Must be ≥ 0").optional().or(z.literal("")),

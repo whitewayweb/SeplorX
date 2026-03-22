@@ -42,7 +42,14 @@ export const invoiceSchema = z.object({
       unitPrice: z.number().describe("The price per single unit."),
       taxPercent: z.number().describe("The tax percentage (e.g. 5, 12, 18) applied to this item. Use 0 if none."),
       taxAmount: z.number().describe("The tax amount for this specific item. Use 0 if none."),
-      totalAmount: z.number().describe("The total price for this line item including tax.")
+      totalAmount: z.number().describe("The total price for this line item including tax."),
+      attributes: z.record(z.string(), z.string()).optional().describe(
+        "Structured product attributes extracted from the line item description. " +
+        "Common keys: 'color', 'size', 'material', 'grade'. " +
+        "Extract ONLY attributes clearly stated in the item description (e.g., colour from 'YELLOW', size from 'A'). " +
+        "Example: { \"color\": \"Yellow\", \"size\": \"A\" }. " +
+        "Omit this field entirely if no attributes are discernible."
+      )
     })
   ).describe("The list of products or materials purchased on the invoice.")
 });

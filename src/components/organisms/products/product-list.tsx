@@ -138,7 +138,7 @@ function formatPrice(value: string | null): string {
 export function ProductList({ products }: ProductListProps) {
   const [showInactive, setShowInactive] = useState(false);
   const [optimisticProducts, setOptimisticProducts] = useOptimistic(
-    products,
+    products.map(p => ({ ...p, isDeleting: false })),
     (state, info: { action: "toggle" | "delete"; id: number }) => {
       switch (info.action) {
         case "toggle":
@@ -146,7 +146,7 @@ export function ProductList({ products }: ProductListProps) {
             p.id === info.id ? { ...p, isActive: !p.isActive } : p
           );
         case "delete":
-          return state.filter((p) => p.id !== info.id);
+          return state.map((p) => p.id === info.id ? { ...p, isDeleting: true } : p);
         default:
           return state;
       }
@@ -198,7 +198,7 @@ export function ProductList({ products }: ProductListProps) {
           </TableHeader>
           <TableBody>
             {filteredProducts.map((product) => (
-              <TableRow key={product.id} className={!product.isActive ? "opacity-60 bg-muted/30" : ""}>
+              <TableRow key={product.id} className={product.isDeleting ? "opacity-30 pointer-events-none" : !product.isActive ? "opacity-60 bg-muted/30" : ""}>
                 <TableCell className="font-medium">
                   <Link href={`/products/${product.id}`} className="hover:underline text-primary">
                     {product.name}

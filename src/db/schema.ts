@@ -193,6 +193,7 @@ export const products = pgTable("products", {
   sku: varchar("sku", { length: 100 }).unique(),
   description: text("description"),
   category: varchar("category", { length: 100 }),
+  attributes: jsonb("attributes").$type<Record<string, string>>().default({}).notNull(),
   unit: varchar("unit", { length: 50 }).default("pcs").notNull(),
   purchasePrice: decimal("purchase_price", { precision: 12, scale: 2 }),
   sellingPrice: decimal("selling_price", { precision: 12, scale: 2 }),

@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Bot, CheckCircle, XCircle, AlertCircle, AlertTriangle, ChevronRight, ChevronLeft, Loader2 } from "lucide-react";
+import { Bot, CheckCircle, XCircle, AlertCircle, AlertTriangle, ChevronRight, ChevronLeft, Loader2, Plus, X } from "lucide-react";
 import { approveOcrInvoice, dismissAgentTask } from "@/app/(dashboard)/agents/actions";
 import { createCompany } from "@/app/(dashboard)/companies/actions";
 import { createProduct } from "@/app/(dashboard)/products/actions";
@@ -180,6 +180,7 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
       sku: item.skuOrItemCode ?? "",
       unit: item.unitOfMeasure ?? "",
       purchasePrice: String(item.unitPrice),
+      attributes: Object.entries(item.attributes ?? {}).map(([k, v]) => ({ key: k, value: v })),
     })),
   );
   const [creatingItemIdx, setCreatingItemIdx] = useState<number | null>(null);
@@ -328,10 +329,16 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
     fd.set("unit", p.unit.trim() || "pcs");
     fd.set("purchasePrice", p.purchasePrice);
     fd.set("reorderLevel", "0");
-    // Set remaining optional fields to "" so Zod receives "" not null
     fd.set("description", "");
     fd.set("category", "");
     fd.set("sellingPrice", "");
+    // Serialize attributes
+    const attrsObj: Record<string, string> = {};
+    for (const a of p.attributes) {
+      const k = a.key.trim();
+      if (k && a.value.trim()) attrsObj[k] = a.value.trim();
+    }
+    fd.set("attributes", JSON.stringify(attrsObj));
 
     const result = await createProduct(undefined, fd);
     setCreatingItemIdx(null);
@@ -797,6 +804,60 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
                             onChange={(e) => updateNewProduct(idx, { purchasePrice: e.target.value })}
                           />
                         </div>
+                      </div>
+                      {/* ── Attributes editor ── */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-xs text-muted-foreground">Attributes</Label>
+                          <button
+                            type="button"
+                            className="text-[11px] text-blue-600 hover:underline flex items-center gap-0.5"
+                            onClick={() => {
+                              updateNewProduct(idx, {
+                                attributes: [...newProducts[idx].attributes, { key: "", value: "" }],
+                              });
+                            }}
+                          >
+                            <Plus className="h-3 w-3" /> Add
+                          </button>
+                        </div>
+                        {newProducts[idx].attributes.length === 0 && (
+                          <p className="text-[11px] text-muted-foreground">No attributes extracted.</p>
+                        )}
+                        {newProducts[idx].attributes.map((attr, aIdx) => (
+                          <div key={aIdx} className="flex items-center gap-1.5">
+                            <Input
+                              className="h-7 text-xs flex-1"
+                              placeholder="Key"
+                              value={attr.key}
+                              onChange={(e) => {
+                                const next = [...newProducts[idx].attributes];
+                                next[aIdx] = { ...next[aIdx], key: e.target.value };
+                                updateNewProduct(idx, { attributes: next });
+                              }}
+                            />
+                            <Input
+                              className="h-7 text-xs flex-1"
+                              placeholder="Value"
+                              value={attr.value}
+                              onChange={(e) => {
+                                const next = [...newProducts[idx].attributes];
+                                next[aIdx] = { ...next[aIdx], value: e.target.value };
+                                updateNewProduct(idx, { attributes: next });
+                              }}
+                            />
+                            <button
+                              type="button"
+                              className="text-muted-foreground hover:text-foreground shrink-0"
+                              onClick={() => {
+                                const next = newProducts[idx].attributes.filter((_, i) => i !== aIdx);
+                                updateNewProduct(idx, { attributes: next });
+                              }}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ))}
                       </div>
                       <Button
                         type="button"

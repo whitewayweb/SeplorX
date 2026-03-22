@@ -229,6 +229,16 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
               </span>
               <span className="text-sm font-medium">{product.unit}</span>
             </div>
+            {product.attributes && Object.keys(product.attributes).length > 0 && (
+              <>
+                {Object.entries(product.attributes).map(([key, value]) => (
+                  <div key={key} className="flex items-center justify-between px-5 py-3.5">
+                    <span className="text-sm text-muted-foreground capitalize">{key}</span>
+                    <span className="text-sm font-medium">{value}</span>
+                  </div>
+                ))}
+              </>
+            )}
             {product.description && (
               <div className="px-5 py-3.5 space-y-1.5">
                 <p className="text-xs font-medium text-muted-foreground">Description</p>

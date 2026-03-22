@@ -25,6 +25,7 @@ export async function getProductById(productId: number, tx: QueryClient = db) {
       quantityOnHand: products.quantityOnHand,
       reorderLevel: products.reorderLevel,
       description: products.description,
+      attributes: products.attributes,
       createdAt: products.createdAt,
     })
     .from(products)

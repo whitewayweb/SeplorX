@@ -37,7 +37,7 @@ DB instance: `db` from `@/db`. Config: **`max: 10`** concurrent connections to s
 | `channel_product_mappings` | id, channelId, channelProductId, seplorxProductId |
 | `channel_product_changelog` | id, mappingId, field, oldValue, newValue, changedAt |
 | `companies` | id, userId, name, type (supplier/customer/both), email, phone |
-| `products` | id, userId, name, sku, description, reorderLevel, stockQuantity |
+| `products` | id, userId, name, sku, description, category, attributes (JSONB), reorderLevel, stockQuantity |
 | `purchase_invoices` | id, userId, supplierId, status, totalAmount (Decimal 12,2) |
 | `purchase_invoice_items` | id, invoiceId, productId, quantity, unitPrice (Decimal 12,2) |
 | `payments` | id, userId, invoiceId, amount (Decimal 12,2), paidAt |
