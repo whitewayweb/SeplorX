@@ -25,7 +25,7 @@ export const invoiceSchema = z.object({
   totalAmount: z.number().describe("The final total amount to be paid."),
   items: z.array(
     z.object({
-      description: z.string().describe("The product name or description of the item."),
+      description: z.string().describe("The product name or description of the item. If you split a single line into multiple variations, include the variation detail (e.g., color) in this description."),
       hsnCode: z.string().nullable().describe(
         "The HSN or SAC tax classification code for this item, if shown on the invoice (typically a 4–8 digit number like '87088000'). This is a government tax code — NOT a product SKU."
       ),
@@ -38,7 +38,7 @@ export const invoiceSchema = z.object({
         "Generated SKUs must be unique within this invoice."
       ),
       quantity: z.number().describe("The quantity of the item purchased."),
-      unitOfMeasure: z.string().nullable().describe("The unit (e.g., pcs, kg, boxes), if available."),
+      unitOfMeasure: z.string().nullable().describe("The unit of measure for this item. If the quantity description explicitly contains a unit (e.g. '15 Nos', '10 Pcs'), extract that unit and use it — it takes priority over any generic column header like 'BOX' or 'PKT'. Normalise 'Nos' to 'nos', 'Pcs' to 'pcs', etc. Output null only if truly unavailable."),
       unitPrice: z.number().describe("The price per single unit."),
       taxPercent: z.number().describe("The tax percentage (e.g. 5, 12, 18) applied to this item. Use 0 if none."),
       taxAmount: z.number().describe("The tax amount for this specific item. Use 0 if none."),
@@ -68,6 +68,8 @@ Read the provided document carefully and map the data to the required JSON struc
 Pay close attention to Part Numbers, HSN/SAC codes, and Units of Measure.
 HSN/SAC tax codes (typically 4–8 digit numbers) belong in hsnCode — never in skuOrItemCode.
 If no actual part number is present, generate a concise descriptive SKU from the product name.
+IMPORTANT: If a single invoice line describes multiple variations of a product (e.g., color differences with specific quantities like "TRANSPARENT - 15 + YELLOW - 10"), you MUST split this into separate distinct line items in your output, one for each variation, with its respective quantity. If a variation has a quantity of 0 (e.g., "TRANS-00" means transparent = 0 units), OMIT that variation entirely — do not include zero-quantity items. When splitting, append the variation detail to any generated SKU (e.g., "CCSB-A-YELLOW" instead of just "CCSB-A").
+For unitOfMeasure: if the quantity text explicitly states a unit (e.g. "15 Nos", "10 Pcs"), always use that unit — do NOT use the generic column unit (e.g. "BOX") when a more specific unit is embedded in the quantity description.
 If a field is not present explicitly, output null.
 Be precise with numbers and do not invent any data.`,
     messages: [
