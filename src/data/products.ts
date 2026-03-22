@@ -233,3 +233,24 @@ export async function insertChannelMappingQuietly(
     .onConflictDoNothing()
     .returning({ id: channelProductMappings.id });
 }
+
+export async function getUniqueAttributeKeys(tx: QueryClient = db) {
+  const result = await tx.execute(sql`
+    SELECT key, count(*)::int as count
+    FROM ${products}, jsonb_object_keys(${products.attributes}) as key
+    GROUP BY key
+    ORDER BY count DESC
+  `);
+  return result as unknown as { key: string; count: number }[];
+}
+
+export async function getAttributeValues(key: string, tx: QueryClient = db) {
+  const result = await tx.execute(sql`
+    SELECT ${products.attributes}->>${key} as value, count(*)::int as count
+    FROM ${products}
+    WHERE ${products.attributes} ? ${key}
+    GROUP BY value
+    ORDER BY count DESC
+  `);
+  return result as unknown as { value: string; count: number }[];
+}

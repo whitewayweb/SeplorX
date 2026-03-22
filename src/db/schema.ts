@@ -202,7 +202,9 @@ export const products = pgTable("products", {
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-}).enableRLS();
+}, (table) => [
+  index("products_attributes_idx").using("gin", table.attributes),
+]).enableRLS();
 
 // ─── Purchase Invoices ───────────────────────────────────────────────────────
 

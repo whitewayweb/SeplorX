@@ -21,7 +21,9 @@ import {
   getProductById,
   getExternalProducts,
   getExistingMappingsForChannel,
-  insertChannelMappingQuietly
+  insertChannelMappingQuietly,
+  getUniqueAttributeKeys,
+  getAttributeValues
 } from "@/data/products";
 
 export type ChannelProductWithState = ExternalProduct & {
@@ -545,5 +547,25 @@ export async function saveChannelMappings(
   } catch (err) {
     console.error("[saveChannelMappings]", { channelId, productId, error: String(err) });
     return { error: String(err).replace(/^Error:\s*/, "") || "Failed to save mappings. Please try again." };
+  }
+}
+
+export async function getAttributeKeys() {
+  try {
+    await getAuthenticatedUserId();
+    return await getUniqueAttributeKeys();
+  } catch (err) {
+    console.error("[getAttributeKeys]", err);
+    return [];
+  }
+}
+
+export async function getAttributeValuesAction(key: string) {
+  try {
+    await getAuthenticatedUserId();
+    return await getAttributeValues(key);
+  } catch (err) {
+    console.error("[getAttributeValuesAction]", err);
+    return [];
   }
 }
