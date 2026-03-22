@@ -131,7 +131,7 @@ For channels with token refreshing, feed polling, or complex pagination (like Am
 
 1. Create `src/lib/channels/{id}/api/client.ts` — encapsulate all HTTP, token refresh, polling, parsing in a class
 2. Keep `index.ts` as a thin adapter that instantiates the client and calls its high-level methods
-3. Create `src/lib/channels/{id}/queries.ts` for channel-specific JSONB extraction and DB convenience queries
+3. Create `src/data/channels.ts` (or update it) for channel-specific JSONB extraction and DB convenience queries using the DAL pattern.
 
 ## Step 4 — OAuth Callback (OAuth channels only)
 
@@ -173,9 +173,9 @@ Implement `fetchProducts(storeUrl, credentials, search?)` returning `ExternalPro
 - `stockQuantity` — native int column
 - `rawData` JSONB — full platform payload (for channel-specific fields like `brand`, `category`, `price`)
 
-**Scalable JSONB filtering:** Implement `extractSqlField(fieldName)` in `src/lib/channels/{id}/queries.ts`. This keeps SQL extraction logic channel-local rather than in global `CASE` statements:
+**Scalable JSONB filtering:** Implement `extractSqlField(fieldName)` in `src/data/channels.ts` (or domain file). This keeps SQL extraction logic channel-local rather than in global `CASE` statements:
 ```typescript
-// queries.ts
+// src/data/channels.ts
 export function extractSqlField(fieldName: string) {
   if (fieldName === "brand") return sql`${channelProducts.rawData}->>'brand'`;
   return null;
@@ -230,7 +230,7 @@ if (!channel) notFound();  // 404 for both missing AND unauthorized
 | `src/lib/channels/types.ts` | `ChannelType` union, `ChannelHandler` interface, `ChannelDefinition` |
 | `src/lib/channels/handlers.ts` | Handler map — register new handler here |
 | `src/lib/channels/{id}/index.ts` | **Create this** — ChannelHandler implementation |
-| `src/lib/channels/{id}/queries.ts` | **Create this** — JSONB field extraction, channel-specific DB queries |
+| `src/data/channels.ts` | **Edit here** — JSONB field extraction, channel-specific DB queries |
 | `src/app/api/channels/[type]/callback/route.ts` | Generic OAuth callback — no edits needed |
 | `src/app/api/channels/[type]/webhook/[channelId]/route.ts` | Generic webhook receiver — no edits needed |
 | `src/lib/channels/queries.ts` | Shared DAL — `getChannelForUser`, `upsertChannelProducts` |

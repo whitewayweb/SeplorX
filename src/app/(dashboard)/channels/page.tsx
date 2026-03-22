@@ -1,8 +1,5 @@
 export const dynamic = "force-dynamic";
 
-import { db } from "@/db";
-import { channels, channelProductMappings, agentActions } from "@/db/schema";
-import { and, countDistinct, desc, eq, sql } from "drizzle-orm";
 import { PageHeader } from "@/components/molecules/layout/page-header";
 import { ChannelList } from "@/components/organisms/channels/channel-list";
 import { AddChannelWizard } from "@/components/organisms/channels/add-channel-wizard";
@@ -11,6 +8,8 @@ import type { ChannelInstance } from "@/lib/channels/types";
 import type { ChannelMappingPlan } from "@/lib/agents/tools/channel-mapping-tools";
 import { getCachedProductCountsByChannel } from "@/lib/channels/queries";
 import { getAuthenticatedUserId } from "@/lib/auth";
+import { getChannelsListWithWebhooks, getMappedProductsCountPerChannel } from "@/data/channels";
+import { getPendingAgentTasks } from "@/data/agents";
 
 export default async function ChannelsPage({
   searchParams,
@@ -22,49 +21,10 @@ export default async function ChannelsPage({
 
   // Run the 4 independent data fetching operations in parallel
   const [channelsRows, cachedProductCountMap, mappingCounts, pendingMappingTasks] = await Promise.all([
-    // 1. Fetch channels (Compute hasWebhooks via SQL without pulling full credentials blob)
-    db
-      .select({
-        id: channels.id,
-        channelType: channels.channelType,
-        name: channels.name,
-        status: channels.status,
-        storeUrl: channels.storeUrl,
-        defaultPickupLocation: channels.defaultPickupLocation,
-        createdAt: channels.createdAt,
-        hasWebhooks: sql<boolean>`coalesce((${channels.credentials}->>'webhookSecret'), '') != ''`.as("hasWebhooks"),
-      })
-      .from(channels)
-      .where(eq(channels.userId, userId))
-      .orderBy(channels.createdAt),
-
-    // 2. Fetch cached product counts
+    getChannelsListWithWebhooks(userId),
     getCachedProductCountsByChannel(),
-
-    // 3. Count DISTINCT mapped products per channel
-    db
-      .select({
-        channelId: channelProductMappings.channelId,
-        count: countDistinct(channelProductMappings.productId),
-      })
-      .from(channelProductMappings)
-      .groupBy(channelProductMappings.channelId),
-
-    // 4. Pending AI channel mapping approvals
-    db
-      .select({
-        id: agentActions.id,
-        plan: agentActions.plan,
-        createdAt: agentActions.createdAt,
-      })
-      .from(agentActions)
-      .where(
-        and(
-          eq(agentActions.status, "pending_approval"),
-          eq(agentActions.agentType, "channel_mapping")
-        )
-      )
-      .orderBy(desc(agentActions.createdAt))
+    getMappedProductsCountPerChannel(),
+    getPendingAgentTasks("channel_mapping")
   ]);
 
   const channelInstances: ChannelInstance[] = channelsRows.map((row) => ({

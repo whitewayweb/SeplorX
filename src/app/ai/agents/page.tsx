@@ -1,17 +1,12 @@
-import { db } from "@/db";
-import { settings } from "@/db/schema";
-import { like } from "drizzle-orm";
 import { AGENT_REGISTRY } from "@/lib/agents/registry";
 import { AgentCard } from "./agent-card";
+import { getAgentActiveSettings } from "@/data/agents";
 
 export const dynamic = "force-dynamic";
 
 export default async function AgentsPage() {
   // Fetch all agent toggle settings (keys namespaced as agent:*:isActive)
-  const settingsRows = await db
-    .select()
-    .from(settings)
-    .where(like(settings.key, "agent:%:isActive"));
+  const settingsRows = await getAgentActiveSettings();
 
   const settingsMap = new Map(
     settingsRows.map((s) => [s.key, s.value as boolean])

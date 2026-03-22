@@ -8,7 +8,7 @@ import {
   products,
   inventoryTransactions,
 } from "@/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import {
   CreateInvoiceSchema,
@@ -18,6 +18,10 @@ import {
   PaymentIdSchema,
 } from "@/lib/validations/invoices";
 import type { LineItemInput } from "@/lib/validations/invoices";
+import {
+  getInvoiceDetails,
+  getInvoiceLineItems,
+} from "@/data/invoices";
 import { getAuthenticatedUserId } from "@/lib/auth";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -258,32 +262,79 @@ export async function deleteInvoice(_prevState: unknown, formData: FormData) {
   const { id } = parsed.data;
 
   try {
-    const existing = await db
-      .select({ id: purchaseInvoices.id })
-      .from(purchaseInvoices)
-      .where(eq(purchaseInvoices.id, id))
-      .limit(1);
+    await db.transaction(async (tx) => {
+      // 1. Get invoice header to check status and company
+      const invoice = await getInvoiceDetails(id, tx);
 
-    if (existing.length === 0) {
-      return { error: "Invoice not found." };
-    }
+      if (!invoice) throw new Error("INVOICE_NOT_FOUND");
 
-    // Line items cascade-delete, but payments FK blocks deletion
-    await db.delete(purchaseInvoices).where(eq(purchaseInvoices.id, id));
+      // 2. Check for existing payments
+      const [existingPayment] = await tx
+        .select({ id: payments.id })
+        .from(payments)
+        .where(eq(payments.invoiceId, id))
+        .limit(1);
+
+      if (existingPayment) {
+        throw new Error("PAYMENT_BLOCK");
+      }
+
+      // 3. If the invoice was Received/Partial/Paid, we must reverse the stock impact
+      if (invoice.status !== "draft" && invoice.status !== "cancelled") {
+        const items = await getInvoiceLineItems(id, tx);
+
+        for (const item of items) {
+          if (item.productId) {
+            const qty = Math.floor(parseFloat(item.quantity));
+            if (qty > 0) {
+              // Decrement stock
+              await tx
+                .update(products)
+                .set({
+                  quantityOnHand: sql`${products.quantityOnHand} - ${qty}`,
+                  updatedAt: new Date(),
+                })
+                .where(eq(products.id, item.productId));
+
+              // We could also insert a 'return' transaction, but since we are HARD DELETING
+              // the reason for the original 'purchase_in', we should just delete the original transactions
+            }
+          }
+        }
+
+        // 4. Delete related inventory transactions
+        await tx.delete(inventoryTransactions).where(
+          and(
+            eq(inventoryTransactions.referenceType, "purchase_invoice"),
+            eq(inventoryTransactions.referenceId, id)
+          )
+        );
+      }
+
+      // 5. Finally delete the invoice (items cascade delete)
+      await tx.delete(purchaseInvoices).where(eq(purchaseInvoices.id, id));
+    });
   } catch (err) {
     console.error("[deleteInvoice]", { invoiceId: id, error: String(err) });
+    if (err instanceof Error && err.message === "INVOICE_NOT_FOUND") return { error: "Invoice not found." };
+    if (err instanceof Error && err.message === "PAYMENT_BLOCK") {
+      return { error: "Cannot delete invoice with existing payments. Please delete all related payments first." };
+    }
+    
     if (
       err &&
       typeof err === "object" &&
       "code" in err &&
       err.code === "23503"
     ) {
-      return { error: "Cannot delete invoice with existing payments. Cancel it instead." };
+      return { error: "Cannot delete invoice with existing payments. Please delete all related payments first." };
     }
     return { error: "Failed to delete invoice. Please try again." };
   }
 
   revalidatePath("/invoices");
+  revalidatePath("/inventory");
+  revalidatePath("/products");
   return { success: true };
 }
 

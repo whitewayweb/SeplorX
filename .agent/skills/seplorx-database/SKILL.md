@@ -37,7 +37,7 @@ DB instance: `db` from `@/db`. Config: **`max: 10`** concurrent connections to s
 | `channel_product_mappings` | id, channelId, channelProductId, seplorxProductId |
 | `channel_product_changelog` | id, mappingId, field, oldValue, newValue, changedAt |
 | `companies` | id, userId, name, type (supplier/customer/both), email, phone |
-| `products` | id, userId, name, sku, description, reorderLevel, stockQuantity |
+| `products` | id, userId, name, sku, description, category, attributes (JSONB), reorderLevel, stockQuantity |
 | `purchase_invoices` | id, userId, supplierId, status, totalAmount (Decimal 12,2) |
 | `purchase_invoice_items` | id, invoiceId, productId, quantity, unitPrice (Decimal 12,2) |
 | `payments` | id, userId, invoiceId, amount (Decimal 12,2), paidAt |
@@ -67,6 +67,11 @@ Migrations run automatically via GitHub Actions on every push to `main`. Vercel 
 4. **Timestamps:** `timestamp("created_at").defaultNow().notNull()`
 
 ## Safe Query Patterns
+
+### Always use the Data Access Layer (DAL)
+All `db.select()` queries for reading data MUST be extracted into `src/data/<domain>.ts`. 
+- **Page Components**: Call DAL functions to fetch data.
+- **Why**: Reusability, cleaner pages, and easier testing.
 
 ### Always select explicit columns
 ```typescript
@@ -127,6 +132,12 @@ await db.transaction(async (tx) => {
   // If either fails, both are rolled back
 });
 ```
+
+### Data Integrity for Deletions
+When deleting a record that has side effects or downstream impacts (e.g., a Purchase Invoice that increased stock), you MUST reverse those impacts in the same transaction:
+1. **Fetch impacts**: Get all related items (e.g., `purchaseInvoiceItems`) before deleting the parent.
+2. **Reverse logic**: Decrement stock (`quantity_on_hand`) and delete metadata/logs (e.g., `inventory_transactions`).
+3. **Atomic deletion**: Wrap the reversal and final deletion in a `db.transaction`.
 
 ### Always scope queries by userId (IDOR prevention)
 ```typescript

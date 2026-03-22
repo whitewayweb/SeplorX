@@ -1,6 +1,3 @@
-import { db } from "@/db";
-import { companies } from "@/db/schema";
-import { eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Mail, Phone, MapPin, Building2 } from "lucide-react";
@@ -9,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CompanyStatusBadge } from "@/components/organisms/companies/company-status-badge";
 import { CompanyTypeBadge } from "@/components/organisms/companies/company-type-badge";
 import { CompanyDialog } from "@/components/organisms/companies/company-dialog";
+import { getCompanyById } from "@/data/companies";
 
 export const dynamic = "force-dynamic";
 
@@ -24,17 +22,11 @@ export default async function CompanyDetailPage({ params }: CompanyDetailPagePro
     notFound();
   }
 
-  const result = await db
-    .select()
-    .from(companies)
-    .where(eq(companies.id, companyId))
-    .limit(1);
+  const company = await getCompanyById(companyId);
 
-  if (result.length === 0) {
+  if (!company) {
     notFound();
   }
-
-  const company = result[0];
 
   const addressParts = [company.address, company.city, company.state, company.pincode]
     .filter(Boolean)

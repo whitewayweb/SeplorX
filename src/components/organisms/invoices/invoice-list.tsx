@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
+import { toast } from "sonner";
 import Link from "next/link";
 import {
   Table,
@@ -52,8 +53,23 @@ function formatDate(value: string | null): string {
 function DeleteButton({ invoice }: { invoice: Invoice }) {
   const [state, action, pending] = useActionState(deleteInvoice, null);
 
+  useEffect(() => {
+    if (state?.error) {
+      toast.error(state.error);
+    } else if (state?.success) {
+      toast.success("Invoice deleted successfully");
+    }
+  }, [state]);
+
   return (
-    <form action={action}>
+    <form
+      action={action}
+      onSubmit={(e) => {
+        if (!window.confirm(`Are you sure you want to delete invoice ${invoice.invoiceNumber}? This will also reverse its stock impact.`)) {
+          e.preventDefault();
+        }
+      }}
+    >
       <input type="hidden" name="id" value={invoice.id} />
       <Button
         variant="ghost"
@@ -64,9 +80,6 @@ function DeleteButton({ invoice }: { invoice: Invoice }) {
       >
         <Trash2 className="h-4 w-4 text-destructive" />
       </Button>
-      {state?.error && (
-        <span className="text-xs text-destructive">{state.error}</span>
-      )}
     </form>
   );
 }

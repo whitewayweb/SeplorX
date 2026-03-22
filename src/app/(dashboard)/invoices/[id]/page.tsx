@@ -1,12 +1,3 @@
-import { db } from "@/db";
-import {
-  purchaseInvoices,
-  purchaseInvoiceItems,
-  payments,
-  companies,
-  products,
-} from "@/db/schema";
-import { eq, desc } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Building2, Calendar, Hash } from "lucide-react";
@@ -24,6 +15,7 @@ import {
 import { PaymentDialog } from "@/components/organisms/invoices/payment-dialog";
 import { DeletePaymentButton } from "@/components/organisms/invoices/delete-payment-button";
 import { InvoiceEditDialog } from "@/components/organisms/invoices/invoice-edit-dialog";
+import { getInvoiceDetails, getInvoiceLineItems, getInvoicePayments } from "@/data/invoices";
 
 export const dynamic = "force-dynamic";
 
@@ -67,68 +59,13 @@ export default async function InvoiceDetailPage({ params }: InvoiceDetailPagePro
     notFound();
   }
 
-  // Fetch invoice with company name
-  const result = await db
-    .select({
-      id: purchaseInvoices.id,
-      invoiceNumber: purchaseInvoices.invoiceNumber,
-      companyId: purchaseInvoices.companyId,
-      invoiceDate: purchaseInvoices.invoiceDate,
-      dueDate: purchaseInvoices.dueDate,
-      status: purchaseInvoices.status,
-      subtotal: purchaseInvoices.subtotal,
-      taxAmount: purchaseInvoices.taxAmount,
-      discountAmount: purchaseInvoices.discountAmount,
-      totalAmount: purchaseInvoices.totalAmount,
-      amountPaid: purchaseInvoices.amountPaid,
-      notes: purchaseInvoices.notes,
-      createdAt: purchaseInvoices.createdAt,
-      companyName: companies.name,
-    })
-    .from(purchaseInvoices)
-    .innerJoin(companies, eq(purchaseInvoices.companyId, companies.id))
-    .where(eq(purchaseInvoices.id, invoiceId))
-    .limit(1);
+  const invoice = await getInvoiceDetails(invoiceId);
+  if (!invoice) notFound();
 
-  if (result.length === 0) {
-    notFound();
-  }
-
-  const invoice = result[0];
-
-  // Fetch line items with optional product name
-  const items = await db
-    .select({
-      id: purchaseInvoiceItems.id,
-      productId: purchaseInvoiceItems.productId,
-      description: purchaseInvoiceItems.description,
-      quantity: purchaseInvoiceItems.quantity,
-      unitPrice: purchaseInvoiceItems.unitPrice,
-      taxPercent: purchaseInvoiceItems.taxPercent,
-      taxAmount: purchaseInvoiceItems.taxAmount,
-      totalAmount: purchaseInvoiceItems.totalAmount,
-      sortOrder: purchaseInvoiceItems.sortOrder,
-      productName: products.name,
-    })
-    .from(purchaseInvoiceItems)
-    .leftJoin(products, eq(purchaseInvoiceItems.productId, products.id))
-    .where(eq(purchaseInvoiceItems.invoiceId, invoiceId))
-    .orderBy(purchaseInvoiceItems.sortOrder);
-
-  // Fetch payments
-  const paymentList = await db
-    .select({
-      id: payments.id,
-      amount: payments.amount,
-      paymentDate: payments.paymentDate,
-      paymentMode: payments.paymentMode,
-      reference: payments.reference,
-      notes: payments.notes,
-      createdAt: payments.createdAt,
-    })
-    .from(payments)
-    .where(eq(payments.invoiceId, invoiceId))
-    .orderBy(desc(payments.createdAt));
+  const [items, paymentList] = await Promise.all([
+    getInvoiceLineItems(invoiceId),
+    getInvoicePayments(invoiceId)
+  ]);
 
   const statusConfig = STATUS_CONFIG[invoice.status] ?? { label: invoice.status, variant: "outline" as const };
   const remainingBalance = parseFloat(invoice.totalAmount) - parseFloat(invoice.amountPaid);

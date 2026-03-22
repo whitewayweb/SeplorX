@@ -1,6 +1,6 @@
 "use client";
 
-import { useOptimistic, useTransition } from "react";
+import { useOptimistic, useTransition, useState } from "react";
 import { toast } from "sonner";
 import Link from "next/link";
 import {
@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { ProductDialog } from "@/components/organisms/products/product-dialog";
 import { StockAdjustmentDialog } from "@/components/organisms/products/stock-adjustment-dialog";
 import { toggleProductActive, deleteProduct } from "@/app/(dashboard)/products/actions";
@@ -29,6 +31,7 @@ type Product = {
   reorderLevel: number;
   quantityOnHand: number;
   isActive: boolean;
+  isDeleting?: boolean;
 };
 
 interface ProductListProps {
@@ -77,19 +80,36 @@ function ToggleButton({ product, onToggleOptimistic }: { product: Product, onTog
 function DeleteButton({ product, onDeleteOptimistic }: { product: Product, onDeleteOptimistic: () => void }) {
   const [pending, startTransition] = useTransition();
 
+  async function handleDelete(formData: FormData) {
+    startTransition(async () => {
+      onDeleteOptimistic();
+      const result = await deleteProduct(null, formData);
+      if (result.error) {
+        if ("code" in result && result.code === "HISTORY_BLOCK") {
+          // If it failed due to history, offer force delete
+          if (window.confirm("This product has inventory history. Deleting it will PERMANENTLY purge all stock transaction records. Are you sure you want to FORCE DELETE?")) {
+            const forceData = new FormData();
+            forceData.append("id", String(product.id));
+            forceData.append("force", "true");
+            const forceResult = await deleteProduct(null, forceData);
+            if (forceResult.error) {
+              toast.error(forceResult.error);
+            } else {
+              toast.success("Product and history deleted successfully");
+            }
+          }
+        } else {
+          toast.error(result.error);
+        }
+      } else if (result.success) {
+        toast.success("Product deleted successfully");
+      }
+    });
+  }
+
   return (
     <form
-      action={(formData) => {
-        startTransition(async () => {
-          onDeleteOptimistic();
-          const result = await deleteProduct(null, formData);
-          if (result.error) {
-            toast.error(result.error);
-          } else if (result.success) {
-            toast.success("Product deleted successfully");
-          }
-        });
-      }}
+      action={handleDelete}
       onSubmit={(e) => {
         if (!window.confirm("Are you sure you want to delete this product?")) {
           e.preventDefault();
@@ -117,8 +137,9 @@ function formatPrice(value: string | null): string {
 }
 
 export function ProductList({ products }: ProductListProps) {
+  const [showInactive, setShowInactive] = useState(false);
   const [optimisticProducts, setOptimisticProducts] = useOptimistic(
-    products,
+    products.map(p => ({ ...p, isDeleting: false })),
     (state, info: { action: "toggle" | "delete"; id: number }) => {
       switch (info.action) {
         case "toggle":
@@ -126,12 +147,16 @@ export function ProductList({ products }: ProductListProps) {
             p.id === info.id ? { ...p, isActive: !p.isActive } : p
           );
         case "delete":
-          return state.filter((p) => p.id !== info.id);
+          return state.map((p) => p.id === info.id ? { ...p, isDeleting: true } : p);
         default:
           return state;
       }
     }
   );
+
+  const filteredProducts = showInactive 
+    ? optimisticProducts 
+    : optimisticProducts.filter(p => p.isActive);
 
   if (optimisticProducts.length === 0) {
     return (
@@ -145,60 +170,80 @@ export function ProductList({ products }: ProductListProps) {
   }
 
   return (
-    <div className="rounded-md border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>SKU</TableHead>
-            <TableHead>Category</TableHead>
-            <TableHead>Unit</TableHead>
-            <TableHead className="text-right">Purchase</TableHead>
-            <TableHead className="text-right">Selling</TableHead>
-            <TableHead className="text-right">Stock</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {optimisticProducts.map((product) => (
-            <TableRow key={product.id}>
-              <TableCell className="font-medium">
-                <Link href={`/products/${product.id}`} className="hover:underline text-primary">
-                  {product.name}
-                </Link>
-              </TableCell>
-              <TableCell className="font-mono text-sm">{product.sku ?? "—"}</TableCell>
-              <TableCell>{product.category ?? "—"}</TableCell>
-              <TableCell>{product.unit}</TableCell>
-              <TableCell className="text-right">{formatPrice(product.purchasePrice)}</TableCell>
-              <TableCell className="text-right">{formatPrice(product.sellingPrice)}</TableCell>
-              <TableCell className="text-right">
-                <StockBadge quantity={product.quantityOnHand} reorderLevel={product.reorderLevel} />
-              </TableCell>
-              <TableCell>
-                <Badge variant={product.isActive ? "default" : "secondary"} className="transition-colors">
-                  {product.isActive ? "Active" : "Inactive"}
-                </Badge>
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center justify-end gap-1">
-                  <StockAdjustmentDialog productId={product.id} productName={product.name} />
-                  <ProductDialog product={product} />
-                  <ToggleButton
-                    product={product}
-                    onToggleOptimistic={() => setOptimisticProducts({ action: "toggle", id: product.id })}
-                  />
-                  <DeleteButton
-                    product={product}
-                    onDeleteOptimistic={() => setOptimisticProducts({ action: "delete", id: product.id })}
-                  />
-                </div>
-              </TableCell>
+    <div className="space-y-4">
+      <div className="flex items-center space-x-2 px-1">
+        <Switch 
+          id="show-inactive" 
+          checked={showInactive} 
+          onCheckedChange={setShowInactive} 
+        />
+        <Label htmlFor="show-inactive" className="text-sm font-medium cursor-pointer">
+          Show Inactive Products
+        </Label>
+      </div>
+
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>SKU</TableHead>
+              <TableHead>Category</TableHead>
+              <TableHead>Unit</TableHead>
+              <TableHead className="text-right">Purchase</TableHead>
+              <TableHead className="text-right">Selling</TableHead>
+              <TableHead className="text-right">Stock</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {filteredProducts.map((product) => (
+              <TableRow key={product.id} className={product.isDeleting ? "opacity-30 pointer-events-none" : !product.isActive ? "opacity-60 bg-muted/30" : ""}>
+                <TableCell className="font-medium">
+                  <Link href={`/products/${product.id}`} className="hover:underline text-primary">
+                    {product.name}
+                  </Link>
+                </TableCell>
+                <TableCell className="font-mono text-sm">{product.sku ?? "—"}</TableCell>
+                <TableCell>{product.category ?? "—"}</TableCell>
+                <TableCell>{product.unit}</TableCell>
+                <TableCell className="text-right">{formatPrice(product.purchasePrice)}</TableCell>
+                <TableCell className="text-right">{formatPrice(product.sellingPrice)}</TableCell>
+                <TableCell className="text-right">
+                  <StockBadge quantity={product.quantityOnHand} reorderLevel={product.reorderLevel} />
+                </TableCell>
+                <TableCell>
+                  <Badge variant={product.isActive ? "default" : "secondary"} className="transition-colors">
+                    {product.isActive ? "Active" : "Inactive"}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center justify-end gap-1">
+                    <StockAdjustmentDialog productId={product.id} productName={product.name} />
+                    <ProductDialog product={product} />
+                    <ToggleButton
+                      product={product}
+                      onToggleOptimistic={() => setOptimisticProducts({ action: "toggle", id: product.id })}
+                    />
+                    <DeleteButton
+                      product={product}
+                      onDeleteOptimistic={() => setOptimisticProducts({ action: "delete", id: product.id })}
+                    />
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+            {filteredProducts.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                  No active products found matching your description.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }

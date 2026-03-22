@@ -25,6 +25,9 @@ if (env.isDevelopment) {
 }
 
 export const db = drizzle(sql, { schema });
+export type DbClient = typeof db;
+export type TxClient = Parameters<Parameters<DbClient["transaction"]>[0]>[0];
+export type QueryClient = DbClient | TxClient;
 
 /**
  * Check if database connection is healthy
