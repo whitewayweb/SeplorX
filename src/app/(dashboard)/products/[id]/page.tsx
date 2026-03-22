@@ -317,7 +317,11 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
                           {ph.invoiceNumber}
                         </Link>
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground truncate max-w-[200px]">{ph.companyName}</td>
+                      <td className="px-4 py-3 text-muted-foreground truncate max-w-[200px]">
+                        <Link href={`/companies/${ph.companyId}`} className="hover:underline hover:text-foreground">
+                          {ph.companyName}
+                        </Link>
+                      </td>
                       <td className="px-4 py-3 text-right tabular-nums">{ph.quantity}</td>
                       <td className="px-4 py-3 pr-5 text-right font-medium tabular-nums">{formatPrice(ph.unitPrice)}</td>
                     </tr>
@@ -396,7 +400,14 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
                             {txn.quantity > 0 ? `+${txn.quantity}` : txn.quantity}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-muted-foreground">{txn.referenceType ?? "—"}</td>
+                        <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
+                          {txn.referenceType === "purchase_invoice" && txn.companyId && (
+                            <Link href={`/companies/${txn.companyId}`} className="text-blue-600 dark:text-blue-400 hover:underline block text-xs mb-1">
+                              View Vendor
+                            </Link>
+                          )}
+                          {txn.referenceType ?? "—"}
+                        </td>
                         <td className="px-4 py-3 pr-5 text-muted-foreground max-w-[200px] truncate">
                           {txn.notes && txn.referenceType === "purchase_invoice" && txn.referenceId ? (
                             <Link href={`/invoices/${txn.referenceId}`} className="text-blue-600 dark:text-blue-400 hover:underline">

@@ -58,8 +58,10 @@ export async function getInventoryTransactionsForProduct(productId: number, tx: 
       referenceId: inventoryTransactions.referenceId,
       notes: inventoryTransactions.notes,
       createdAt: inventoryTransactions.createdAt,
+      companyId: purchaseInvoices.companyId,
     })
     .from(inventoryTransactions)
+    .leftJoin(purchaseInvoices, eq(inventoryTransactions.referenceId, purchaseInvoices.id))
     .where(eq(inventoryTransactions.productId, productId))
     .orderBy(desc(inventoryTransactions.createdAt))
     .limit(50);
@@ -72,6 +74,7 @@ export async function getProductPurchaseHistory(productId: number, tx: QueryClie
       invoiceId: purchaseInvoices.id,
       invoiceNumber: purchaseInvoices.invoiceNumber,
       invoiceDate: purchaseInvoices.invoiceDate,
+      companyId: companies.id,
       companyName: companies.name,
       quantity: purchaseInvoiceItems.quantity,
       unitPrice: purchaseInvoiceItems.unitPrice,
