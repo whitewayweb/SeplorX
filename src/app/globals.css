@@ -160,3 +160,15 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer components {
+
+  /* Line variant customization */
+  [data-variant="line"] [data-slot="tabs-trigger"][data-state="active"] {
+    @apply text-primary font-bold;
+  }
+
+  [data-variant="line"] [data-slot="tabs-trigger"][data-state="active"]::after {
+    @apply bg-primary;
+  }
+}

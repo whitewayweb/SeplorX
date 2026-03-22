@@ -12,7 +12,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Search, ChevronDown, ChevronRight } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { getAttributeValuesAction } from "@/app/(dashboard)/products/actions";
 
 interface AttributeKey {
