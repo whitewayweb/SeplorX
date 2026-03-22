@@ -266,7 +266,7 @@ export async function deleteInvoice(_prevState: unknown, formData: FormData) {
       // 1. Get invoice header to check status and company
       const invoice = await getInvoiceDetails(id, tx);
 
-      if (!invoice) throw new Error("Invoice not found.");
+      if (!invoice) throw new Error("INVOICE_NOT_FOUND");
 
       // 2. Check for existing payments
       const [existingPayment] = await tx
@@ -316,8 +316,8 @@ export async function deleteInvoice(_prevState: unknown, formData: FormData) {
     });
   } catch (err) {
     console.error("[deleteInvoice]", { invoiceId: id, error: String(err) });
-    if (String(err) === "Invoice not found.") return { error: String(err) };
-    if (String(err) === "Error: PAYMENT_BLOCK") {
+    if (err instanceof Error && err.message === "INVOICE_NOT_FOUND") return { error: "Invoice not found." };
+    if (err instanceof Error && err.message === "PAYMENT_BLOCK") {
       return { error: "Cannot delete invoice with existing payments. Please delete all related payments first." };
     }
     

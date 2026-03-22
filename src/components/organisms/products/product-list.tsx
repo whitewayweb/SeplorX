@@ -31,6 +31,7 @@ type Product = {
   reorderLevel: number;
   quantityOnHand: number;
   isActive: boolean;
+  isDeleting?: boolean;
 };
 
 interface ProductListProps {
