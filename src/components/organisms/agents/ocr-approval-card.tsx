@@ -180,7 +180,7 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
       sku: item.skuOrItemCode ?? "",
       unit: item.unitOfMeasure ?? "",
       purchasePrice: String(item.unitPrice),
-      attributes: Object.entries(item.attributes ?? {}).map(([k, v]) => ({ key: k, value: v })),
+      attributes: item.attributes ? [...item.attributes] : [],
     })),
   );
   const [creatingItemIdx, setCreatingItemIdx] = useState<number | null>(null);

@@ -43,12 +43,16 @@ export const invoiceSchema = z.object({
       taxPercent: z.number().describe("The tax percentage (e.g. 5, 12, 18) applied to this item. Use 0 if none."),
       taxAmount: z.number().describe("The tax amount for this specific item. Use 0 if none."),
       totalAmount: z.number().describe("The total price for this line item including tax."),
-      attributes: z.record(z.string(), z.string()).optional().describe(
-        "Structured product attributes extracted from the line item description. " +
-        "Common keys: 'color', 'size', 'material', 'grade'. " +
-        "Extract ONLY attributes clearly stated in the item description (e.g., colour from 'YELLOW', size from 'A'). " +
-        "Example: { \"color\": \"Yellow\", \"size\": \"A\" }. " +
-        "Omit this field entirely if no attributes are discernible."
+      attributes: z.array(
+        z.object({
+          key: z.string().describe("Attribute name (e.g., 'color', 'size', 'series', 'brand')"),
+          value: z.string().describe("Attribute value (e.g., 'Yellow', 'Series A', 'Series B', 'Bosch', 'Hiya Automotive'). For series letters like A or B, prefix them to be 'Series A' or 'Series B'.")
+        })
+      ).describe(
+        "A list of structured product attributes, specifications, or variants extracted from the item description. " +
+        "You MUST extract ALL discernible attributes. " +
+        "Example: [{ \"key\": \"color\", \"value\": \"Yellow\" }, { \"key\": \"series\", \"value\": \"Series A\" }]. " +
+        "If there are absolutely no discernible attributes, return an empty array []."
       )
     })
   ).describe("The list of products or materials purchased on the invoice.")
