@@ -261,8 +261,19 @@ export async function getExternalProducts(
 export async function getVariationsForParent(
   channelId: number,
   parentId: string,
+  search?: string,
   tx: QueryClient = db,
 ): Promise<ChannelProductWithState[]> {
+  const where = and(
+    eq(channelProducts.channelId, channelId),
+    sql`${channelProducts.rawData}->>'parentId' = ${parentId}`,
+    search
+      ? sql`(
+          ${channelProducts.name} ILIKE ${`%${search}%`} OR 
+          ${channelProducts.sku} ILIKE ${`%${search}%`}
+        )`
+      : undefined,
+  );
   const results = await tx
     .select({
       id: channelProducts.externalId,
@@ -293,12 +304,7 @@ export async function getVariationsForParent(
       eq(channelProducts.externalId, channelProductMappings.externalProductId),
     )
     .leftJoin(products, eq(channelProductMappings.productId, products.id))
-    .where(
-      and(
-        eq(channelProducts.channelId, channelId),
-        sql`${channelProducts.rawData}->>'parentId' = ${parentId}`,
-      ),
-    )
+    .where(where)
     .orderBy(channelProducts.externalId);
 
   return results as unknown as ChannelProductWithState[];

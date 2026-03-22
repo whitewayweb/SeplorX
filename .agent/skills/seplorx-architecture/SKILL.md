@@ -107,10 +107,15 @@ Data flows one way: **Server Component → props → Client Component → Server
 - No speculative features or config flags.
 - Three similar lines > one premature helper function.
 
-## Lint Rules
+## Search Patterns (Performant)
 
-- React 19: no `setState` inside `useEffect`, no ref access during render.
-- Never prefix variables with `_` to bypass ESLint — remove unused variables entirely.
+To provide a responsive search experience without overloading the database:
+
+1.  **Client-Side Debouncing**: Use a 500ms `setTimeout` in a `useEffect` to bridge the gap between user keystrokes (`searchQuery`) and the actual filtering logic (`activeSearch`).
+2.  **Server-Side Deep Search**: When filtering parent products, use `EXISTS` subqueries to also match against their children/variations. This ensures that a search for a specific variation SKU still returns its parent container if relevant.
+3.  **Global Flattening**: For search-intensive tasks (like mapping), flatten hierarchies during search so that matching variations appear as primary results alongside simple products. This improves visibility and simplifies interaction.
+
+## Lint Rules
 
 ## Key Files
 

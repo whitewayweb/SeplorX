@@ -515,13 +515,14 @@ export async function fetchChannelVariations(
   channelId: number,
   productId: number,
   parentId: string,
+  search?: string,
 ): Promise<ChannelProductWithState[] | { error: string }> {
   try {
     const userId = await getAuthenticatedUserId();
     const channel = await getConnectedChannel(userId, channelId);
     if (!channel || channel.status !== "connected") throw new Error("Channel not found or not connected.");
 
-    const rawVariations = await getVariationsForParent(channelId, parentId);
+    const rawVariations = await getVariationsForParent(channelId, parentId, search);
     
     return rawVariations.map((v): ChannelProductWithState => ({
       ...v,

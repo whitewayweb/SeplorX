@@ -116,26 +116,30 @@ function VariableProductGroup({
   onToggle,
   channelId,
   productId,
+  activeSearch,
 }: {
   parent: ChannelProductWithState;
   selectedIds: Map<string, string>;
   onToggle: (id: string, name: string) => void;
   channelId: number;
   productId: number;
+  activeSearch?: string;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [variations, setVariations] = useState<ChannelProductWithState[] | null>(null);
+  const [lastLoadedSearch, setLastLoadedSearch] = useState<string | undefined>(undefined);
 
   const loadVariations = useCallback(async () => {
-    if (variations !== null) return;
+    if (variations !== null && lastLoadedSearch === activeSearch) return;
     setLoading(true);
     try {
-      const result = await fetchChannelVariations(channelId, productId, parent.id);
+      const result = await fetchChannelVariations(channelId, productId, parent.id, activeSearch);
       if ("error" in result) {
         toast.error(result.error);
       } else {
         setVariations(result);
+        setLastLoadedSearch(activeSearch);
       }
     } catch (error) {
       console.error("[loadVariations]", error);
@@ -143,7 +147,7 @@ function VariableProductGroup({
     } finally {
       setLoading(false);
     }
-  }, [channelId, productId, parent.id, variations]);
+  }, [channelId, productId, parent.id, variations, activeSearch]);
 
   useEffect(() => {
     if (isExpanded) {
@@ -289,6 +293,14 @@ export function AddMappingDialog({
     }
   }, [open, loadProducts]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setActiveSearch(searchQuery);
+      setCurrentPage(1);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   function handleSearchSubmit(e?: React.FormEvent) {
     if (e) e.preventDefault();
     setActiveSearch(searchQuery);
@@ -321,7 +333,8 @@ export function AddMappingDialog({
     for (const p of products) {
       if (p.type === "variable") {
         parents.push(p);
-      } else if (p.type !== "variation") {
+      } else {
+        // Simple products OR Variations that were returned as top-level search results
         simple.push(p);
       }
     }
@@ -418,12 +431,7 @@ export function AddMappingDialog({
                         placeholder="Search items..."
                         value={searchQuery}
                         onChange={(e) => {
-                          const val = e.target.value;
-                          setSearchQuery(val);
-                          if (val === "") {
-                            setActiveSearch("");
-                            setCurrentPage(1);
-                          }
+                          setSearchQuery(e.target.value);
                         }}
                         className="pl-10 h-9 text-xs bg-foreground/10 border-none focus-visible:ring-1 focus-visible:ring-primary/20 rounded-lg"
                       />
@@ -489,6 +497,7 @@ export function AddMappingDialog({
                               onToggle={toggleSelected}
                               channelId={channelId}
                               productId={productId}
+                              activeSearch={activeSearch}
                             />
                           ))
                         )}
