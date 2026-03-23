@@ -198,10 +198,30 @@ export const woocommerceHandler: ChannelHandler = {
     const secret = randomBytes(32).toString("hex");
     const auth = basicAuth(credentials.consumerKey, credentials.consumerSecret);
 
+    // 1. Fetch existing webhooks to clean up duplicates
+    try {
+      const getRes = await wcFetch(storeUrl, "/webhooks", {
+        headers: { Authorization: auth },
+      });
+      if (getRes.ok) {
+        const existingWebhooks = await getRes.json() as Array<{ id: number, delivery_url: string }>;
+        const toDelete = existingWebhooks.filter(w => w.delivery_url.startsWith(channelWebhookBaseUrl.split("?")[0]));
+
+        for (const w of toDelete) {
+          await wcFetch(storeUrl, `/webhooks/${w.id}?force=true`, {
+            method: "DELETE",
+            headers: { Authorization: auth },
+          });
+        }
+      }
+    } catch (err) {
+      console.warn("[woocommerce] failed to cleanup existing webhooks, proceeding with creation", err);
+    }
+
     const webhookIds: string[] = [];
     const topicLabel: Record<string, string> = {
-      "order.created": "Order Created",
-      "order.updated": "Order Updated",
+      "order.created": "Order Create",
+      "order.updated": "Order Update",
     };
     for (const topic of woocommerceHandler.webhookTopics) {
       const res = await wcFetch(storeUrl, "/webhooks", {

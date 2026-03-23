@@ -78,7 +78,7 @@ function ReconnectButton({ channelId, channelType, storeUrl, label }: ReconnectB
 
 // ─── Register Webhooks button ─────────────────────────────────────────────────
 
-function RegisterWebhooksButton({ channelId }: { channelId: number }) {
+function RegisterWebhooksButton({ channelId, isReRegister = false }: { channelId: number; isReRegister?: boolean }) {
   const [pending, startTransition] = useTransition();
 
   function handleRegister() {
@@ -105,7 +105,7 @@ function RegisterWebhooksButton({ channelId }: { channelId: number }) {
       title="Register order webhooks on this WooCommerce store"
     >
       <Webhook className="h-3 w-3 mr-1" />
-      {pending ? "Registering…" : "Register Webhooks"}
+      {pending ? "Registering…" : isReRegister ? "Re-register Webhooks" : "Register Webhooks"}
     </Button>
   );
 }
@@ -237,11 +237,11 @@ function ChannelRowActions({ channel }: { channel: ChannelInstance }) {
         />
       )}
 
-      {/* Register Webhooks: connected channels that support webhooks and haven't registered yet */}
-      {channel.status === "connected" && !channel.hasWebhooks && (() => {
+      {/* Register Webhooks: connected channels that support webhooks */}
+      {channel.status === "connected" && (() => {
         const def = getChannelById(channel.channelType as Parameters<typeof getChannelById>[0]);
         return def?.capabilities?.usesWebhooks ? (
-          <RegisterWebhooksButton channelId={channel.id} />
+          <RegisterWebhooksButton channelId={channel.id} isReRegister={channel.hasWebhooks} />
         ) : null;
       })()}
 

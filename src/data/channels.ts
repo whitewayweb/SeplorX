@@ -26,13 +26,15 @@ export async function getChannelsListWithWebhooks(userId: number) {
     .orderBy(channels.createdAt);
 }
 
-export async function getMappedProductsCountPerChannel() {
+export async function getMappedProductsCountPerChannel(userId: number) {
   return await db
     .select({
       channelId: channelProductMappings.channelId,
       count: countDistinct(channelProductMappings.productId),
     })
     .from(channelProductMappings)
+    .innerJoin(channels, eq(channelProductMappings.channelId, channels.id))
+    .where(eq(channels.userId, userId))
     .groupBy(channelProductMappings.channelId);
 }
 

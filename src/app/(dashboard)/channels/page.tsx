@@ -23,7 +23,7 @@ export default async function ChannelsPage({
   const [channelsRows, cachedProductCountMap, mappingCounts, pendingMappingTasks] = await Promise.all([
     getChannelsListWithWebhooks(userId),
     getCachedProductCountsByChannel(),
-    getMappedProductsCountPerChannel(),
+    getMappedProductsCountPerChannel(userId),
     getPendingAgentTasks("channel_mapping")
   ]);
 
