@@ -27,6 +27,7 @@ import {
   getInventoryTransactionsForProduct,
   getProductPurchaseHistory,
 } from "@/data/products";
+import { getProductStockSummary, getActiveReservationsForProduct } from "@/data/stock";
 
 export const dynamic = "force-dynamic";
 
@@ -70,12 +71,16 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
 
   const userId = await getAuthenticatedUserId();
 
-  const [connectedChannels, mappings, transactions, purchaseHistory] = await Promise.all([
+  const [connectedChannels, mappings, transactions, purchaseHistory, stockSummary, activeReservations] = await Promise.all([
     getConnectedChannels(userId),
     getProductMappings(productId),
     getInventoryTransactionsForProduct(productId),
     getProductPurchaseHistory(productId),
+    getProductStockSummary(productId),
+    getActiveReservationsForProduct(productId),
   ]);
+
+  if (!stockSummary) notFound();
 
   function formatPrice(value: string | null): string {
     if (!value) return "—";
@@ -83,9 +88,9 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
     return isNaN(num) ? "—" : `₹${num.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
   }
 
-  const availableQuantity = product.quantityOnHand - product.reservedQuantity;
-  const isOutOfStock = product.quantityOnHand <= 0;
-  const isLowStock = !isOutOfStock && product.quantityOnHand <= product.reorderLevel;
+  const availableQuantity = stockSummary.availableQuantity;
+  const isOutOfStock = stockSummary.quantityOnHand <= 0;
+  const isLowStock = !isOutOfStock && stockSummary.quantityOnHand <= stockSummary.reorderLevel;
 
   const stockColor = isOutOfStock
     ? "text-red-600 dark:text-red-400"
@@ -156,7 +161,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
             )}
             {isOutOfStock
               ? "Out of stock — no units currently available."
-              : `Low stock alert — only ${product.quantityOnHand} unit${product.quantityOnHand !== 1 ? "s" : ""} remaining (reorder at ${product.reorderLevel}).`}
+              : `Low stock alert — only ${stockSummary.quantityOnHand} unit${stockSummary.quantityOnHand !== 1 ? "s" : ""} remaining (reorder at ${stockSummary.reorderLevel}).`}
           </div>
         )}
 
@@ -170,7 +175,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
               </div>
               <span className="text-xs font-medium">Purchase Price</span>
             </div>
-            <p className="text-xl font-bold tracking-tight">{formatPrice(product.purchasePrice)}</p>
+            <p className="text-xl font-bold tracking-tight">{formatPrice(stockSummary.purchasePrice)}</p>
           </div>
 
           {/* Selling Price */}
@@ -181,7 +186,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
               </div>
               <span className="text-xs font-medium">Selling Price</span>
             </div>
-            <p className="text-xl font-bold tracking-tight">{formatPrice(product.sellingPrice)}</p>
+            <p className="text-xl font-bold tracking-tight">{formatPrice(stockSummary.sellingPrice)}</p>
           </div>
 
           {/* Quantity on Hand */}
@@ -193,7 +198,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
               <span className="text-xs font-medium">Qty on Hand</span>
             </div>
             <p className={`text-3xl font-bold tracking-tight tabular-nums ${stockColor}`}>
-              {product.quantityOnHand}
+              {stockSummary.quantityOnHand}
             </p>
           </div>
 
@@ -206,7 +211,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
               <span className="text-xs font-medium">Reserved</span>
             </div>
             <p className="text-3xl font-bold tracking-tight tabular-nums text-orange-600 dark:text-orange-400">
-              {product.reservedQuantity > 0 ? product.reservedQuantity : 0}
+              {stockSummary.reservedQuantity > 0 ? stockSummary.reservedQuantity : 0}
             </p>
           </div>
 
@@ -439,6 +444,62 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
                       </tr>
                     );
                   })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* ─── Active Reservations ─── */}
+        <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
+          <div className="px-5 pt-4 pb-3 border-b border-border/40 flex items-center justify-between">
+            <h2 className="text-sm font-semibold">Active Reservations</h2>
+            {activeReservations.length > 0 && (
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {activeReservations.length} order{activeReservations.length !== 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
+
+          {activeReservations.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 gap-2">
+              <div className="h-10 w-10 rounded-xl bg-orange-50 dark:bg-orange-950/50 flex items-center justify-center">
+                <Lock className="h-4 w-4 text-orange-500" />
+              </div>
+              <p className="text-sm text-muted-foreground">No active reservations.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border/40 bg-muted/30">
+                    <th className="text-left px-5 py-2.5 text-xs font-semibold text-muted-foreground">Created At</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground">Order ID</th>
+                    <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground pr-5">Quantity Reserved</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/30">
+                  {activeReservations.map((res) => (
+                    <tr key={res.id} className="hover:bg-muted/20 transition-colors">
+                      <td className="px-5 py-3 text-muted-foreground whitespace-nowrap">
+                        {res.createdAt
+                          ? new Date(res.createdAt).toLocaleDateString("en-IN", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })
+                          : "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Link href={`/orders/${res.orderId}`} className="text-blue-600 hover:underline font-mono text-xs">
+                          {res.orderId}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3 pr-5 text-right font-mono font-semibold text-orange-600 dark:text-orange-400 tabular-nums">
+                        {res.quantity}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

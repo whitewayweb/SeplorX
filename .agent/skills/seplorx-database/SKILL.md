@@ -75,6 +75,7 @@ Migrations run automatically via GitHub Actions on every push to `main`. Vercel 
 All `db.select()` queries for reading data MUST be extracted into `src/data/<domain>.ts`. 
 - **Page Components**: Call DAL functions to fetch data.
 - **Why**: Reusability, cleaner pages, and easier testing.
+- **Stock Calculations**: Never calculate stock availability (onHand - reserved) or reservations directly inside a page. Always use functions from `src/data/stock.ts` (e.g., `getProductStockSummary`, `getAvailableQuantity`, `getReservationsForOrder`).
 
 ### Always select explicit columns
 ```typescript
