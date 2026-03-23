@@ -89,6 +89,34 @@ export interface WebhookStockChange {
   referenceType: string;
 }
 
+/**
+ * Richer webhook event for order-status-driven stock changes.
+ * Returned by processWebhook() for order.updated/order.created topics.
+ * The webhook route uses this to call processOrderStockChange().
+ */
+export interface WebhookOrderEvent {
+  externalOrderId: string;
+  status: string;
+  /** Parsed line items from the webhook payload */
+  lineItems: Array<{
+    externalProductId: string;
+    variationId?: string;
+    sku?: string;
+    quantity: number;
+    title?: string;
+    price?: string;
+    rawData: Record<string, unknown>;
+  }>;
+  /** Full raw order payload for storage */
+  rawData: Record<string, unknown>;
+  /** Buyer info parsed from the webhook */
+  buyerName?: string | null;
+  buyerEmail?: string | null;
+  totalAmount?: string | null;
+  currency?: string | null;
+  purchasedAt?: Date | null;
+}
+
 export interface ExternalProduct {
   id: string;
   name: string;
@@ -209,6 +237,17 @@ export interface ChannelHandler {
     topic: string,
     secret: string,
   ): WebhookStockChange[];
+
+  /**
+   * Parse a webhook body into a structured order event for the stock service.
+   * Used by the webhook route to upsert orders and call processOrderStockChange().
+   * Optional — only needed for channels with order-status-driven webhooks.
+   */
+  parseWebhookOrder?(
+    body: string,
+    signature: string,
+    secret: string,
+  ): WebhookOrderEvent | null;
 
   /**
    * Fetch a single catalog item by its external ID (e.g. ASIN for Amazon).

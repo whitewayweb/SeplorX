@@ -41,23 +41,21 @@ interface ReconnectButtonProps {
 
 function ReconnectButton({ channelId, channelType, storeUrl, label }: ReconnectButtonProps) {
   const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
 
   function handleReconnect() {
     if (!storeUrl) {
-      setError("No store URL saved. Remove this channel and add it again.");
+      toast.error("Reconnect failed", { description: "No store URL saved. Remove this channel and add it again." });
       return;
     }
-    setError(null);
     startTransition(async () => {
       const result = await resetChannelStatus(channelId);
       if (!result.success) {
-        setError(result.error ?? "Something went wrong.");
+        toast.error("Reconnect failed", { description: result.error ?? "Something went wrong." });
         return;
       }
       const definition = getChannelById(channelType as Parameters<typeof getChannelById>[0]);
       if (!definition?.buildConnectUrl) {
-        setError("This channel type is not supported.");
+        toast.error("Reconnect failed", { description: "This channel type is not supported." });
         return;
       }
       const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin).replace(/\/$/, "");
@@ -67,17 +65,14 @@ function ReconnectButton({ channelId, channelType, storeUrl, label }: ReconnectB
   }
 
   return (
-    <div className="flex flex-col gap-1">
-      {error && <span className="text-destructive text-xs">{error}</span>}
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={handleReconnect}
-        disabled={pending}
-      >
-        {pending ? "Connecting…" : label}
-      </Button>
-    </div>
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={handleReconnect}
+      disabled={pending}
+    >
+      {pending ? "Connecting…" : label}
+    </Button>
   );
 }
 
@@ -85,14 +80,14 @@ function ReconnectButton({ channelId, channelType, storeUrl, label }: ReconnectB
 
 function RegisterWebhooksButton({ channelId }: { channelId: number }) {
   const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
 
   function handleRegister() {
-    setError(null);
     startTransition(async () => {
       const result = await registerChannelWebhooks(channelId);
       if (!result.success) {
-        setError(result.error ?? "Failed to register webhooks.");
+        toast.error("Webhook registration failed", {
+          description: result.error ?? "Failed to register webhooks.",
+        });
       } else {
         toast.success("Webhooks registered", {
           description: `The channel will now send order events to ${PORTAL_NAME}.`,
@@ -102,19 +97,16 @@ function RegisterWebhooksButton({ channelId }: { channelId: number }) {
   }
 
   return (
-    <div className="flex flex-col gap-1">
-      {error && <span className="text-destructive text-xs">{error}</span>}
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={handleRegister}
-        disabled={pending}
-        title="Register order webhooks on this WooCommerce store"
-      >
-        <Webhook className="h-3 w-3 mr-1" />
-        {pending ? "Registering…" : "Register Webhooks"}
-      </Button>
-    </div>
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={handleRegister}
+      disabled={pending}
+      title="Register order webhooks on this WooCommerce store"
+    >
+      <Webhook className="h-3 w-3 mr-1" />
+      {pending ? "Registering…" : "Register Webhooks"}
+    </Button>
   );
 }
 
@@ -129,14 +121,12 @@ function ReconnectApiKeyButton({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
 
   function handleReconnect() {
-    setError(null);
     startTransition(async () => {
       const result = await resetChannelStatus(channelId);
       if (!result.success) {
-        setError(result.error ?? "Something went wrong.");
+        toast.error("Reconnect failed", { description: result.error ?? "Something went wrong." });
         return;
       }
       // Redirect to the new-channel dialog pre-filtered to this type so the
@@ -146,18 +136,15 @@ function ReconnectApiKeyButton({
   }
 
   return (
-    <div className="flex flex-col gap-1">
-      {error && <span className="text-destructive text-xs">{error}</span>}
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={handleReconnect}
-        disabled={pending}
-      >
-        <PlugZap className="h-3 w-3 mr-1" />
-        {pending ? "Reconnecting…" : "Reconnect"}
-      </Button>
-    </div>
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={handleReconnect}
+      disabled={pending}
+    >
+      <PlugZap className="h-3 w-3 mr-1" />
+      {pending ? "Reconnecting…" : "Reconnect"}
+    </Button>
   );
 }
 
@@ -205,6 +192,19 @@ function ChannelRowActions({ channel }: { channel: ChannelInstance }) {
     null,
   );
 
+  // Toast errors from form actions
+  useEffect(() => {
+    if (disconnectState?.error) {
+      toast.error("Disconnect failed", { description: disconnectState.error });
+    }
+  }, [disconnectState]);
+
+  useEffect(() => {
+    if (deleteState?.error) {
+      toast.error("Delete failed", { description: deleteState.error });
+    }
+  }, [deleteState]);
+
   const definition = getChannelById(
     channel.channelType as Parameters<typeof getChannelById>[0],
   );
@@ -212,12 +212,6 @@ function ChannelRowActions({ channel }: { channel: ChannelInstance }) {
 
   return (
     <div className="flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
-      {disconnectState?.error && (
-        <span className="text-destructive text-xs">{disconnectState.error}</span>
-      )}
-      {deleteState?.error && (
-        <span className="text-destructive text-xs">{deleteState.error}</span>
-      )}
 
       {/* Reconnect: pending = setup never finished, disconnected = was connected before */}
       {isOAuth && channel.status === "pending" && (

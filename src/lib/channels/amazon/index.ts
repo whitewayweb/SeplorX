@@ -230,6 +230,27 @@ export const amazonHandler: ChannelHandler = {
             }
             savedCount++;
           });
+
+          // Process stock for this newly saved order
+          try {
+            const { processOrderStockChange } = await import("@/lib/stock/service");
+            const [savedOrder] = await db
+              .select({ id: salesOrders.id, status: salesOrders.status })
+              .from(salesOrders)
+              .where(and(eq(salesOrders.channelId, channelId), eq(salesOrders.externalOrderId, amzOrder.AmazonOrderId)))
+              .limit(1);
+
+            if (savedOrder) {
+              await processOrderStockChange(
+                savedOrder.id,
+                savedOrder.status,
+                null, // new order, no previous status
+                userId,
+              );
+            }
+          } catch (stockErr) {
+            console.error(`[Amazon Sync] Stock processing failed for order ${amzOrder.AmazonOrderId}:`, stockErr);
+          }
         } catch (err) {
           console.error(`[Amazon Sync] Failed to save order ${amzOrder.AmazonOrderId}:`, err);
         }

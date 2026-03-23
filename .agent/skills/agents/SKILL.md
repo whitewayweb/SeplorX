@@ -1,5 +1,5 @@
 ---
-name: add-new-agent
+name: agents
 description: >
   How to add a new AI agent to SeplorX. Use when implementing a new agent feature,
   creating a new AI-powered automation, or extending the agent registry with a new

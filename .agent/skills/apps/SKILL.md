@@ -1,5 +1,5 @@
 ---
-name: add-new-app
+name: apps
 description: >
   How to add a new third-party app or service integration to SeplorX's app registry.
   Use when integrating a new shipping carrier, payment gateway, accounting tool, SMS provider,
