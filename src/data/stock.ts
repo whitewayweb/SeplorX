@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { products, salesOrders } from "@/db/schema";
+import { products, stockReservations, salesOrders, salesOrderItems } from "@/db/schema";
 import { and, eq, sql, desc } from "drizzle-orm";
 
 
@@ -42,4 +42,51 @@ export async function getOutOfSyncProductCount(): Promise<number> {
       ),
     );
   return result?.count ?? 0;
+}
+
+/**
+ * Get total quantity of all active stock reservations.
+ */
+export async function getTotalActiveReservations(): Promise<number> {
+  const [result] = await db
+    .select({ count: sql<number>`sum(${stockReservations.quantity})::int` })
+    .from(stockReservations)
+    .where(eq(stockReservations.status, "active"));
+  return result?.count ?? 0;
+}
+
+/**
+ * Get count of products where available stock has fallen to or below the reorder level.
+ */
+export async function getLowStockProductsCount(): Promise<number> {
+  const [result] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(products)
+    .where(
+      and(
+        eq(products.isActive, true),
+        sql`${products.quantityOnHand} - ${products.reservedQuantity} <= ${products.reorderLevel}`
+      )
+    );
+  return result?.count ?? 0;
+}
+
+/**
+ * Get recent sales orders across all channels.
+ */
+export async function getRecentOrders(limitCount = 5) {
+  return db
+    .select({
+      id: salesOrders.id,
+      externalOrderId: salesOrders.externalOrderId,
+      channelId: salesOrders.channelId,
+      status: salesOrders.status,
+      totalAmount: salesOrders.totalAmount,
+      currency: salesOrders.currency,
+      buyerName: salesOrders.buyerName,
+      purchasedAt: salesOrders.purchasedAt,
+    })
+    .from(salesOrders)
+    .orderBy(desc(salesOrders.purchasedAt))
+    .limit(limitCount);
 }
