@@ -246,6 +246,12 @@ returned → mark for inspection → admin restocks or discards
 - `src/data/stock.ts` — DAL queries (available qty, reservations, returns awaiting action)
 - `src/db/schema.ts` — `stock_reservations` table, `reservedQuantity` on products
 
+**Return/Discard workflow:**
+- `processReturnAction()` server action in `src/app/(dashboard)/orders/actions.ts`
+- `ReturnActionDialog` component in `src/components/organisms/orders/return-action-dialog.tsx`
+- Per-item qty picker, restock/discard selector, notes field
+- Order detail page shows return badges (order + item level) and "Process Return" button for returned orders
+
 **Stock push:** When pushing stock to channels via `pushProductStockToChannels()`, the system pushes `availableQuantity` (= `quantityOnHand - reservedQuantity`), not raw `quantityOnHand`. This ensures reserved stock (from active orders) is excluded.
 
 ## Security

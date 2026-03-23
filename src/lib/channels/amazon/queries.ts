@@ -77,6 +77,7 @@ export interface OrderDetail {
   purchasedAt: Date | null;
   channelId: number;
   channelName: string | null;
+  returnDisposition: string | null;
   /** Extracted sub-fields from rawData JSONB — only what the UI needs. */
   rawOrder: OrdersV0Schema["Order"] | null;
   shippingAddress: OrdersV0Schema["OrderAddress"] | null;
@@ -94,6 +95,9 @@ export interface OrderItemRow {
   channelProductId: number | null;
   productName: string | null;
   productSku: string | null;
+  productId: number | null;
+  returnQuantity: number;
+  returnDisposition: string | null;
 }
 
 /** All orders across all channels for a user (joined with channel name). */
@@ -265,6 +269,7 @@ export async function getOrderDetail(
       // the full rawData blob across the network.
       rawOrder: sql<OrdersV0Schema["Order"] | null>`(${salesOrders.rawData}->>'order')::jsonb`,
       shippingAddress: sql<OrdersV0Schema["OrderAddress"] | null>`(${salesOrders.rawData}->>'shippingAddress')::jsonb`,
+      returnDisposition: salesOrders.returnDisposition,
     })
     .from(salesOrders)
     .innerJoin(
@@ -288,6 +293,9 @@ export async function getOrderItems(userId: number, orderId: number): Promise<Or
       quantity: salesOrderItems.quantity,
       price: salesOrderItems.price,
       rawData: salesOrderItems.rawData,
+      productId: salesOrderItems.productId,
+      returnQuantity: salesOrderItems.returnQuantity,
+      returnDisposition: salesOrderItems.returnDisposition,
       channelProductId: channelProducts.id,
       productName: channelProducts.name,
       productSku: channelProducts.sku,

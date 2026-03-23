@@ -147,7 +147,7 @@ function VariableProductGroup({
     } finally {
       setLoading(false);
     }
-  }, [channelId, productId, parent.id, variations, activeSearch]);
+  }, [channelId, productId, parent.id, variations, activeSearch, lastLoadedSearch]);
 
   useEffect(() => {
     if (isExpanded) {

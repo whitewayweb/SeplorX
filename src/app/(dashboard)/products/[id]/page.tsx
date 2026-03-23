@@ -11,7 +11,6 @@ import {
   ShoppingCart,
   Banknote,
   Layers,
-  RefreshCw,
   CalendarDays,
   Lock,
   PackageCheck,

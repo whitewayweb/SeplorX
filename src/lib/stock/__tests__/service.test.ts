@@ -49,15 +49,6 @@ function mockDbSelect(returnValue: unknown) {
   (db.select as ReturnType<typeof vi.fn>).mockReturnValue(createChainMock(returnValue));
 }
 
-function mockTransaction(assertions?: (tx: ReturnType<typeof createTxMock>) => void) {
-  (db.transaction as ReturnType<typeof vi.fn>).mockImplementation(async (cb) => {
-    const tx = createTxMock();
-    const result = await cb(tx);
-    if (assertions) assertions(tx);
-    return result;
-  });
-}
-
 function createTxMock() {
   // Each call to tx.select/insert/update needs to return a fresh chain
   // We track call counts to return different values for subsequent calls
