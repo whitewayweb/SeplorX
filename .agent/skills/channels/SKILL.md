@@ -1,13 +1,14 @@
 ---
-name: add-new-channel
+name: channels
 description: >
-  How to add a new e-commerce channel integration to SeplorX. Use when integrating a new
-  sales channel such as Shopify, Etsy, eBay, Amazon, or any other storefront. Covers the
-  ChannelDefinition registry, ChannelHandler interface, OAuth flow, webhook setup,
-  product sync, channel_products cache, and product publishing pipeline.
+  SeplorX e-commerce channel integrations — adding channels, stock sync, order sync,
+  webhook handling, and product publishing. Use when integrating a new sales channel,
+  working with order-driven stock management, or extending channel capabilities.
+  Covers ChannelDefinition registry, ChannelHandler interface, OAuth flow, webhook setup,
+  product sync, channel_products cache, product publishing pipeline, and stock reservations.
 metadata:
   author: SeplorX
-  version: "1.0"
+  version: "1.1"
 ---
 
 # Adding a New Channel to SeplorX

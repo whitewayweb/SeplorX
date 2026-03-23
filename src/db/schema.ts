@@ -45,6 +45,22 @@ export const inventoryTransactionTypeEnum = pgEnum("inventory_transaction_type",
   "sale_out",
   "adjustment",
   "return",
+  "sale_reserve",
+  "sale_cancel",
+  "return_restock",
+  "return_discard",
+]);
+
+export const stockReservationStatusEnum = pgEnum("stock_reservation_status", [
+  "active",
+  "committed",
+  "released",
+]);
+
+export const returnDispositionEnum = pgEnum("return_disposition", [
+  "pending_inspection",
+  "restocked",
+  "discarded",
 ]);
 
 export const agentStatusEnum = pgEnum("agent_status", [
@@ -199,6 +215,7 @@ export const products = pgTable("products", {
   sellingPrice: decimal("selling_price", { precision: 12, scale: 2 }),
   reorderLevel: integer("reorder_level").default(0).notNull(),
   quantityOnHand: integer("quantity_on_hand").default(0).notNull(),
+  reservedQuantity: integer("reserved_quantity").default(0).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -433,6 +450,7 @@ export const salesOrders = pgTable("sales_orders", {
   channelId: integer("channel_id").notNull().references(() => channels.id, { onDelete: "cascade" }),
   externalOrderId: varchar("external_order_id", { length: 255 }).notNull(),
   status: salesOrderStatusEnum("status").default("pending").notNull(),
+  previousStatus: salesOrderStatusEnum("previous_status"),
   totalAmount: decimal("total_amount", { precision: 12, scale: 2 }),
   currency: varchar("currency", { length: 10 }),
   buyerName: varchar("buyer_name", { length: 255 }),
@@ -441,9 +459,13 @@ export const salesOrders = pgTable("sales_orders", {
   syncedAt: timestamp("synced_at").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   rawData: jsonb("raw_data").$type<Record<string, unknown>>(),
+  returnDisposition: returnDispositionEnum("return_disposition"),
+  returnNotes: text("return_notes"),
+  stockProcessed: boolean("stock_processed").default(false).notNull(),
 }, (table) => [
   uniqueIndex("sales_orders_channel_ext_idx").on(table.channelId, table.externalOrderId),
   index("sales_orders_channel_idx").on(table.channelId),
+  index("sales_orders_status_idx").on(table.status),
 ]).enableRLS();
 
 export const salesOrderItems = pgTable("sales_order_items", {
@@ -456,7 +478,30 @@ export const salesOrderItems = pgTable("sales_order_items", {
   quantity: integer("quantity").notNull(),
   price: decimal("price", { precision: 12, scale: 2 }),
   rawData: jsonb("raw_data").$type<Record<string, unknown>>(),
+  returnQuantity: integer("return_quantity").default(0).notNull(),
+  returnDisposition: returnDispositionEnum("return_disposition"),
 }, (table) => [
   uniqueIndex("sales_order_items_order_ext_idx").on(table.orderId, table.externalItemId),
   index("sales_order_items_order_idx").on(table.orderId),
+]).enableRLS();
+
+// ─── Stock Reservations ──────────────────────────────────────────────────────
+// Ledger of stock reserved for active (unfulfilled) sales orders.
+// Each row maps one order item to one SeplorX product.
+// status: 'active' = reserved, 'committed' = delivered (stock deducted),
+//         'released' = cancelled/refunded (reservation freed).
+
+export const stockReservations = pgTable("stock_reservations", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id").notNull().references(() => salesOrders.id, { onDelete: "cascade" }),
+  orderItemId: integer("order_item_id").notNull().references(() => salesOrderItems.id, { onDelete: "cascade" }),
+  productId: integer("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  quantity: integer("quantity").notNull(),
+  status: stockReservationStatusEnum("status").default("active").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  resolvedAt: timestamp("resolved_at"),
+}, (table) => [
+  index("stock_reservations_order_idx").on(table.orderId),
+  index("stock_reservations_product_idx").on(table.productId),
+  index("stock_reservations_status_idx").on(table.status),
 ]).enableRLS();

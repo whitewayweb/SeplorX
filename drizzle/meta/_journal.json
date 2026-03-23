@@ -183,6 +183,13 @@
       "when": 1774185867105,
       "tag": "0025_wide_oracle",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1774301609861,
+      "tag": "0026_wonderful_tusk",
+      "breakpoints": true
     }
   ]
 }
