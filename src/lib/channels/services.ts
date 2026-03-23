@@ -181,7 +181,8 @@ export async function registerChannelWebhooksService(userId: number, channelId: 
   if (Object.keys(decryptedCreds).length === 0) throw new Error("Channel credentials are missing.");
 
   const appUrl = (env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
-  const webhookBaseUrl = `${appUrl}/api/channels/${channel.channelType}/webhook/${channelId}`;
+  const webhookSig = encrypt(String(channelId));
+  const webhookBaseUrl = `${appUrl}/api/channels/${channel.channelType}/webhook/${channelId}?sig=${encodeURIComponent(webhookSig)}`;
 
   const { secret } = await handler.registerWebhooks(
     channel.storeUrl,
@@ -192,7 +193,10 @@ export async function registerChannelWebhooksService(userId: number, channelId: 
   await db
     .update(channels)
     .set({
-      credentials: { ...creds, webhookSecret: encrypt(secret) },
+      credentials: {
+        ...creds,
+        webhookSecret: encrypt(secret),
+      },
       updatedAt: new Date(),
     })
     .where(eq(channels.id, channelId));

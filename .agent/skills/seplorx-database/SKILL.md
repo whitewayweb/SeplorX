@@ -7,7 +7,7 @@ description: >
   channels, inventory, agents, or any other module.
 metadata:
   author: SeplorX
-  version: "1.0"
+  version: "1.1"
 ---
 
 # SeplorX Database
@@ -37,13 +37,16 @@ DB instance: `db` from `@/db`. Config: **`max: 10`** concurrent connections to s
 | `channel_product_mappings` | id, channelId, channelProductId, seplorxProductId |
 | `channel_product_changelog` | id, mappingId, field, oldValue, newValue, changedAt |
 | `companies` | id, userId, name, type (supplier/customer/both), email, phone |
-| `products` | id, userId, name, sku, description, category, attributes (JSONB), reorderLevel, stockQuantity |
+| `products` | id, userId, name, sku, description, category, attributes (JSONB), reorderLevel, stockQuantity, **reservedQuantity** |
 | `purchase_invoices` | id, userId, supplierId, status, totalAmount (Decimal 12,2) |
 | `purchase_invoice_items` | id, invoiceId, productId, quantity, unitPrice (Decimal 12,2) |
 | `payments` | id, userId, invoiceId, amount (Decimal 12,2), paidAt |
 | `inventory_transactions` | id, userId, productId, quantity (±), type, referenceId |
 | `agent_actions` | id, userId, agentType, status, plan (JSONB), rationale, toolCalls (JSONB), resolvedBy |
 | `settings` | id, userId, key, value |
+| `sales_orders` | id, userId, channelId, externalOrderId, status, **previousStatus**, buyerName, totalAmount, **stockProcessed**, **returnDisposition**, **returnNotes** |
+| `sales_order_items` | id, orderId, productId, sku, quantity, unitPrice, **returnQuantity**, **returnDisposition** |
+| **`stock_reservations`** | id, userId, orderId, orderItemId, productId, quantity, status (active/committed/released), createdAt |
 
 ## Migrations
 

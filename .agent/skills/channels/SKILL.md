@@ -8,7 +8,7 @@ description: >
   product sync, channel_products cache, product publishing pipeline, and stock reservations.
 metadata:
   author: SeplorX
-  version: "1.1"
+  version: "2.0"
 ---
 
 # Adding a New Channel to SeplorX
@@ -195,20 +195,58 @@ After connecting, the user clicks "Register Webhooks" which calls `handler.regis
 ```
 POST /api/channels/{type}/webhook/{channelId}
 ```
-The generic webhook route validates the signature, calls `handler.processWebhook()`, and decrements inventory via `inventory_transactions`.
 
-**Loop prevention:** Set `referenceType: "{channel}_order"` on webhook-triggered transactions. The stock push only runs for `referenceType: "purchase_invoice"` — never for channel orders.
+**Two processing paths:**
 
-**Idempotency:** The webhook route checks for existing transactions with the same `referenceType + referenceId` before inserting — duplicate webhooks are silently skipped.
+1. **Order topics** (`order.created`, `order.updated`): The route calls `handler.parseWebhookOrder()` to get a `WebhookOrderEvent`, upserts the order into `sales_orders`, and calls `processOrderStockChange()` from `src/lib/stock/service.ts`. This handles reservations, commits, and releases based on status transitions.
+
+2. **Legacy/non-order topics**: The route calls `handler.processWebhook()` → `WebhookStockChange[]` and applies direct stock changes.
+
+**Implementing `parseWebhookOrder()`** (required for order-status-driven stock):
+```typescript
+parseWebhookOrder(body: string, signature: string, secret: string): WebhookOrderEvent | null {
+  // 1. Verify HMAC signature
+  // 2. Parse order payload
+  // 3. Return { externalOrderId, status, lineItems, rawData, buyerName, ... }
+}
+```
+
+**WooCommerce webhook topics:** `order.created` + `order.updated` only. WooCommerce has NO `order.cancelled` topic — cancellations arrive via `order.updated` with status change.
+
+**Idempotency:** The webhook route checks for existing orders by `channelId + externalOrderId`. For existing orders, only status changes trigger stock processing.
 
 ## Step 9 — Order Syncing (optional)
 
-If the channel supports pulling historical or new orders via an API, implement `fetchAndSaveOrders(userId, channelId)`.
+If the channel supports pulling orders via API, implement `fetchAndSaveOrders(userId, channelId)`.
 1. Fetch recent orders via the channel's REST/GraphQL API. Use `getLastOrderDate(channelId)` from your `queries.ts` to only fetch new orders.
-2. Transform them into SeplorX format (`salesOrders` and `salesOrderItems`).
-3. If it exists, the generic server action `/orders/actions.ts -> fetchChannelOrdersAction` will execute it when the user clicks **Sync Orders** in the UI. 
+2. Transform and insert into `salesOrders` and `salesOrderItems`.
+3. **After each new order is saved**, call `processOrderStockChange()` to create stock reservations:
 
-**Note**: Order syncing should use API polling via `fetchAndSaveOrders` as the primary mechanism to ensure historical orders can be pulled. Webhooks are currently for real-time inventory adjustments (`WebhookStockChange[]`), not order creation.
+```typescript
+const { processOrderStockChange } = await import("@/lib/stock/service");
+await processOrderStockChange(savedOrder.id, savedOrder.status, null, userId);
+```
+
+This is non-fatal — wrap in try/catch so order saving succeeds even if stock processing fails.
+
+## Step 10 — Stock Management Integration
+
+Stock processing is handled by `src/lib/stock/service.ts`. The state machine follows this flow:
+
+```
+new order (pending/processing) → reserve stock
+shipped → no change (still reserved)
+delivered (completed) → commit: quantityOnHand -= qty, release reservation
+cancelled/refunded/failed → release reservation
+returned → mark for inspection → admin restocks or discards
+```
+
+**Key files:**
+- `src/lib/stock/service.ts` — `processOrderStockChange()`, `processReturnItem()`
+- `src/data/stock.ts` — DAL queries (available qty, reservations, returns awaiting action)
+- `src/db/schema.ts` — `stock_reservations` table, `reservedQuantity` on products
+
+**Stock push:** When pushing stock to channels via `pushProductStockToChannels()`, the system pushes `availableQuantity` (= `quantityOnHand - reservedQuantity`), not raw `quantityOnHand`. This ensures reserved stock (from active orders) is excluded.
 
 ## Security
 
@@ -222,6 +260,7 @@ if (!channel) notFound();  // 404 for both missing AND unauthorized
 - Credentials are encrypted at rest (AES-256-GCM via `src/lib/crypto.ts`)
 - Never send decrypted credentials to the client — redact or omit from page props
 - Webhook secrets stored encrypted in `credentials.webhookSecret`
+- **Webhook URL signature:** `encrypt(channelId)` is appended as `?sig=` to the delivery URL during registration. The webhook route decrypts it and verifies it matches the path channelId. No extra DB field needed — uses the existing `encrypt()`/`decrypt()` from `src/lib/crypto.ts`. Backward compatible — channels without `?sig=` skip the check.
 
 ## Key Files
 
@@ -233,7 +272,9 @@ if (!channel) notFound();  // 404 for both missing AND unauthorized
 | `src/lib/channels/{id}/index.ts` | **Create this** — ChannelHandler implementation |
 | `src/data/channels.ts` | **Edit here** — JSONB field extraction, channel-specific DB queries |
 | `src/app/api/channels/[type]/callback/route.ts` | Generic OAuth callback — no edits needed |
-| `src/app/api/channels/[type]/webhook/[channelId]/route.ts` | Generic webhook receiver — no edits needed |
+| `src/app/api/channels/[type]/webhook/[channelId]/route.ts` | Webhook receiver — upserts orders + calls `processOrderStockChange()` |
+| `src/lib/stock/service.ts` | Stock state machine — `processOrderStockChange()`, `processReturnItem()` |
+| `src/data/stock.ts` | Stock DAL — `getAvailableQuantity()`, `getReservationsForOrder()` |
 | `src/lib/channels/queries.ts` | Shared DAL — `getChannelForUser`, `upsertChannelProducts` |
 | `public/channels/{id}.svg` | **Add this** — channel icon |
 
@@ -245,3 +286,5 @@ if (!channel) notFound();  // 404 for both missing AND unauthorized
 - ❌ Querying channels without `userId` scope in page components — always use `getChannelForUser()`
 - ❌ Storing credentials unencrypted — always use `encrypt()` / `decrypt()` from `src/lib/crypto.ts`
 - ❌ Using `getChannel(id)` in page components for sensitive routes — use `getChannelForUser(userId, id)`
+- ❌ Directly manipulating `quantityOnHand` for order-driven changes — always use `processOrderStockChange()`
+- ❌ Using `order.cancelled` as a WooCommerce webhook topic — it doesn't exist; cancellations come via `order.updated`

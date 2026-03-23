@@ -23,6 +23,7 @@ export async function getProductById(productId: number, tx: QueryClient = db) {
       purchasePrice: products.purchasePrice,
       sellingPrice: products.sellingPrice,
       quantityOnHand: products.quantityOnHand,
+      reservedQuantity: products.reservedQuantity,
       reorderLevel: products.reorderLevel,
       description: products.description,
       attributes: products.attributes,
@@ -99,6 +100,7 @@ export async function getProductsList(tx: QueryClient = db) {
       sellingPrice: products.sellingPrice,
       reorderLevel: products.reorderLevel,
       quantityOnHand: products.quantityOnHand,
+      reservedQuantity: products.reservedQuantity,
       isActive: products.isActive,
     })
     .from(products)
@@ -121,12 +123,17 @@ export async function getActiveProductsForDropdown(tx: QueryClient = db) {
 
 export async function getProductQuantity(productId: number, tx: QueryClient = db) {
   const productRows = await tx
-    .select({ quantityOnHand: products.quantityOnHand })
+    .select({
+      quantityOnHand: products.quantityOnHand,
+      reservedQuantity: products.reservedQuantity,
+    })
     .from(products)
     .where(eq(products.id, productId))
     .limit(1);
 
-  return productRows.length > 0 ? productRows[0].quantityOnHand : null;
+  if (productRows.length === 0) return null;
+  // Push availableQuantity to channels (on-hand minus reserved)
+  return productRows[0].quantityOnHand - productRows[0].reservedQuantity;
 }
 
 export async function getChannelMappingsForStockPush(

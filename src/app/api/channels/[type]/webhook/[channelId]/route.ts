@@ -54,6 +54,23 @@ export async function POST(
   }
 
   const { credentials, userId } = channelRows[0];
+
+  // ── Defense-in-depth: validate encrypted URL signature ────────────────────
+  // During registration, encrypt(channelId) is appended as ?sig= to the URL.
+  // If sig is present, we decrypt it and verify it matches the path channelId.
+  // Backward compatible: channels registered before this feature have no sig.
+  const sig = request.nextUrl.searchParams.get("sig");
+  if (sig) {
+    try {
+      const decryptedId = decrypt(decodeURIComponent(sig));
+      if (decryptedId !== String(channelId)) {
+        return new NextResponse("Forbidden", { status: 403 });
+      }
+    } catch {
+      return new NextResponse("Forbidden", { status: 403 });
+    }
+  }
+
   const encryptedSecret = credentials?.webhookSecret;
   if (!encryptedSecret) {
     console.error("[channels/webhook] webhookSecret not set", { type, channelId });

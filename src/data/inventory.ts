@@ -18,6 +18,7 @@ export async function getLowStockProducts() {
       sku: products.sku,
       unit: products.unit,
       quantityOnHand: products.quantityOnHand,
+      reservedQuantity: products.reservedQuantity,
       reorderLevel: products.reorderLevel,
     })
     .from(products)

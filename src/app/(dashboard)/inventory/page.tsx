@@ -137,6 +137,8 @@ export default async function InventoryPage() {
                     <TableHead>SKU</TableHead>
                     <TableHead>Unit</TableHead>
                     <TableHead className="text-right">On Hand</TableHead>
+                    <TableHead className="text-right">Reserved</TableHead>
+                    <TableHead className="text-right">Available</TableHead>
                     <TableHead className="text-right">Reorder Level</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
@@ -152,6 +154,12 @@ export default async function InventoryPage() {
                       <TableCell className="font-mono text-sm">{product.sku ?? "—"}</TableCell>
                       <TableCell>{product.unit}</TableCell>
                       <TableCell className="text-right font-mono">{product.quantityOnHand}</TableCell>
+                      <TableCell className="text-right font-mono text-amber-600">
+                        {product.reservedQuantity > 0 ? product.reservedQuantity : "—"}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {product.quantityOnHand - product.reservedQuantity}
+                      </TableCell>
                       <TableCell className="text-right font-mono">{product.reorderLevel}</TableCell>
                       <TableCell>
                         {product.quantityOnHand <= 0 ? (

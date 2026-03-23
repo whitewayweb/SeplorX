@@ -13,6 +13,8 @@ import {
   Layers,
   RefreshCw,
   CalendarDays,
+  Lock,
+  PackageCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProductDialog } from "@/components/organisms/products/product-dialog";
@@ -82,6 +84,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
     return isNaN(num) ? "—" : `₹${num.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
   }
 
+  const availableQuantity = product.quantityOnHand - product.reservedQuantity;
   const isOutOfStock = product.quantityOnHand <= 0;
   const isLowStock = !isOutOfStock && product.quantityOnHand <= product.reorderLevel;
 
@@ -159,7 +162,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
         )}
 
         {/* ─── Stat Cards Row ─── */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
           {/* Purchase Price */}
           <div className="rounded-xl border border-border/60 bg-card p-4 space-y-2">
             <div className="flex items-center gap-2 text-muted-foreground">
@@ -195,16 +198,33 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
             </p>
           </div>
 
-          {/* Reorder Level */}
+          {/* Reserved */}
           <div className="rounded-xl border border-border/60 bg-card p-4 space-y-2">
             <div className="flex items-center gap-2 text-muted-foreground">
-              <div className="h-7 w-7 rounded-lg bg-amber-50 dark:bg-amber-950/50 flex items-center justify-center">
-                <RefreshCw className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+              <div className="h-7 w-7 rounded-lg bg-orange-50 dark:bg-orange-950/50 flex items-center justify-center">
+                <Lock className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />
               </div>
-              <span className="text-xs font-medium">Reorder Level</span>
+              <span className="text-xs font-medium">Reserved</span>
             </div>
-            <p className="text-3xl font-bold tracking-tight tabular-nums">{product.reorderLevel}</p>
+            <p className="text-3xl font-bold tracking-tight tabular-nums text-orange-600 dark:text-orange-400">
+              {product.reservedQuantity > 0 ? product.reservedQuantity : 0}
+            </p>
           </div>
+
+          {/* Available (on-hand minus reserved) */}
+          <div className="rounded-xl border border-border/60 bg-card p-4 space-y-2">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <div className="h-7 w-7 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 flex items-center justify-center">
+                <PackageCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <span className="text-xs font-medium">Available</span>
+            </div>
+            <p className={`text-3xl font-bold tracking-tight tabular-nums ${availableQuantity <= 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+              {availableQuantity}
+            </p>
+          </div>
+
+          {/* Reorder Level - now hidden on mobile for space, or keep if wanted */}
         </div>
 
         {/* ─── Product Details ─── */}
