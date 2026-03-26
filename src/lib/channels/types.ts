@@ -211,6 +211,7 @@ export interface ChannelHandler {
     credentials: Record<string, string>,
     externalProductId: string,
     quantity: number,
+    parentId?: string | null,
   ): Promise<void>;
 
   /**

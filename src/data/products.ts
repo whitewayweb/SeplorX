@@ -160,9 +160,17 @@ export async function getChannelMappingsForStockPush(
       credentials: channels.credentials,
       channelName: channels.name,
       status: channels.status,
+      parentId: sql<string | null>`${channelProducts.rawData}->>'parentId'`,
     })
     .from(channelProductMappings)
     .innerJoin(channels, eq(channelProductMappings.channelId, channels.id))
+    .leftJoin(
+      channelProducts,
+      and(
+        eq(channelProductMappings.channelId, channelProducts.channelId),
+        eq(channelProductMappings.externalProductId, channelProducts.externalId)
+      )
+    )
     .where(
       and(
         eq(channelProductMappings.productId, productId),
