@@ -50,10 +50,6 @@ function FieldError({ errors }: { errors?: string[] }) {
     return <p className="text-xs text-destructive mt-1">{errors[0]}</p>;
 }
 
-// ── Reusable tab trigger style ────────────────────────────────────────────────
-
-const tabTriggerCls = "data-[state=active]:shadow-none data-[state=active]:bg-transparent data-[state=active]:border-b-2 border-primary rounded-none";
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function ProductDetailTabs({ product, onSaveSuccess, channelName: channelNameProp }: ProductDetailTabsProps) {
@@ -99,12 +95,14 @@ export function ProductDetailTabs({ product, onSaveSuccess, channelName: channel
             <input type="hidden" name="externalId" value={product.externalId} />
 
             <Tabs defaultValue="details" className="w-full mt-4">
-                <TabsList className="w-full justify-start border-b rounded-none px-4 h-12 bg-transparent">
-                    <TabsTrigger value="details"    className={tabTriggerCls}>Product Details</TabsTrigger>
-                    <TabsTrigger value="images"     className={tabTriggerCls}>Images ({fields.images.length})</TabsTrigger>
-                    <TabsTrigger value="offer"      className={tabTriggerCls}>Offer &amp; Inventory</TabsTrigger>
-                    <TabsTrigger value="variations" className={tabTriggerCls}>Variations ({fields.relationships.length})</TabsTrigger>
-                </TabsList>
+                <div className="px-4">
+                    <TabsList className="grid w-full grid-cols-4 bg-muted/50 rounded-lg p-1">
+                        <TabsTrigger value="details" className="rounded-md">Product Details</TabsTrigger>
+                        <TabsTrigger value="images" className="rounded-md">Images ({fields.images.length})</TabsTrigger>
+                        <TabsTrigger value="offer" className="rounded-md">Offer &amp; Inventory</TabsTrigger>
+                        <TabsTrigger value="variations" className="rounded-md">Variations ({fields.relationships.length})</TabsTrigger>
+                    </TabsList>
+                </div>
 
                 <div className="p-4 pt-6 max-w-4xl">
                     <DetailsTab fields={fields as StandardizedProductRecord} product={product} fe={fe} channelName={channelName} />
@@ -309,15 +307,6 @@ function OfferTab({
                         className={fe.itemCondition ? "border-destructive" : ""}
                     />
                     <FieldError errors={fe.itemCondition} />
-                </div>
-                <div className="grid gap-2 relative">
-                    <Label>Last Synced</Label>
-                    <Input
-                        readOnly
-                        value={product.lastSyncedAt ? new Date(product.lastSyncedAt).toLocaleString() : ""}
-                        disabled
-                        className="bg-muted/50"
-                    />
                 </div>
             </div>
         </TabsContent>

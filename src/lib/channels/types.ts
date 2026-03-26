@@ -212,6 +212,8 @@ export interface ChannelHandler {
     externalProductId: string,
     quantity: number,
     parentId?: string | null,
+    sku?: string | null,
+    productType?: string | null,
   ): Promise<void>;
 
   /**

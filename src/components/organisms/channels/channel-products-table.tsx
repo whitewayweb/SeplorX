@@ -69,7 +69,7 @@ export function ChannelProductsTable({
     const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
 
     const { selectedProduct, isLoading, openProduct, invalidate } = useChannelProductDetail();
-    
+
     const toggleExpand = useCallback((e: React.MouseEvent, externalId: string) => {
         e.stopPropagation();
         setExpandedParents((prev) => {
@@ -339,27 +339,33 @@ export function ChannelProductsTable({
                                 <SheetTitle className="text-base leading-snug pr-6">
                                     {selectedProduct.name}
                                 </SheetTitle>
-                                <SheetDescription>
-                                    {selectedProduct.productUrl ? (
-                                        <a
-                                            href={selectedProduct.productUrl}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-blue-600 hover:underline"
-                                        >
-                                            {selectedProduct.externalId}
-                                        </a>
-                                    ) : (
-                                        selectedProduct.externalId
-                                    )}
-                                    {selectedProduct.sku && ` · ${selectedProduct.sku}`}
+                                <SheetDescription className="flex items-center gap-2">
+                                    <span>
+                                        {selectedProduct.productUrl ? (
+                                            <a
+                                                href={selectedProduct.productUrl}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-blue-600 hover:underline"
+                                            >
+                                                {selectedProduct.externalId}
+                                            </a>
+                                        ) : (
+                                            selectedProduct.externalId
+                                        )}
+                                        {selectedProduct.sku && ` · ${selectedProduct.sku}`}
+                                    </span>
+                                    <span>·</span>
+                                    <span>
+                                        <strong>Last Synced:</strong> {selectedProduct.lastSyncedAt ? new Date(selectedProduct.lastSyncedAt).toLocaleString() : "Never"}
+                                    </span>
                                 </SheetDescription>
                             </SheetHeader>
                             <div className="flex-1 w-full pb-0 flex flex-col items-start px-0">
-                                <ProductDetailTabs 
-                                    product={selectedProduct} 
-                                    onSaveSuccess={invalidate} 
-                                    channelName={channelName} 
+                                <ProductDetailTabs
+                                    product={selectedProduct}
+                                    onSaveSuccess={invalidate}
+                                    channelName={channelName}
                                 />
                             </div>
                         </>

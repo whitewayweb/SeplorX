@@ -112,11 +112,12 @@ export const configFields: ChannelConfigField[] = [
   { key: "clientId", label: "LWA Client ID", type: "text", required: true },
   { key: "clientSecret", label: "LWA Client Secret", type: "password", required: true },
   { key: "refreshToken", label: "LWA Refresh Token", type: "password", required: true },
+  { key: "merchantId", label: "Seller ID (Merchant Token)", type: "text", required: true },
 ];
 
 export const capabilities: ChannelCapabilities = {
   canFetchProducts: true,
-  canPushStock: false,
+  canPushStock: true,
   canPushProductUpdates: false, // Amazon uses the Feeds API (xlsm templates), not direct REST push
   usesWebhooks: false,
 };
@@ -127,7 +128,7 @@ export const capabilities: ChannelCapabilities = {
 
 /** Cross-field validation for Amazon SP-API */
 export function validateConfig(config: Partial<Record<string, string>>): string | null {
-  const { storeUrl, marketplaceId, clientId, clientSecret, refreshToken } = config;
+  const { storeUrl, marketplaceId, clientId, clientSecret, refreshToken, merchantId } = config;
 
   // Basic Presence
   if (!storeUrl) return "SP-API Endpoint Region is required";
@@ -136,6 +137,7 @@ export function validateConfig(config: Partial<Record<string, string>>): string 
   if (!clientId) return "LWA Client ID is required";
   if (!clientSecret) return "LWA Client Secret is required";
   if (!refreshToken) return "LWA Refresh Token is required";
+  if (!merchantId) return "Seller ID (Merchant Token) is required";
 
   const marketplace = MARKETPLACE_MAP[marketplaceId];
   if (!marketplace) {

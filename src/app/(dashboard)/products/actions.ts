@@ -439,7 +439,15 @@ export async function pushProductStockToChannels(productId: number) {
       }
 
       try {
-        await handler.pushStock(m.storeUrl, decryptedCreds, m.externalProductId, quantity, m.parentId);
+        await handler.pushStock(
+          m.storeUrl,
+          decryptedCreds,
+          m.externalProductId,
+          quantity,
+          m.parentId,
+          m.channelSku,
+          m.productType
+        );
         results.push({ channelName: m.channelName, externalProductId: m.externalProductId, label: m.label, ok: true });
       } catch (err) {
         const msg = String(err).replace(/^Error:\s*/, "").substring(0, 200);

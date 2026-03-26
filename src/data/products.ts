@@ -161,6 +161,8 @@ export async function getChannelMappingsForStockPush(
       channelName: channels.name,
       status: channels.status,
       parentId: sql<string | null>`${channelProducts.rawData}->>'parentId'`,
+      productType: sql<string | null>`${channelProducts.rawData}->>'amazonProductType'`,
+      channelSku: channelProducts.sku,
     })
     .from(channelProductMappings)
     .innerJoin(channels, eq(channelProductMappings.channelId, channels.id))

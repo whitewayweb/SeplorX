@@ -48,7 +48,37 @@ export const amazonHandler: ChannelHandler = {
     return await client.getCatalogItem(asin, sku, fulfillmentChannel);
   },
 
-  // pushStock: not implemented — capabilities.canPushStock = false
+  async pushStock(storeUrl, credentials, externalProductId, quantity, parentId, sku, productType) {
+    if (!credentials.marketplaceId || !credentials.clientId || !credentials.clientSecret || !credentials.refreshToken || !credentials.merchantId) {
+      throw new Error("Missing required Amazon credentials (merchantId missing?). Please update channel settings.");
+    }
+
+    const client = new AmazonAPIClient(credentials, storeUrl);
+
+    const identifier = sku || externalProductId;
+
+    if (!identifier) throw new Error("No SKU or external ID found for this Amazon mapping.");
+
+    console.log(`[Amazon pushStock] Pushing stock for ${identifier} (Type: ${productType || "PRODUCT"}, Qty: ${quantity})`);
+
+    // Direct PATCH to Listings API
+    await client.patchListingsItem(
+      credentials.merchantId, 
+      identifier, 
+      [
+        {
+          op: "replace",
+          path: "/attributes/fulfillment_availability",
+          value: [{
+            fulfillment_channel_code: "DEFAULT",
+            quantity: quantity
+          }]
+        }
+      ],
+      productType || "PRODUCT"
+    );
+  },
+
   // registerWebhooks: not applicable — capabilities.usesWebhooks = false
   // processWebhook: not applicable — capabilities.usesWebhooks = false
 

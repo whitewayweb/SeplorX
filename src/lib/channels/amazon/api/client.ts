@@ -61,11 +61,11 @@ export class AmazonAPIClient {
   /**
    * Internal helper to perform fetch with basic retry logic for 429 Quota Exceeded errors.
    */
-  private async fetchWithRetry(url: string, headers: Record<string, string>, retries = 3): Promise<Response> {
+  private async fetchWithRetry(url: string, options: RequestInit, retries = 3): Promise<Response> {
     for (let i = 0; i < retries; i++) {
       const res = await fetch(url, {
-        headers,
-        signal: AbortSignal.timeout(15_000),
+        ...options,
+        signal: options.signal || AbortSignal.timeout(15_000),
       });
 
       if (res.status === 429 && i < retries - 1) {
@@ -78,7 +78,7 @@ export class AmazonAPIClient {
       return res;
     }
     // Final attempt/fall-through (shouldn't really hit here as the loop returns)
-    return fetch(url, { headers, signal: AbortSignal.timeout(15_000) });
+    return fetch(url, { ...options, signal: options.signal || AbortSignal.timeout(15_000) });
   }
 
   public async fetchProducts(search?: string): Promise<ExternalProduct[]> {
@@ -249,6 +249,49 @@ export class AmazonAPIClient {
       console.error("[Amazon SP-API] getListingItem Error:", errText);
       throw new Error(`Failed to get listing item for SKU ${sku}: ${res.status}`);
     }
+    return res.json();
+  }
+
+  public async patchListingsItem(sellerId: string, sku: string, patches: { op: "replace" | "add" | "delete"; path: string; value?: unknown }[], productType = "PRODUCT"): Promise<unknown> {
+    if (!sellerId || !sku) throw new Error("sellerId and sku are required.");
+    const accessToken = await this.getAccessToken();
+    const url = new URL(
+      `${this.endpoint}/listings/2021-08-01/items/${encodeURIComponent(sellerId)}/${encodeURIComponent(sku)}`
+    );
+    url.searchParams.set("marketplaceIds", this.marketplaceId);
+    url.searchParams.set("issueLocale", "en_US");
+
+    const res = await this.fetchWithRetry(url.toString(), {
+      method: "PATCH",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "x-amz-access-token": accessToken
+      },
+      body: JSON.stringify({
+        productType,
+        patches
+      })
+    }, 1);
+
+    if (!res.ok) {
+        const errText = await res.text();
+        console.error("[Amazon SP-API] patchListingsItem Error:", errText);
+        let amazonError = "";
+        try {
+          const parsed = JSON.parse(errText);
+          if (parsed.errors && parsed.errors.length > 0) {
+            amazonError = parsed.errors[0].message;
+          }
+        } catch {
+          // ignore
+        }
+        if (amazonError) {
+          throw new Error(`Failed to patch listing item for SKU ${sku} (${res.status}): ${amazonError}`);
+        }
+        throw new Error(`Failed to patch listing item for SKU ${sku}: ${res.status}`);
+    }
+
     return res.json();
   }
 
@@ -865,8 +908,10 @@ export class AmazonAPIClient {
     const url = new URL(`${this.endpoint}/orders/v0/orders/${encodeURIComponent(orderId)}/orderItems`);
 
     const res = await this.fetchWithRetry(url.toString(), {
-      Accept: "application/json",
-      "x-amz-access-token": accessToken,
+      headers: {
+        Accept: "application/json",
+        "x-amz-access-token": accessToken,
+      }
     });
 
     if (!res.ok) {
@@ -888,8 +933,10 @@ export class AmazonAPIClient {
     const url = new URL(`${this.endpoint}/orders/v0/orders/${encodeURIComponent(orderId)}/buyerInfo`);
 
     const res = await this.fetchWithRetry(url.toString(), {
-      Accept: "application/json",
-      "x-amz-access-token": accessToken,
+      headers: {
+        Accept: "application/json",
+        "x-amz-access-token": accessToken,
+      }
     });
 
     if (!res.ok) {
@@ -911,8 +958,10 @@ export class AmazonAPIClient {
     const url = new URL(`${this.endpoint}/orders/v0/orders/${encodeURIComponent(orderId)}/address`);
 
     const res = await this.fetchWithRetry(url.toString(), {
-      Accept: "application/json",
-      "x-amz-access-token": accessToken,
+      headers: {
+        Accept: "application/json",
+        "x-amz-access-token": accessToken,
+      }
     });
 
     if (!res.ok) {
