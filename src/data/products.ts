@@ -44,8 +44,16 @@ export async function getProductMappings(productId: number, tx: QueryClient = db
       externalProductId: channelProductMappings.externalProductId,
       label: channelProductMappings.label,
       syncStatus: channelProductMappings.syncStatus,
+      channelStock: channelProducts.stockQuantity,
     })
     .from(channelProductMappings)
+    .leftJoin(
+      channelProducts,
+      and(
+        eq(channelProductMappings.channelId, channelProducts.channelId),
+        eq(channelProductMappings.externalProductId, channelProducts.externalId)
+      )
+    )
     .where(eq(channelProductMappings.productId, productId));
 }
 

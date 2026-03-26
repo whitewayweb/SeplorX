@@ -25,6 +25,7 @@ interface MappingRow {
   externalProductId: string;
   label: string | null;
   syncStatus: string;
+  channelStock: number | null;
 }
 
 // ─── Status Config ─────────────────────────────────────────────────────────────
@@ -210,30 +211,62 @@ export function ChannelSyncCard({
 
               {/* Mappings */}
               {channelMappings.length > 0 && (
-                <div className="rounded-lg border border-border/50 bg-muted/20 divide-y divide-border/40 overflow-hidden">
-                  {channelMappings.map((m) => (
-                    <div
-                      key={m.id}
-                      className="flex items-center justify-between px-3 py-2.5 hover:bg-muted/30 transition-colors"
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <span className="font-mono text-xs bg-muted/60 rounded px-1.5 py-0.5 shrink-0">
-                          {m.externalProductId}
-                        </span>
-                        {m.label && (
-                          <span className="text-xs text-muted-foreground">
-                            {m.label}
-                          </span>
-                        )}
-                        {SYNC_STATUS_UI[m.syncStatus] && (
-                          <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-medium border ${SYNC_STATUS_UI[m.syncStatus].className}`}>
-                            {SYNC_STATUS_UI[m.syncStatus].label}
-                          </span>
-                        )}
-                      </div>
-                      <RemoveMappingButton mappingId={m.id} />
-                    </div>
-                  ))}
+                <div className="rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="border-b border-border/40 bg-muted/30">
+                        <tr>
+                          <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground whitespace-nowrap">External ID</th>
+                          <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground">Product</th>
+                          <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground">Status</th>
+                          <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground">Stock</th>
+                          <th className="w-[40px] px-2 py-2.5"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/40">
+                        {channelMappings.map((m) => (
+                          <tr
+                            key={m.id}
+                            className="hover:bg-muted/30 transition-colors"
+                          >
+                            <td className="px-4 py-2 w-1 whitespace-nowrap">
+                              <span className="font-mono text-xs bg-muted/60 rounded px-1.5 py-0.5">
+                                {m.externalProductId}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2 w-1/2">
+                              {m.label ? (
+                                <Link href={`/products/channels/${m.channelId}?q=${encodeURIComponent(m.externalProductId)}`} className="text-xs text-blue-600 hover:text-blue-800 hover:underline max-w-[300px]" title="View in Channels">
+                                  {m.label}
+                                </Link>
+                              ) : (
+                                <Link href={`/products/channels/${m.channelId}?q=${encodeURIComponent(m.externalProductId)}`} className="text-xs text-blue-600 hover:text-blue-800 hover:underline italic" title="View in Channels">
+                                  View Item
+                                </Link>
+                              )}
+                            </td>
+                            <td className="px-4 py-2 w-1 whitespace-nowrap">
+                              {SYNC_STATUS_UI[m.syncStatus] && (
+                                <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-medium border ${SYNC_STATUS_UI[m.syncStatus].className}`}>
+                                  {SYNC_STATUS_UI[m.syncStatus].label}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-2 w-1 text-right whitespace-nowrap">
+                              {m.channelStock !== null ? (
+                                <span className="text-xs font-medium tabular-nums">{m.channelStock}</span>
+                              ) : (
+                                <span className="text-[10px] text-muted-foreground/50 italic">N/A</span>
+                              )}
+                            </td>
+                            <td className="px-2 py-2 w-[40px] text-right">
+                              <RemoveMappingButton mappingId={m.id} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </div>
