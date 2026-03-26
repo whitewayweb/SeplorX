@@ -696,6 +696,8 @@ export class AmazonAPIClient {
   }
 
   private processProductRelationships(products: ExternalProduct[]): void {
+    const virtualParents = new Map<string, ExternalProduct>();
+
     for (const product of products) {
       const payload = product.rawPayload as Record<string, unknown>;
 
@@ -712,6 +714,7 @@ export class AmazonAPIClient {
         for (const byMarketplace of payload.relationships) {
           if (!Array.isArray(byMarketplace.relationships)) continue;
           for (const rel of byMarketplace.relationships) {
+            // Top-down: Parent -> Children
             if (rel.type === "VARIATION" && Array.isArray(rel.childAsins)) {
               product.type = "variable";
               for (const childAsin of rel.childAsins) {
@@ -727,9 +730,36 @@ export class AmazonAPIClient {
                 }
               }
             }
+            
+            // Bottom-up: Orphaned Child -> Missing Parent
+            if (rel.type === "VARIATION" && Array.isArray(rel.parentAsins) && rel.parentAsins.length > 0) {
+              const parentAsin = rel.parentAsins[0];
+              if (parentAsin && parentAsin !== product.id) {
+                product.type = "variation";
+                product.parentId = parentAsin;
+                if (product.rawPayload) {
+                  product.rawPayload.parentId = parentAsin;
+                }
+                
+                // If parent doesn't exist in the batch natively, stage a virtual parent
+                if (!products.some(p => p.id === parentAsin) && !virtualParents.has(parentAsin)) {
+                  virtualParents.set(parentAsin, {
+                    id: parentAsin,
+                    name: `Variation Family: ${parentAsin}`,
+                    type: "variable",
+                    rawPayload: {},
+                  });
+                }
+              }
+            }
           }
         }
       }
+    }
+
+    // Append synthesized virtual parents to the sync batch
+    for (const vp of virtualParents.values()) {
+      products.push(vp);
     }
   }
 
