@@ -47,6 +47,7 @@ export async function getOutOfSyncProductCount(): Promise<number> {
 /**
  * Get the available quantity for a product (on-hand minus reserved).
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function getAvailableQuantity(productId: number): Promise<number> {
   const [row] = await db
     .select({

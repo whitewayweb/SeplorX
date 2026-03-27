@@ -367,58 +367,31 @@ export async function getCatalogItemService(
   );
 
   // ── Extract and map child AND parent variations ─────────────────────────
-  // Amazon stores relationships in rawPayload.relationships. We collect childAsins
-  // to link them down, and parentAsins to link UP (creating Virtual Parents if needed).
-  const childAsinSet = new Set<string>();
+  let childAsins: string[] = [];
   let parentAsin: string | undefined = undefined;
 
-  try {
-    const relationships = product.rawPayload?.relationships as
-      | Array<{
-          marketplaceId?: string;
-          relationships?: Array<{
-            type?: string;
-            childAsins?: string[];
-            parentAsins?: string[];
-          }>;
-        }>
-      | undefined;
+  if (handler.extractRelationships) {
+    try {
+      const rels = handler.extractRelationships(product.rawPayload);
 
-    if (Array.isArray(relationships)) {
-      for (const byMarketplace of relationships) {
-        if (!Array.isArray(byMarketplace.relationships)) continue;
-        for (const rel of byMarketplace.relationships) {
-          if (rel.type === "VARIATION" && Array.isArray(rel.childAsins)) {
-            for (const childAsin of rel.childAsins) {
-              if (childAsin && childAsin !== asin) {
-                childAsinSet.add(childAsin);
-              }
-            }
-            product.type = "variable";
-          }
-          if (
-            rel.type === "VARIATION" &&
-            Array.isArray(rel.parentAsins) &&
-            rel.parentAsins.length > 0
-          ) {
-            const pa = rel.parentAsins[0];
-            if (pa && pa !== asin) {
-              parentAsin = pa;
-              product.type = "variation";
-              product.parentId = parentAsin;
-            }
-          }
-        }
+      childAsins = rels.childIds.filter((id) => id !== asin);
+      if (childAsins.length > 0) {
+        product.type = "variable";
       }
-    }
-  } catch (err) {
-    console.warn("[getCatalogItemService] Failed to map variations", {
-      action: "mapVariations",
-      error: String(err),
-    });
-  }
 
-  const childAsins = [...childAsinSet];
+      const pa = rels.parentId;
+      if (pa && pa !== asin) {
+        parentAsin = pa;
+        product.type = "variation";
+        product.parentId = parentAsin;
+      }
+    } catch (err) {
+      console.warn("[getCatalogItemService] Failed to map variations", {
+        action: "mapVariations",
+        error: String(err),
+      });
+    }
+  }
 
   // If this item is a Variation but the parent doesn't exist in the DB, it will become invisible.
   // We MUST proactively stage a Virtual Parent row into the DB first!

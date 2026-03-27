@@ -15,8 +15,18 @@ export interface StandardizedProductRecord {
   itemCondition: string;
   pkgWeight: string;
   itemWeight: string;
-  images: { link: string; variant?: string; width: string | number; height: string | number }[];
-  relationships: { type?: string; childAsins?: string[]; parentAsins?: string[]; variationTheme?: { theme: string } }[];
+  images: {
+    link: string;
+    variant?: string;
+    width: string | number;
+    height: string | number;
+  }[];
+  relationships: {
+    type?: string;
+    childAsins?: string[];
+    parentAsins?: string[];
+    variationTheme?: { theme: string };
+  }[];
 }
 
 export interface ChannelDefinition {
@@ -35,9 +45,17 @@ export interface ChannelDefinition {
   configFields?: ChannelConfigField[];
   capabilities?: ChannelCapabilities;
   validateConfig?: (config: Partial<Record<string, string>>) => string | null;
-  buildConnectUrl?: (channelId: number, config: Record<string, string>, appUrl: string) => string;
+  buildConnectUrl?: (
+    channelId: number,
+    config: Record<string, string>,
+    appUrl: string,
+  ) => string;
   /** Generate a public product link if available (e.g. Amazon DP link) */
-  getProductUrl?: (externalId: string, credentials?: Record<string, string>, rawData?: unknown) => string | null;
+  getProductUrl?: (
+    externalId: string,
+    credentials?: Record<string, string>,
+    rawData?: unknown,
+  ) => string | null;
   /** UI Hint for the connection step */
   connectionHint?: string;
 
@@ -45,8 +63,10 @@ export interface ChannelDefinition {
    * Extract standardized fields from channel-specific rawData payload to be displayed
    * in the product details UI.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  extractProductFields?: (rawData: Record<string, any>) => StandardizedProductRecord;
+   
+  extractProductFields?: (
+    rawData: Record<string, unknown>,
+  ) => StandardizedProductRecord;
 }
 
 export type ChannelStatus = "pending" | "connected" | "disconnected";
@@ -265,6 +285,16 @@ export interface ChannelHandler {
   ): Promise<ExternalProduct>;
 
   /**
+   * Extract generic relationship pointers (children and missing parents) from
+   * a single channel product's raw payload. Used during single-product syncs
+   * to automatically pull variation families together.
+   */
+  extractRelationships?(rawPayload: Record<string, unknown>): {
+    childIds: string[];
+    parentId?: string;
+  };
+
+  /**
    * Map generic update fields submitted from the product-detail form into the
    * channel-specific rawData patch that should be persisted.
    *
@@ -309,7 +339,7 @@ export interface ChannelHandler {
   getBrands?(channelId: number): Promise<string[]>;
 
   /**
-   * Returns the Drizzle SQL expression to extract a given filter field (e.g. "brand", "category") 
+   * Returns the Drizzle SQL expression to extract a given filter field (e.g. "brand", "category")
    * from the channel_products.raw_data JSONB column. Used by the DAL for filtering and grouping.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -319,8 +349,10 @@ export interface ChannelHandler {
    * Extract standardized fields from channel-specific rawData payload to be displayed
    * in the product details UI.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  extractProductFields?: (rawData: Record<string, any>) => StandardizedProductRecord;
+   
+  extractProductFields?: (
+    rawData: Record<string, unknown>,
+  ) => StandardizedProductRecord;
 
   /**
    * Fetch orders from the remote channel and persist them as sales_orders.
@@ -331,4 +363,3 @@ export interface ChannelHandler {
     channelId: number,
   ): Promise<{ fetched: number; saved: number }>;
 }
-
