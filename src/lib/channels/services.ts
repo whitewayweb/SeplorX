@@ -92,13 +92,26 @@ export async function updateChannelService(
 
   if (channelDef?.configFields) {
     if (channelDef.validateConfig) {
-      const configError = channelDef.validateConfig(rawConfig);
+      // Merge current decrypted credentials with new non-empty values for validation
+      const currentConfig: Record<string, string> = {
+        ...decryptChannelCredentials(existingChannel.credentials || {}),
+        storeUrl: existingChannel.storeUrl || "",
+      };
+      
+      const mergedConfig = { ...currentConfig };
+      for (const [key, val] of Object.entries(rawConfig)) {
+        if (typeof val === "string" && val.trim() !== "") {
+          mergedConfig[key] = val.trim();
+        }
+      }
+
+      const configError = channelDef.validateConfig(mergedConfig);
       if (configError) throw new Error(configError);
     }
 
     for (const field of channelDef.configFields) {
       const val = rawConfig[field.key];
-      if (val && typeof val === "string" && val.trim() !== "") {
+      if (typeof val === "string" && val.trim() !== "") {
         if (field.key === "storeUrl") {
           storeUrl = val.trim();
         } else {

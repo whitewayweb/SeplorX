@@ -355,8 +355,7 @@ export const channelProductMappings = pgTable("channel_product_mappings", {
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   uniqueIndex("channel_product_mappings_ext_unique").on(table.channelId, table.externalProductId),
-  // channel_product_mappings_channel_idx removed — the composite unique index above
-  // already covers queries on channel_id alone (Postgres uses composite index prefix).
+  index("channel_product_mappings_channel_idx").on(table.channelId),
   index("channel_product_mappings_product_idx").on(table.productId),
   index("channel_product_mappings_sync_status_idx").on(table.syncStatus),
 ]).enableRLS();
@@ -377,6 +376,7 @@ export const channelProducts = pgTable("channel_products", {
   lastSyncedAt: timestamp("last_synced_at").defaultNow().notNull(),
 }, (table) => [
   uniqueIndex("channel_products_unique_ext_id").on(table.channelId, table.externalId),
+  index("channel_products_channel_idx").on(table.channelId),
 ]).enableRLS();
 
 // ─── Settings ────────────────────────────────────────────────────────────────

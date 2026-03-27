@@ -2,6 +2,7 @@
 
 import React, { useActionState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { SheetFooter } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
@@ -33,6 +34,8 @@ interface ProductDetailTabsProps {
     product: ChannelProductDetail;
     /** Called after a successful save so the parent can evict its cache entry. */
     onSaveSuccess?: (productId: number) => void;
+    /** Called to close the drawer. */
+    onClose?: () => void;
     channelName?: string;
 }
 
@@ -52,10 +55,10 @@ function FieldError({ errors }: { errors?: string[] }) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function ProductDetailTabs({ product, onSaveSuccess, channelName: channelNameProp }: ProductDetailTabsProps) {
+export function ProductDetailTabs({ product, onSaveSuccess, onClose, channelName: channelNameProp }: ProductDetailTabsProps) {
     const channelDef = getChannelById(product.channelType as ChannelType);
     const channelName = channelNameProp || channelDef?.name || "provider";
-    
+
     // Use registry extraction or fallback to an empty object
     let rawData = product.rawData || {};
     if (typeof rawData === "string") {
@@ -65,8 +68,8 @@ export function ProductDetailTabs({ product, onSaveSuccess, channelName: channel
     const fields = channelDef?.extractProductFields
         ? channelDef.extractProductFields(rawData)
         : {
-            brand: "", color: "", partNumber: "", manufacturer: "", description: "", 
-            itemTypeKw: "", category: "", price: "", itemCondition: "", pkgWeight: "", 
+            brand: "", color: "", partNumber: "", manufacturer: "", description: "",
+            itemTypeKw: "", category: "", price: "", itemCondition: "", pkgWeight: "",
             itemWeight: "", images: [], relationships: []
         };
 
@@ -89,13 +92,13 @@ export function ProductDetailTabs({ product, onSaveSuccess, channelName: channel
     const fe = state?.fieldErrors ?? {};
 
     return (
-        <form action={action} className="w-full relative pb-16">
-            <input type="hidden" name="id"         value={product.id} />
-            <input type="hidden" name="channelId"  value={product.channelId} />
+        <form action={action} className="w-full h-full flex flex-col min-h-0">
+            <input type="hidden" name="id" value={product.id} />
+            <input type="hidden" name="channelId" value={product.channelId} />
             <input type="hidden" name="externalId" value={product.externalId} />
 
-            <Tabs defaultValue="details" className="w-full mt-4">
-                <div className="px-4">
+            <Tabs defaultValue="details" className="w-full mt-4 flex-1 flex flex-col min-h-0">
+                <div className="px-6 shrink-0">
                     <TabsList className="grid w-full grid-cols-4 bg-muted/50 rounded-lg p-1">
                         <TabsTrigger value="details" className="rounded-md">Product Details</TabsTrigger>
                         <TabsTrigger value="images" className="rounded-md">Images ({fields.images.length})</TabsTrigger>
@@ -104,19 +107,22 @@ export function ProductDetailTabs({ product, onSaveSuccess, channelName: channel
                     </TabsList>
                 </div>
 
-                <div className="p-4 pt-6 max-w-4xl">
-                    <DetailsTab fields={fields as StandardizedProductRecord} product={product} fe={fe} channelName={channelName} />
-                    <ImagesTab images={fields.images} />
-                    <OfferTab product={product} fields={fields as StandardizedProductRecord} fe={fe} />
-                    <VariationsTab relationships={fields.relationships} />
+                <div className="flex-1 overflow-y-auto px-6 pt-6 pb-6 w-full">
+                    <div className="max-w-4xl mx-auto md:mx-0">
+                        <DetailsTab fields={fields as StandardizedProductRecord} product={product} fe={fe} channelName={channelName} />
+                        <ImagesTab images={fields.images} />
+                        <OfferTab product={product} fields={fields as StandardizedProductRecord} fe={fe} />
+                        <VariationsTab relationships={fields.relationships} />
+                    </div>
                 </div>
-
-                <div className="absolute bottom-0 left-0 right-0 bg-background border-t p-4 flex justify-end gap-3 z-10 w-full rounded-b-md shadow-[0_-4px_6px_-2px_rgba(0,0,0,0.05)]">
-                    <Button type="button" variant="outline">Cancel</Button>
+                <SheetFooter className="p-4 border-t shrink-0 flex-row justify-end space-x-2 items-center [&>button]:w-auto">
+                    {onClose && (
+                        <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+                    )}
                     <Button type="submit" disabled={pending}>
                         {pending ? "Saving..." : `Save Updates to ${PORTAL_NAME}`}
                     </Button>
-                </div>
+                </SheetFooter>
             </Tabs>
         </form>
     );
@@ -333,7 +339,7 @@ function VariationsTab({ relationships }: { relationships: any[] }) {
                         <tbody className="divide-y text-muted-foreground">
                             {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                             {relationships.flatMap((rel: any, i: number) => {
-                                const asins   = rel.childAsins || rel.parentAsins || [];
+                                const asins = rel.childAsins || rel.parentAsins || [];
                                 const isChild = !!rel.childAsins;
                                 return asins.map((asin: string, j: number) => (
                                     <tr key={`${i}-${j}`} className="hover:bg-muted/30">

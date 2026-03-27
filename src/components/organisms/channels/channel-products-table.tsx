@@ -327,15 +327,15 @@ export function ChannelProductsTable({
 
             {/* ── Product Detail Drawer ────────────────────────────────────────── */}
             <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
-                <SheetContent side="right" className="sm:max-w-[80vw] w-full overflow-y-auto w-[55vw]">
+                <SheetContent side="right" className="sm:max-w-[80vw] w-[55vw] max-w-full p-0 flex flex-col gap-0">
                     {isLoading ? (
-                        <div className="flex items-center justify-center h-full">
+                        <div className="flex items-center justify-center h-full p-6">
                             <SheetTitle className="sr-only">Loading product details...</SheetTitle>
                             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                         </div>
                     ) : selectedProduct ? (
                         <>
-                            <SheetHeader>
+                            <SheetHeader className="p-6 border-b shrink-0">
                                 <SheetTitle className="text-base leading-snug pr-6">
                                     {selectedProduct.name}
                                 </SheetTitle>
@@ -361,10 +361,14 @@ export function ChannelProductsTable({
                                     </span>
                                 </SheetDescription>
                             </SheetHeader>
-                            <div className="flex-1 w-full pb-0 flex flex-col items-start px-0">
+                            <div className="flex-1 flex flex-col min-h-0 w-full relative">
                                 <ProductDetailTabs
                                     product={selectedProduct}
-                                    onSaveSuccess={invalidate}
+                                    onSaveSuccess={(id) => {
+                                        invalidate(id);
+                                        setDrawerOpen(false);
+                                    }}
+                                    onClose={() => setDrawerOpen(false)}
                                     channelName={channelName}
                                 />
                             </div>
