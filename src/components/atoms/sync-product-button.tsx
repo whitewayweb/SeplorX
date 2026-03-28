@@ -38,7 +38,7 @@ export function SyncProductButton({
                 });
 
                 const productId = result.product?.id;
-                
+
                 if (onSuccess && typeof productId === "number") {
                     onSuccess(productId);
                 }

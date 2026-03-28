@@ -25,6 +25,7 @@ export class AmazonAPIClient {
   private clientSecret: string;
   private refreshToken: string;
   private endpoint: string;
+  private merchantId: string;
 
   constructor(credentials: Record<string, string>, storeUrl: string) {
     this.marketplaceId = credentials.marketplaceId;
@@ -32,6 +33,7 @@ export class AmazonAPIClient {
     this.clientSecret = credentials.clientSecret;
     this.refreshToken = credentials.refreshToken;
     this.endpoint = (credentials.storeUrl || storeUrl).replace(/\/$/, "");
+    this.merchantId = credentials.merchantId ?? "";
   }
 
   private async getAccessToken(): Promise<string> {
@@ -178,30 +180,47 @@ export class AmazonAPIClient {
       }
     }
 
-    // If we have a SKU and the product is FBA, fetch warehouse inventory
+    // ── Stock quantity ─────────────────────────────────────────────────────────
+    // Ask the Listings Items API what fulfillment channel this SKU uses, then
+    // fetch the correct quantity source — no need to trust the caller-supplied
+    // fulfillmentChannel parameter:
+    //   • MFN (DEFAULT) → quantity is already in the fulfillmentAvailability slot
+    //   • FBA (AMAZON)  → use FBA Inventory API for warehouse-accurate quantity
     let stockQuantity: number | undefined = undefined;
-    const isFba = fulfillmentChannel && fulfillmentChannel !== "DEFAULT";
+    const isVariantParent =
+      data.summaries?.[0]?.itemClassification === "VARIATION_PARENT";
 
-    if (
-      sku &&
-      isFba &&
-      data.summaries?.[0]?.itemClassification !== "VARIATION_PARENT"
-    ) {
+    if (sku && this.merchantId && !isVariantParent) {
       try {
-        const fbaMap = await this.fetchFbaInventorySummaries(accessToken, [
+        const listing = await this.getListingItem(
+          this.merchantId,
           sku,
-        ]);
-        const fbaSummary = fbaMap.get(sku);
-        if (fbaSummary?.inventoryDetails?.fulfillableQuantity !== undefined) {
-          stockQuantity = fbaSummary.inventoryDetails.fulfillableQuantity;
-          // Inject FBA details for UI
-          (data as Record<string, unknown>).fbaInventory = fbaSummary;
+          "fulfillmentAvailability",
+        );
+
+        type FulfillmentSlot = { fulfillmentChannelCode: string; quantity?: number };
+        const availability = (
+          listing as unknown as Record<string, FulfillmentSlot[]>
+        ).fulfillmentAvailability ?? [];
+
+        // Derive FBA vs MFN from the listing itself
+        const fbaSlot = availability.find((a) => a.fulfillmentChannelCode === "AMAZON");
+        const mfnSlot = availability.find((a) => a.fulfillmentChannelCode === "DEFAULT");
+
+        if (fbaSlot) {
+          // FBA — get warehouse-accurate fulfillable quantity
+          const fbaMap = await this.fetchFbaInventorySummaries(accessToken, [sku]);
+          const fbaSummary = fbaMap.get(sku);
+          if (fbaSummary?.inventoryDetails?.fulfillableQuantity !== undefined) {
+            stockQuantity = fbaSummary.inventoryDetails.fulfillableQuantity;
+            (data as Record<string, unknown>).fbaInventory = fbaSummary;
+          }
+        } else if (mfnSlot && typeof mfnSlot.quantity === "number") {
+          // MFN — quantity is already in the listing response
+          stockQuantity = mfnSlot.quantity;
         }
       } catch (e) {
-        console.warn(
-          `[Amazon SP-API] Failed to fetch FBA inventory for single item ${asin}`,
-          e,
-        );
+        console.warn(`[Amazon SP-API] Failed to fetch listing availability for SKU ${sku}`, e);
       }
     }
 
