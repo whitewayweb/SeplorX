@@ -21,9 +21,9 @@ import {
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getCatalogItem } from "@/app/(dashboard)/channels/actions";
 import { ProductDetailTabs } from "./product-detail-tabs";
 import { useChannelProductDetail } from "@/lib/channels/hooks/use-channel-product-detail";
+import { SyncProductButton } from "@/components/atoms/sync-product-button";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Types
@@ -65,7 +65,6 @@ export function ChannelProductsTable({
 }: ChannelProductsTableProps) {
     const router = useRouter();
     const [drawerOpen, setDrawerOpen] = useState(false);
-    const [refetchingId, setRefetchingId] = useState<string | null>(null);
     const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
 
     const { selectedProduct, isLoading, openProduct, invalidate } = useChannelProductDetail();
@@ -91,36 +90,6 @@ export function ChannelProductsTable({
             openProduct(productId);
         },
         [openProduct],
-    );
-
-    const handleRefetch = useCallback(
-        (e: React.MouseEvent, externalId: string) => {
-            e.stopPropagation();
-            setRefetchingId(externalId);
-            (async () => {
-                try {
-                    const result = await getCatalogItem(channelId, externalId);
-                    if (result.error) {
-                        toast.error("Failed to refetch product", { description: result.error });
-                    } else {
-                        toast.success("Product refreshed", {
-                            description: `"${result.product?.name ?? externalId}" has been updated.`,
-                        });
-
-                        const productId = result.product?.id;
-                        if (productId && typeof productId === "number") {
-                            invalidate(productId);
-                        }
-                        router.refresh();
-                    }
-                } catch (err) {
-                    toast.error("Failed to refetch product", { description: String(err) });
-                } finally {
-                    setRefetchingId(null);
-                }
-            })();
-        },
-        [channelId, router, invalidate],
     );
 
     // ── Helpers ─────────────────────────────────────────────────────────────
@@ -158,7 +127,6 @@ export function ChannelProductsTable({
                                     const productVariations = variations.filter(
                                         (v) => v.parentId === product.externalId
                                     );
-                                    const isRefetching = refetchingId === product.externalId;
 
                                     return (
                                         <Fragment key={product.id}>
@@ -236,17 +204,12 @@ export function ChannelProductsTable({
                                                     )}
                                                 </TableCell>
                                                 {canRefetchItem && (
-                                                    <TableCell className="text-center">
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="h-7 w-7"
-                                                            onClick={(e) => handleRefetch(e, product.externalId)}
-                                                            disabled={isRefetching}
-                                                            title="Refetch from channel"
-                                                        >
-                                                            <RefreshCw className={`h-3.5 w-3.5 ${isRefetching ? "animate-spin" : ""}`} />
-                                                        </Button>
+                                                    <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                                                        <SyncProductButton 
+                                                            channelId={channelId} 
+                                                            externalId={product.externalId} 
+                                                            onSuccess={(pid) => pid && invalidate(pid)} 
+                                                        />
                                                     </TableCell>
                                                 )}
                                             </TableRow>
@@ -313,7 +276,15 @@ export function ChannelProductsTable({
                                                             "—"
                                                         )}
                                                     </TableCell>
-                                                    {canRefetchItem && <TableCell />}
+                                                    {canRefetchItem && (
+                                                        <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                                                            <SyncProductButton 
+                                                                channelId={channelId} 
+                                                                externalId={variation.externalId} 
+                                                                onSuccess={(pid) => pid && invalidate(pid)} 
+                                                            />
+                                                        </TableCell>
+                                                    )}
                                                 </TableRow>
                                             ))}
                                         </Fragment>
