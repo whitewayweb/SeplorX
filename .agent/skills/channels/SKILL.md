@@ -83,7 +83,7 @@ export const shopifyHandler: ChannelHandler = {
   },
 
   // Push stock update to channel (when SeplorX stock changes)
-  async pushStock(storeUrl, credentials, externalProductId, quantity) {
+  async pushStock(storeUrl, credentials, externalProductId, quantity, parentId, sku, productType, rawData) {
     await fetch(`${storeUrl}/admin/api/2024-01/variants/${externalProductId}.json`, {
       method: "PUT",
       headers: { "X-Shopify-Access-Token": credentials.accessToken },

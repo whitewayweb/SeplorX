@@ -38,6 +38,7 @@ interface ProductRow {
     stockQuantity: number | null;
     lastSyncedAt: Date | null;
     productUrl?: string | null;
+    fulfillmentChannelCode?: string | null;
 }
 
 interface VariationRow extends ProductRow {
@@ -171,8 +172,14 @@ export function ChannelProductsTable({
                                                             </a>
                                                         )}
                                                     </div>
-                                                    <div className="font-mono text-xs text-muted-foreground/70 mt-0.5">
+                                                    <div className="font-mono text-xs text-muted-foreground/70 mt-0.5 flex items-center gap-2">
                                                         {product.sku || "-"}
+                                                        {product.fulfillmentChannelCode?.startsWith("AMAZON") && (
+                                                            <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 bg-orange-50 text-orange-700 border-orange-200">FBA</Badge>
+                                                        )}
+                                                        {product.fulfillmentChannelCode === "DEFAULT" && (
+                                                            <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 bg-blue-50 text-blue-700 border-blue-200">MFN</Badge>
+                                                        )}
                                                     </div>
                                                 </TableCell>
                                                 <TableCell>
@@ -244,8 +251,14 @@ export function ChannelProductsTable({
                                                                 </a>
                                                             )}
                                                         </div>
-                                                        <div className="font-mono text-xs text-muted-foreground/70 mt-0.5">
+                                                        <div className="font-mono text-xs text-muted-foreground/70 mt-0.5 flex items-center gap-2">
                                                             {variation.sku || "-"}
+                                                            {variation.fulfillmentChannelCode?.startsWith("AMAZON") && (
+                                                                <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 bg-orange-50 text-orange-700 border-orange-200">FBA</Badge>
+                                                            )}
+                                                            {variation.fulfillmentChannelCode === "DEFAULT" && (
+                                                                <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 bg-blue-50 text-blue-700 border-blue-200">MFN</Badge>
+                                                            )}
                                                         </div>
                                                     </TableCell>
                                                     <TableCell>

@@ -204,20 +204,32 @@ export class AmazonAPIClient {
         ).fulfillmentAvailability ?? [];
 
         // Derive FBA vs MFN from the listing itself
-        const fbaSlot = availability.find((a) => a.fulfillmentChannelCode === "AMAZON");
+        const fbaSlot = availability.find((a) => a.fulfillmentChannelCode?.startsWith("AMAZON"));
         const mfnSlot = availability.find((a) => a.fulfillmentChannelCode === "DEFAULT");
 
         if (fbaSlot) {
+          (data as Record<string, unknown>).fulfillmentChannelCode = fbaSlot.fulfillmentChannelCode;
           // FBA — get warehouse-accurate fulfillable quantity
-          const fbaMap = await this.fetchFbaInventorySummaries(accessToken, [sku]);
-          const fbaSummary = fbaMap.get(sku);
-          if (fbaSummary?.inventoryDetails?.fulfillableQuantity !== undefined) {
-            stockQuantity = fbaSummary.inventoryDetails.fulfillableQuantity;
-            (data as Record<string, unknown>).fbaInventory = fbaSummary;
+          try {
+            const fbaMap = await this.fetchFbaInventorySummaries(accessToken, [sku]);
+            const fbaSummary = fbaMap.get(sku);
+            if (fbaSummary?.inventoryDetails?.fulfillableQuantity !== undefined) {
+              stockQuantity = fbaSummary.inventoryDetails.fulfillableQuantity;
+              (data as Record<string, unknown>).fbaInventory = fbaSummary;
+            }
+          } catch (fbaErr) {
+            console.warn(`[Amazon SP-API] FBA inventory fetch failed/timed out for ${sku}`, fbaErr);
           }
-        } else if (mfnSlot && typeof mfnSlot.quantity === "number") {
+          console.log(`[Amazon SP-API] Set FBA code for ${sku}`);
+        } else if (mfnSlot) {
           // MFN — quantity is already in the listing response
-          stockQuantity = mfnSlot.quantity;
+          if (typeof mfnSlot.quantity === "number") {
+            stockQuantity = mfnSlot.quantity;
+          }
+          (data as Record<string, unknown>).fulfillmentChannelCode = "DEFAULT";
+          console.log(`[Amazon SP-API] Set MFN code for ${sku}. stock:`, stockQuantity);
+        } else {
+          console.log(`[Amazon SP-API] NO MFN/FBA slot found for ${sku}. Slots were:`, availability);
         }
       } catch (e) {
         console.warn(`[Amazon SP-API] Failed to fetch listing availability for SKU ${sku}`, e);
@@ -696,6 +708,9 @@ export class AmazonAPIClient {
     const qtyIdx = headers.findIndex(
       (h) => h === "quantity" || h === "qty" || h === "stock",
     );
+    const fulfillmentChannelIdx = headers.findIndex(
+      (h) => h === "fulfillment-channel",
+    );
 
     const externalProducts: ExternalProduct[] = [];
     for (let i = 1; i < lines.length; i++) {
@@ -725,6 +740,16 @@ export class AmazonAPIClient {
           !asin.toLowerCase().includes(query)
         ) {
           continue;
+        }
+      }
+
+      // Map TSV fulfillment-channel to our standard code
+      if (fulfillmentChannelIdx >= 0 && cols[fulfillmentChannelIdx]) {
+        const rawFc = cols[fulfillmentChannelIdx].toUpperCase();
+        if (rawFc.startsWith("AMAZON")) {
+          rawPayload.fulfillmentChannelCode = rawFc;
+        } else {
+          rawPayload.fulfillmentChannelCode = "DEFAULT";
         }
       }
 

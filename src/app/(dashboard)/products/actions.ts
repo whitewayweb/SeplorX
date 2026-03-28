@@ -446,7 +446,8 @@ export async function pushProductStockToChannels(productId: number) {
           quantity,
           m.parentId,
           m.channelSku,
-          m.productType
+          m.productType,
+          m.rawData as Record<string, unknown> | null
         );
         results.push({ channelName: m.channelName, externalProductId: m.externalProductId, label: m.label, ok: true });
       } catch (err) {

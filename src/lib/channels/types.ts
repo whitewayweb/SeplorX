@@ -234,6 +234,7 @@ export interface ChannelHandler {
     parentId?: string | null,
     sku?: string | null,
     productType?: string | null,
+    rawData?: Record<string, unknown> | null,
   ): Promise<void>;
 
   /**

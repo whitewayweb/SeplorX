@@ -71,6 +71,7 @@ export const amazonHandler: ChannelHandler = {
     parentId,
     sku,
     productType,
+    rawData,
   ) {
     if (
       !credentials.marketplaceId ||
@@ -91,8 +92,10 @@ export const amazonHandler: ChannelHandler = {
     if (!identifier)
       throw new Error("No SKU or external ID found for this Amazon mapping.");
 
+    const fcCode = (rawData?.fulfillmentChannelCode as string) || "DEFAULT";
+
     console.log(
-      `[Amazon pushStock] Pushing stock for ${identifier} (Type: ${productType || "PRODUCT"}, Qty: ${quantity})`,
+      `[Amazon pushStock] Pushing stock for ${identifier} (Type: ${productType || "PRODUCT"}, Channel: ${fcCode}, Qty: ${quantity})`,
     );
 
     // Direct PATCH to Listings API
@@ -105,7 +108,7 @@ export const amazonHandler: ChannelHandler = {
           path: "/attributes/fulfillment_availability",
           value: [
             {
-              fulfillment_channel_code: "DEFAULT",
+              fulfillment_channel_code: fcCode,
               quantity: quantity,
             },
           ],
