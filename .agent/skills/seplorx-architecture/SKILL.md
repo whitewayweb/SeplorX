@@ -96,9 +96,11 @@ Data flows one way: **Server Component → props → Client Component → Server
 
 ## UI & Layout Patterns
 
-- **PageHeader Molecule:** Use `<PageHeader title="..." description="..." />` from `@/components/molecules/layout/page-header` for all dashboard pages. This component handles the 48px left-margin (`ml-12`) needed to clear the floating sidebar trigger.
-- **No `container mx-auto`:** Dashboard pages should use `p-6 space-y-6` on the root div. Avoid `container` or `mx-auto` as they conflict with the layout's sidebar-aware margin selectors.
-- **Header Actions:** Pass buttons or triggers (like `Add Button`) as children to `PageHeader` to have them appear on the top-right.
+- **Shadcn Forms & Validation (Compulsory)**: All forms MUST use the `shadcn` Form components (`react-hook-form` + `@hookform/resolvers/zod`). Always wrap inputs in `<Form>`, `<FormField>`, `<FormItem>`, `<FormLabel>`, `<FormControl>`, and `<FormMessage>`. Always use Zod schemas to validate form values both on the client and server.
+- **Searchable Dropdowns**: Whenever a searchable dropdown is required, you must use the Shadcn `Combobox` pattern (which combines `<Popover>` and `<Command>` components), exactly as described in the official Shadcn inline docs. Do not build custom `<datalist>` elements or raw input hacks.
+- **PageHeader Molecule**: Use `<PageHeader title="..." description="..." />` from `@/components/molecules/layout/page-header` for all dashboard pages. This component handles the 48px left-margin (`ml-12`) needed to clear the floating sidebar trigger.
+- **No `container mx-auto`**: Dashboard pages should use `p-6 space-y-6` on the root div. Avoid `container` or `mx-auto` as they conflict with the layout's sidebar-aware margin selectors.
+- **Header Actions**: Pass buttons or triggers (like `Add Button`) as children to `PageHeader` to have them appear on the top-right.
 
 ## Design Principles
 

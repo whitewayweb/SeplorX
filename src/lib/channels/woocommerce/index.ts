@@ -182,7 +182,7 @@ export const woocommerceHandler: ChannelHandler = {
     return results;
   },
 
-  async pushStock(storeUrl, credentials, externalProductId, quantity, parentId, sku, productType, rawData) {
+  async pushStock(storeUrl, credentials, externalProductId, quantity, parentId) {
     const endpoint = parentId 
       ? `/products/${parentId}/variations/${externalProductId}`
       : `/products/${externalProductId}`;

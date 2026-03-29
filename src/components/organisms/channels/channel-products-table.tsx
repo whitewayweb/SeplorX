@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, useCallback, Fragment } from "react";
-import { CornerDownRight, RefreshCw, Loader2, ChevronRight, ChevronDown, ExternalLink } from "lucide-react";
-import { toast } from "sonner";
-import { useRouter } from "next/navigation";
+import { CornerDownRight, Loader2, ChevronRight, ChevronDown, ExternalLink } from "lucide-react";
+
 import {
     Table,
     TableBody,
@@ -64,7 +63,6 @@ export function ChannelProductsTable({
     variations,
     canRefetchItem,
 }: ChannelProductsTableProps) {
-    const router = useRouter();
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
 

@@ -185,3 +185,17 @@ export const proposeChannelMappings = tool({
     return { taskId: row.id };
   },
 });
+import { getFitmentRegistry } from "@/data/fitment";
+
+// ─── Tool 4: Get car fitment registry ────────────────────────────────────────
+
+export const getFitmentRegistryTool = tool({
+  description:
+    "Fetch the 'Car Fitment Registry' which maps car Make/Model/Position to specific SeplorX products. " +
+    "Use this for automotive products (like buffers) when a direct SKU match isn't found. " +
+    "The registry contains rules like: { make: 'VW', model: 'Ameo', position: 'Rear', productId: 123 }.",
+  inputSchema: zodSchema(z.object({})),
+  execute: async () => {
+    return await getFitmentRegistry();
+  },
+});
