@@ -36,6 +36,7 @@ type Product = {
 
 interface ProductListProps {
   products: Product[];
+  pendingMappingIds?: number[];
 }
 
 function StockBadge({ quantity, reorderLevel }: { quantity: number; reorderLevel: number }) {
@@ -136,8 +137,9 @@ function formatPrice(value: string | null): string {
   return isNaN(num) ? "—" : `₹${num.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
 }
 
-export function ProductList({ products }: ProductListProps) {
+export function ProductList({ products, pendingMappingIds = [] }: ProductListProps) {
   const [showInactive, setShowInactive] = useState(false);
+  const [showPending, setShowPending] = useState(false);
   const [optimisticProducts, setOptimisticProducts] = useOptimistic(
     products.map(p => ({ ...p, isDeleting: false })),
     (state, info: { action: "toggle" | "delete"; id: number }) => {
@@ -154,9 +156,13 @@ export function ProductList({ products }: ProductListProps) {
     }
   );
 
-  const filteredProducts = showInactive 
+  let filteredProducts = showInactive 
     ? optimisticProducts 
     : optimisticProducts.filter(p => p.isActive);
+
+  if (showPending && pendingMappingIds.length > 0) {
+    filteredProducts = filteredProducts.filter(p => pendingMappingIds.includes(p.id));
+  }
 
   if (optimisticProducts.length === 0) {
     return (
@@ -171,15 +177,31 @@ export function ProductList({ products }: ProductListProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center space-x-2 px-1">
-        <Switch 
-          id="show-inactive" 
-          checked={showInactive} 
-          onCheckedChange={setShowInactive} 
-        />
-        <Label htmlFor="show-inactive" className="text-sm font-medium cursor-pointer">
-          Show Inactive Products
-        </Label>
+      <div className="flex items-center space-x-6 px-1">
+        <div className="flex items-center space-x-2">
+          <Switch 
+            id="show-inactive" 
+            checked={showInactive} 
+            onCheckedChange={setShowInactive} 
+          />
+          <Label htmlFor="show-inactive" className="text-sm font-medium cursor-pointer">
+            Show Inactive Products
+          </Label>
+        </div>
+        
+        {pendingMappingIds.length > 0 && (
+          <div className="flex items-center space-x-2">
+            <Switch 
+              id="show-pending" 
+              checked={showPending} 
+              onCheckedChange={setShowPending} 
+            />
+            <Label htmlFor="show-pending" className="text-sm font-medium cursor-pointer text-amber-600 flex items-center gap-1">
+              <span className="flex h-2 w-2 rounded-full bg-amber-500 animate-pulse"></span>
+              Pending AI Mappings ({pendingMappingIds.length})
+            </Label>
+          </div>
+        )}
       </div>
 
       <div className="rounded-md border">
@@ -201,9 +223,16 @@ export function ProductList({ products }: ProductListProps) {
             {filteredProducts.map((product) => (
               <TableRow key={product.id} className={product.isDeleting ? "opacity-30 pointer-events-none" : !product.isActive ? "opacity-60 bg-muted/30" : ""}>
                 <TableCell className="font-medium">
-                  <Link href={`/products/${product.id}`} className="hover:underline text-primary">
-                    {product.name}
-                  </Link>
+                  <div className="flex flex-col gap-1">
+                    <Link href={`/products/${product.id}`} className="hover:underline text-primary">
+                      {product.name}
+                    </Link>
+                    {pendingMappingIds.includes(product.id) && (
+                      <span className="text-xs text-amber-600 font-medium flex items-center gap-1">
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span> AI Mapping Review
+                      </span>
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell className="font-mono text-sm">{product.sku ?? "—"}</TableCell>
                 <TableCell>{product.category ?? "—"}</TableCell>

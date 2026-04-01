@@ -230,6 +230,7 @@ agentActions: {
 | Variable | Purpose |
 |----------|---------|
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Required for all agents. Get at aistudio.google.com |
+| `OPENROUTER_KEY` | Optional. Primary provider for channel mapping agent. Get at openrouter.ai |
 
 ## Common Mistakes to Avoid
 

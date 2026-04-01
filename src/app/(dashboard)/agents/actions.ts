@@ -546,3 +546,60 @@ export async function approveChannelMappings(_prevState: unknown, formData: Form
     return { error: "Failed to apply mappings. Please try again." };
   }
 }
+
+// ─── Approve Individual Channel Mapping Proposal ─────────────────────────────
+
+export async function approvePendingChannelMappingItem(
+  channelId: number,
+  productId: number,
+  externalProductId: string,
+  externalProductName: string,
+) {
+  try {
+    await db.insert(channelProductMappings)
+      .values({
+        channelId,
+        productId,
+        externalProductId,
+        label: externalProductName,
+      })
+      .onConflictDoNothing();
+      
+    revalidatePath("/products");
+    revalidatePath(`/products/${productId}`);
+    return { success: true };
+  } catch (err) {
+    console.error("[approvePendingChannelMappingItem]", err);
+    return { error: "Failed to map product." };
+  }
+}
+
+// ─── Dismiss Individual Channel Mapping Proposal ─────────────────────────────
+
+export async function dismissPendingChannelMappingItem(taskId: number, externalProductId: string) {
+  try {
+    const [action] = await db.select().from(agentActions).where(eq(agentActions.id, taskId));
+    if (!action) return { error: "Task not found" };
+
+    const plan = action.plan as {
+      channelId?: number;
+      channelName?: string;
+      proposals?: Array<{ externalProductId: string }>;
+      [key: string]: unknown;
+    };
+
+    if (plan && Array.isArray(plan.proposals)) {
+      const remainingProposals = plan.proposals.filter((p) => String(p.externalProductId) !== String(externalProductId));
+      
+      await db.update(agentActions)
+        .set({ plan: { ...plan, proposals: remainingProposals } })
+        .where(eq(agentActions.id, taskId));
+    }
+
+    revalidatePath("/products");
+    return { success: true };
+  } catch (err) {
+    console.error("[dismissPendingChannelMappingItem]", err);
+    return { error: "Failed to dismiss mapping." };
+  }
+}

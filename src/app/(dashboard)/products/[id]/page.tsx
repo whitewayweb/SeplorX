@@ -28,6 +28,7 @@ import {
   getProductPurchaseHistory,
 } from "@/data/products";
 import { getProductStockSummary, getActiveReservationsForProduct } from "@/data/stock";
+import { getPendingMappingsForProduct } from "@/data/agents";
 
 export const dynamic = "force-dynamic";
 
@@ -71,13 +72,14 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
 
   const userId = await getAuthenticatedUserId();
 
-  const [connectedChannels, mappings, transactions, purchaseHistory, stockSummary, activeReservations] = await Promise.all([
+  const [connectedChannels, mappings, transactions, purchaseHistory, stockSummary, activeReservations, pendingMappings] = await Promise.all([
     getConnectedChannels(userId),
     getProductMappings(productId),
     getInventoryTransactionsForProduct(productId),
     getProductPurchaseHistory(productId),
     getProductStockSummary(productId),
     getActiveReservationsForProduct(productId),
+    getPendingMappingsForProduct(productId),
   ]);
 
   if (!stockSummary) notFound();
@@ -292,6 +294,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
           productId={productId}
           connectedChannels={connectedChannels}
           mappings={mappings}
+          pendingMappings={pendingMappings}
         />
 
         {/* ─── Purchase Price History ─── */}

@@ -24,14 +24,24 @@ export function ChannelMappingTrigger({ channelId }: ChannelMappingTriggerProps)
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ channelId }),
         });
-        const data = (await res.json()) as { taskId?: number; message?: string; error?: string };
+        const data = (await res.json()) as {
+          taskId?: number;
+          status?: string;
+          message?: string;
+          error?: string;
+        };
 
         if (!res.ok || data.error) {
           setError(data.error ?? "Agent failed. Please try again.");
           return;
         }
 
-        if (data.message) {
+        if (data.status === "processing") {
+          toast.success("Mapping started", {
+            description: "AI is analyzing products in the background. Refresh the page in a moment to see proposals.",
+            duration: 6000,
+          });
+        } else if (data.message) {
           toast.info(data.message);
         } else if (data.taskId) {
           toast.success("Mapping proposals ready", {

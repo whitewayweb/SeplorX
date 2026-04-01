@@ -3,6 +3,7 @@ import { ProductList } from "@/components/organisms/products/product-list";
 import { PageHeader } from "@/components/molecules/layout/page-header";
 import { ProductDialog } from "@/components/organisms/products/product-dialog";
 import { getProductsList } from "@/data/products";
+import { getProductsWithPendingMappings } from "@/data/agents";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { Tags } from "lucide-react";
@@ -12,7 +13,10 @@ export const dynamic = "force-dynamic";
 export default async function ProductsPage() {
   await getAuthenticatedUserId();
 
-  const productList = await getProductsList();
+  const [productList, pendingMappings] = await Promise.all([
+    getProductsList(),
+    getProductsWithPendingMappings(),
+  ]);
 
   return (
     <div className="p-6 space-y-6">
@@ -31,7 +35,7 @@ export default async function ProductsPage() {
         </div>
       </PageHeader>
 
-      <ProductList products={productList} />
+      <ProductList products={productList} pendingMappingIds={pendingMappings} />
     </div>
   );
 }
