@@ -47,7 +47,6 @@ import {
 import { Button } from "@/components/ui/button";
 
 import type { FitmentRule } from "@/data/fitment";
-import { MAKES, getModelsForMake, SERIES_OPTIONS } from "@/lib/fitment-constants";
 import { addFitmentRule, updateFitmentRule } from "@/app/(dashboard)/products/fitment/actions";
 
 const formSchema = z.object({
@@ -61,7 +60,17 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
-export function FitmentDialog({ rule }: { rule?: FitmentRule }) {
+const SERIES_OPTIONS = ["A", "B", "C", "D", "E"] as const;
+
+export function FitmentDialog({ 
+  rule, 
+  makes = [], 
+  rules = [] 
+}: { 
+  rule?: FitmentRule;
+  makes?: string[];
+  rules?: FitmentRule[];
+}) {
   const isEdit = !!rule;
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -84,7 +93,9 @@ export function FitmentDialog({ rule }: { rule?: FitmentRule }) {
   });
 
   const selectedMake = useWatch({ control: form.control, name: "make" }) as string;
-  const modelOptions = selectedMake ? getModelsForMake(selectedMake) : [];
+  const modelOptions = selectedMake 
+    ? Array.from(new Set(rules.filter(r => r.make === selectedMake).map(r => r.model))).sort()
+    : [];
 
   function onSubmit(values: FormValues) {
     startTransition(async () => {
@@ -198,7 +209,7 @@ export function FitmentDialog({ rule }: { rule?: FitmentRule }) {
                               </Button>
                             </CommandEmpty>
                             <CommandGroup>
-                              {MAKES.map((m) => (
+                              {makes.map((m) => (
                                 <CommandItem
                                   value={m}
                                   key={m}

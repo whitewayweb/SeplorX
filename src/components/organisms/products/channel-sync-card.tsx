@@ -99,6 +99,7 @@ function PendingMappingActionButtons({
   function onApprove() {
     startTransition(async () => {
       const result = await approvePendingChannelMappingItem(
+        mapping.taskId,
         mapping.channelId,
         productId,
         mapping.externalProductId,

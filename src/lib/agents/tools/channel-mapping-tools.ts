@@ -16,8 +16,8 @@ import {
 } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { getAuthenticatedUserId } from "@/lib/auth";
-import { FITMENT_CHART } from "@/lib/fitment-constants";
 import { getPendingChannelMappings } from "@/data/agents";
+import { getFitmentRegistry } from "@/data/fitment";
 
 // ─── Shared plan types (exported for use in approval card + action) ────────────
 
@@ -149,51 +149,61 @@ export async function saveChannelMappingProposal(plan: ChannelMappingPlan) {
 // ─── Tool 4: Local fitment lookup (no LLM, no DB) ────────────────────────────
 
 /**
- * Fuzzy-match a make/model/position against FITMENT_CHART and return the series.
+ * Fuzzy-match a make/model/position against the database Fitment Registry.
+ * Returns the resolved series for the given position.
  * Returns null if no match found.
  *
- * Uses case-insensitive substring matching to handle LLM extraction variance
- * (e.g., "mercedes" → "Mercedes", "C220" → "C 220").
+ * Uses case-insensitive substring matching to handle LLM extraction variance.
  */
-export function lookupFitmentSeries(
+export async function lookupFitmentSeries(
   make: string,
   model: string,
   position: "front" | "rear" | "both",
-): { series: string; matchedMake: string; matchedModel: string } | null {
+): Promise<{ series: string; matchedMake: string; matchedModel: string } | null> {
   const makeNorm = make.trim().toLowerCase().replace(/[-_\s]/g, "");
   const modelNorm = model.trim().toLowerCase().replace(/[-_\s]/g, "");
 
-  // 1. Find the best matching make
-  const makeKey = Object.keys(FITMENT_CHART).find((k) => {
-    const kn = k.toLowerCase().replace(/[-_\s]/g, "");
-    return kn === makeNorm || kn.includes(makeNorm) || makeNorm.includes(kn);
-  });
-  if (!makeKey) return null;
+  // 1. Fetch Dynamic Registry from Database
+  const dbRules = await getFitmentRegistry();
 
-  const models = FITMENT_CHART[makeKey] as Record<string, { front: string | null; rear: string | null }>;
+  if (dbRules.length > 0) {
+    // A. Find best match for Make (case insensitive, space/dash agnostic)
+    const matchingMakeRules = dbRules.filter((r) => {
+      const dbMakeNorm = r.make.toLowerCase().replace(/[-_\s]/g, "");
+      return dbMakeNorm === makeNorm || dbMakeNorm.includes(makeNorm) || makeNorm.includes(dbMakeNorm);
+    });
 
-  // 2. Find the best matching model
-  const modelKey = Object.keys(models).find((m) => {
-    const mn = m.toLowerCase().replace(/[-_\s]/g, "");
-    return mn === modelNorm || mn.includes(modelNorm) || modelNorm.includes(mn);
-  });
+    if (matchingMakeRules.length > 0) {
+      const matchedMake = matchingMakeRules[0].make;
 
-  if (!modelKey) return null;
+      // B. Find best match for Model
+      const matchingModelRules = matchingMakeRules.filter((r) => {
+        const dbModelNorm = r.model.toLowerCase().replace(/[-_\s]/g, "");
+        return dbModelNorm === modelNorm || dbModelNorm.includes(modelNorm) || modelNorm.includes(dbModelNorm);
+      });
 
-  const entry = models[modelKey];
+      if (matchingModelRules.length > 0) {
+        const matchedModel = matchingModelRules[0].model;
 
-  // 3. Look up position
-  if (position === "both") {
-    // For "both" / 4pc, prefer front series
-    const series = entry.front ?? entry.rear;
-    if (!series) return null;
-    return { series, matchedMake: makeKey, matchedModel: modelKey };
+        // C. Resolve position ("front" | "rear" | "both")
+        const targetPositions = position === "both" ? ["Front", "Rear", "Both4Pc"] : [position.charAt(0).toUpperCase() + position.slice(1)];
+        
+        let match = matchingModelRules.find(r => targetPositions.includes(r.position));
+        
+        // If searching for "both" and no 4pc/Both rule found, pick whatever first matching position is available
+        if (!match && position === "both") {
+           match = matchingModelRules[0];
+        }
+
+        if (match) {
+          return { series: match.series, matchedMake, matchedModel };
+        }
+      }
+    }
   }
 
-  const series = position === "front" ? entry.front : entry.rear;
-  if (!series) return null;
-
-  return { series, matchedMake: makeKey, matchedModel: modelKey };
+  // Fallback removed — Agent now strictly follows the DB registry.
+  return null;
 }
 
 // ─── Tool 5: Match SeplorX product by series + color ──────────────────────────

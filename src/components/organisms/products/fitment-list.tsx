@@ -40,6 +40,8 @@ export function FitmentList({ rules }: FitmentListProps) {
   const [search, setSearch] = useState("");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
+  const makes = useMemo(() => Array.from(new Set(rules.map(r => r.make))).sort(), [rules]);
+
   const handleDelete = (id: string) => {
     if (confirm("Are you sure you want to delete this rule?")) {
       startTransition(async () => {
@@ -195,7 +197,7 @@ export function FitmentList({ rules }: FitmentListProps) {
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right pr-4 space-x-1">
-                            <FitmentDialog rule={rule} />
+                            <FitmentDialog rule={rule} makes={makes} rules={rules} />
                             <Button
                               variant="ghost"
                               size="icon"

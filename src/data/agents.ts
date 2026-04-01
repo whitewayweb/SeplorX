@@ -1,7 +1,7 @@
 import { db } from "@/db";
 import { agentActions, settings, channelProductMappings } from "@/db/schema";
 import type { ChannelMappingPlan, ChannelMappingProposal } from "@/lib/agents/tools/channel-mapping-tools";
-import { and, desc, eq, like } from "drizzle-orm";
+import { and, desc, eq, inArray, like } from "drizzle-orm";
 
 export async function getPendingAgentTasks(agentType: string) {
   return await db
@@ -39,20 +39,39 @@ export type PendingMappingInteraction = ChannelMappingProposal & {
  * or that have been specifically dismissed.
  */
 export async function getPendingChannelMappings(): Promise<PendingMappingInteraction[]> {
-  const [actions, existingMappingsRows] = await Promise.all([
-    db
-      .select({
-        id: agentActions.id,
-        agentType: agentActions.agentType,
-        plan: agentActions.plan,
-      })
-      .from(agentActions)
-      .where(eq(agentActions.status, "pending_approval")),
-      
-    db
-      .select({ externalProductId: channelProductMappings.externalProductId })
-      .from(channelProductMappings)
-  ]);
+  const actions = await db
+    .select({
+      id: agentActions.id,
+      agentType: agentActions.agentType,
+      plan: agentActions.plan,
+    })
+    .from(agentActions)
+    .where(eq(agentActions.status, "pending_approval"));
+
+  // Collect all proposed external product IDs to query against mapped rows
+  const proposedExternalIds = new Set<string>();
+  
+  for (const action of actions) {
+    if (action.agentType !== "channel_mapping" || !action.plan) continue;
+    const plan = action.plan as unknown as ChannelMappingPlan;
+    if (!Array.isArray(plan.proposals)) continue;
+    for (const proposal of plan.proposals) {
+      if (proposal.externalProductId) {
+        proposedExternalIds.add(proposal.externalProductId);
+      }
+    }
+  }
+
+  // If no proposals exist, return early
+  if (proposedExternalIds.size === 0) {
+    return [];
+  }
+
+  // Load ONLY the mappings that have been proposed, rather than entire 10k db
+  const existingMappingsRows = await db
+    .select({ externalProductId: channelProductMappings.externalProductId })
+    .from(channelProductMappings)
+    .where(inArray(channelProductMappings.externalProductId, Array.from(proposedExternalIds)));
 
   const existingExtIds = new Set(existingMappingsRows.map((m) => m.externalProductId));
   const pendingProposals: PendingMappingInteraction[] = [];

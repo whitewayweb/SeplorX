@@ -1,7 +1,6 @@
 "use server";
 
 import { getFitmentRegistry, saveFitmentRegistry, type FitmentRule } from "@/data/fitment";
-import { flattenChartToRules } from "@/lib/fitment-constants";
 import { revalidatePath } from "next/cache";
 
 /**
@@ -58,23 +57,3 @@ export async function deleteFitmentRule(ruleId: string) {
   }
 }
 
-/**
- * Seeds the fitment registry from the Hiya Automotive chart data.
- * Replaces all existing rules with the chart data.
- */
-/** @public */
-export async function seedFitmentRegistry() {
-  try {
-    const chartRules = flattenChartToRules();
-    const rules: FitmentRule[] = chartRules.map((r) => ({
-      ...r,
-      id: Math.random().toString(36).substring(2, 9),
-    }));
-    await saveFitmentRegistry(rules);
-    revalidatePath("/products/fitment");
-    return { success: true, count: rules.length };
-  } catch (error) {
-    console.error("[seedFitmentRegistry]", error);
-    return { success: false, error: "Failed to seed fitment registry" };
-  }
-}

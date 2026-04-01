@@ -135,7 +135,6 @@ export async function runChannelMappingAgent(
     const errors: string[] = [];
 
     // Counters for final logging
-    let matchCount = 0;
     let unmatchCount = 0;
 
     for (const product of unmappedBatch) {
@@ -149,7 +148,7 @@ export async function runChannelMappingAgent(
         }
 
         // Step B: Local fitment chart lookup → series
-        const fitment = lookupFitmentSeries(
+        const fitment = await lookupFitmentSeries(
           extraction.make,
           extraction.model,
           extraction.position,
