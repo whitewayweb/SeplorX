@@ -46,7 +46,12 @@ export async function getPendingChannelMappings(): Promise<PendingMappingInterac
       plan: agentActions.plan,
     })
     .from(agentActions)
-    .where(eq(agentActions.status, "pending_approval"));
+    .where(
+      and(
+        eq(agentActions.status, "pending_approval"),
+        eq(agentActions.agentType, "channel_mapping"),
+      ),
+    );
 
   // Collect all proposed external product IDs to query against mapped rows
   const proposedExternalIds = new Set<string>();

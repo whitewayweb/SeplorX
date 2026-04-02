@@ -466,6 +466,7 @@ export const salesOrders = pgTable("sales_orders", {
   uniqueIndex("sales_orders_channel_ext_idx").on(table.channelId, table.externalOrderId),
   index("sales_orders_channel_idx").on(table.channelId),
   index("sales_orders_status_idx").on(table.status),
+  index("sales_orders_return_disposition_idx").on(table.returnDisposition),
 ]).enableRLS();
 
 export const salesOrderItems = pgTable("sales_order_items", {

@@ -136,6 +136,7 @@ export async function runChannelMappingAgent(
 
     // Counters for final logging
     let unmatchCount = 0;
+    let skippedNonAuto = 0;
 
     for (const product of unmappedBatch) {
       try {
@@ -143,7 +144,30 @@ export async function runChannelMappingAgent(
         const extraction = await extractFitmentFromTitle(product.name);
 
         if (!extraction) {
-          unmatchCount++;
+          // Non-automotive product — fallback to direct LLM matching against SeplorX catalog
+          console.log(`[agent/channel-mapping] 🏷️ Non-automotive fallback for: "${product.name}"`);
+          
+          const seplorxId = await findNonAutomotiveMatch(product.name, seplorxProducts);
+          if (seplorxId) {
+            const seplorx = seplorxProducts.find(p => p.id === seplorxId);
+            if (seplorx) {
+              console.log(`[agent/channel-mapping] ✅ Mapped (Direct LLM): "${product.name}" -> "${seplorx.name}"`);
+              proposals.push({
+                seplorxProductId: seplorx.id,
+                seplorxProductName: seplorx.name,
+                seplorxSku: seplorx.sku,
+                externalProductId: product.id,
+                externalProductName: product.name,
+                externalSku: product.sku,
+                confidence: "medium",
+                rationale: `Direct LLM semantic match (Non-Automotive): Title suggests compatibility.`,
+              });
+              continue;
+            }
+          }
+          
+          console.log(`[agent/channel-mapping] ⏭️ Skipped (No Direct Match): "${product.name}"`);
+          skippedNonAuto++;
           continue;
         }
 
@@ -196,7 +220,7 @@ export async function runChannelMappingAgent(
     // 3. Save all proposals as a single batch
     const reasoning = [
       `Processed a batch of ${unmappedBatch.length} products (out of ${unmapped.length} unmapped).`,
-      `Matched ${proposals.length}, unmatched ${unmatchCount}, errors ${errors.length}.`,
+      `Matched ${proposals.length}, unmatched ${unmatchCount}, non-automotive skipped ${skippedNonAuto}, errors ${errors.length}.`,
       `Provider cascade used up to tier ${currentTier}.`,
     ].join(" ");
 
@@ -244,6 +268,45 @@ async function extractFitmentFromTitle(
       }
       // Non-rate-limit error or all tiers exhausted
       console.warn(`[channel-mapping] Extraction failed for "${title}":`, err instanceof Error ? err.message : err);
+      return null;
+    }
+  }
+
+  return null;
+}
+
+// ─── Non-Automotive Direct Match ──────────────────────────────────────────────
+
+/**
+ * When extraction fails (e.g. "Silicone Spray"), this uses the LLM to directly 
+ * match the channel product title against the SeplorX catalog names.
+ */
+async function findNonAutomotiveMatch(
+  channelTitle: string,
+  seplorxProducts: Array<{ id: number; name: string }>,
+): Promise<number | null> {
+  const maxAttempts = 2;
+  const catalogList = seplorxProducts.map(p => `ID: ${p.id} | NAME: ${p.name}`).join("\n");
+  
+  const DirectMatchSchema = z.object({
+    matchedSeplorxId: z.number().nullable().describe("The ID of the best matching product, or null if no reasonable match exists"),
+  });
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const { object } = await generateObject({
+        model: getModel(),
+        schema: DirectMatchSchema,
+        prompt: `You are mapping an external e-commerce product title to a local catalog. The external product is NOT a car-specific part, so it does not have a make/model.\n\nExternal Title: "${channelTitle}"\n\nLocal Catalog:\n${catalogList}\n\nFind the best matching local product ID. If none are a clear match, return null.`,
+        maxRetries: 1,
+      });
+
+      return object.matchedSeplorxId;
+    } catch (err) {
+      if (isRateLimitError(err)) {
+        const canRetry = downgrade();
+        if (canRetry) continue;
+      }
       return null;
     }
   }
