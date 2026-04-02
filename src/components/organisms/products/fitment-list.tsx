@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Trash2, Info, Search, ChevronRight, ChevronDown, LayoutList, LayoutGrid } from "lucide-react";
+import { Trash2, Info, Search, ChevronRight, ChevronDown, LayoutList, LayoutGrid, Download, FileImage, FileText } from "lucide-react";
 import type { FitmentRule } from "@/data/fitment";
 import { FitmentDialog } from "./fitment-dialog";
 import { deleteFitmentRule } from "@/app/(dashboard)/products/fitment/actions";
@@ -41,6 +41,68 @@ export function FitmentList({ rules, children }: FitmentListProps) {
   const [isPending, startTransition] = useTransition();
   const [search, setSearch] = useState("");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [isExportingImage, setIsExportingImage] = useState(false);
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
+
+  const handleExport = async (format: 'jpg' | 'pdf') => {
+    const el = document.getElementById("matrix-export-view");
+    if (!el) return;
+    
+    if (format === 'jpg') setIsExportingImage(true);
+    else setIsExportingPDF(true);
+
+    try {
+      // @ts-ignore
+      const domToImageModule = await import("dom-to-image-more");
+      const domToImage = domToImageModule.default || domToImageModule;
+      
+      // Yield to let React render loading state
+      await new Promise(r => setTimeout(r, 100));
+
+      const imgWidth = el.scrollWidth;
+      const imgHeight = el.scrollHeight;
+      
+      // scale by 2 for higher resolution export
+      const imgData = await domToImage.toJpeg(el, { 
+        bgcolor: "#ffffff", 
+        quality: 1.0,
+        width: imgWidth * 2,
+        height: imgHeight * 2,
+        style: {
+          transform: "scale(2)",
+          transformOrigin: "top left",
+          width: `${imgWidth}px`,
+          height: `${imgHeight}px`
+        }
+      });
+      
+      const dateStr = new Date().toISOString().split("T")[0];
+
+      if (format === 'jpg') {
+        const link = document.createElement("a");
+        link.href = imgData;
+        link.download = `fitment_matrix_${dateStr}.jpg`;
+        link.click();
+      } else {
+        const jsPDFModule = await import("jspdf");
+        const jsPDFFn = jsPDFModule.jsPDF || jsPDFModule.default;
+        
+        const pdf = new jsPDFFn({
+          orientation: imgWidth > imgHeight ? "landscape" : "portrait",
+          unit: "px", // Use px to match DOM proportions
+          format: [imgWidth, imgHeight]
+        });
+        pdf.addImage(imgData, "JPEG", 0, 0, imgWidth, imgHeight);
+        pdf.save(`fitment_matrix_${dateStr}.pdf`);
+      }
+    } catch (e: any) {
+      console.error(e);
+      alert("Failed to export matrix: " + (e?.message || e?.toString() || "Unknown error"));
+    } finally {
+      setIsExportingImage(false);
+      setIsExportingPDF(false);
+    }
+  };
 
   const makes = useMemo(() => Array.from(new Set(rules.map(r => r.make))).sort(), [rules]);
 
@@ -271,12 +333,24 @@ export function FitmentList({ rules, children }: FitmentListProps) {
             No rules match &quot;{search}&quot;
           </div>
         ) : (
-          <div className="columns-1 md:columns-2 lg:columns-3 xl:columns-4 gap-6 space-y-6">
-            {groupKeys.map(make => {
+          <div className="space-y-4">
+            <div className="flex items-center justify-end gap-3 mb-2">
+              <Button size="sm" variant="outline" className="h-8 gap-2 border-border/60" onClick={() => handleExport('jpg')} disabled={isExportingImage || isExportingPDF}>
+                {isExportingImage ? <span className="animate-spin h-3.5 w-3.5 border-2 border-current border-t-transparent rounded-full" /> : <FileImage className="h-3.5 w-3.5" />}
+                Save as Image
+              </Button>
+              <Button size="sm" variant="outline" className="h-8 gap-2 border-border/60" onClick={() => handleExport('pdf')} disabled={isExportingImage || isExportingPDF}>
+                {isExportingPDF ? <span className="animate-spin h-3.5 w-3.5 border-2 border-current border-t-transparent rounded-full" /> : <FileText className="h-3.5 w-3.5" />}
+                Save as PDF
+              </Button>
+            </div>
+          
+            <div id="matrix-export-view" className="columns-1 md:columns-2 lg:columns-3 xl:columns-4 gap-6 space-y-6 p-4 rounded-xl bg-background border border-transparent">
+              {groupKeys.map(make => {
               const models = matrixData[make];
               const modelKeys = Object.keys(models).sort();
               return (
-                <div key={make} className="break-inside-avoid rounded-lg border border-border/60 bg-card overflow-hidden shadow-sm">
+                <div key={make} className="break-inside-avoid inline-block w-full mb-6 rounded-lg border border-border/60 bg-card shadow-sm relative overflow-hidden">
                   <div className="bg-muted/30 p-2.5 border-b border-border/60 text-center flex items-center justify-center gap-2">
                     <h3 className="font-bold text-sm tracking-wide uppercase">{make}</h3>
                     <Badge variant="secondary" className="text-[10px] h-5 px-1.5 opacity-70">
@@ -287,14 +361,14 @@ export function FitmentList({ rules, children }: FitmentListProps) {
                     <TableHeader className="bg-transparent">
                       <TableRow className="hover:bg-transparent border-b">
                         <TableHead className="h-8 font-semibold"></TableHead>
-                        <TableHead className="h-8 font-semibold w-[60px] text-center text-xs text-muted-foreground border-l border-border/30">FRONT</TableHead>
-                        <TableHead className="h-8 font-semibold w-[60px] text-center text-xs text-muted-foreground border-l border-border/30">REAR</TableHead>
+                        <TableHead className="h-8 font-semibold w-[60px] text-center text-xs text-muted-foreground border-l border-border/30 px-1">FRONT</TableHead>
+                        <TableHead className="h-8 font-semibold w-[60px] text-center text-xs text-muted-foreground border-l border-border/30 px-1">REAR</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {modelKeys.map(model => (
                         <TableRow key={model} className="hover:bg-muted/20">
-                          <TableCell className="py-2.5 font-medium leading-snug">{model}</TableCell>
+                          <TableCell className="py-2.5 font-medium leading-snug whitespace-normal break-words pr-2">{model}</TableCell>
                           <TableCell className="py-2.5 text-center border-l border-border/30">
                             <span className="font-medium text-muted-foreground">
                               {models[model].front || "-"}
@@ -312,6 +386,7 @@ export function FitmentList({ rules, children }: FitmentListProps) {
                 </div>
               );
             })}
+            </div>
           </div>
         )}
       </TabsContent>
