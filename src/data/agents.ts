@@ -62,7 +62,7 @@ export async function getPendingChannelMappings(): Promise<PendingMappingInterac
     if (!Array.isArray(plan.proposals)) continue;
     for (const proposal of plan.proposals) {
       if (proposal.externalProductId) {
-        proposedExternalIds.add(proposal.externalProductId);
+        proposedExternalIds.add(String(proposal.externalProductId));
       }
     }
   }
@@ -89,7 +89,7 @@ export async function getPendingChannelMappings(): Promise<PendingMappingInterac
     if (!Array.isArray(plan.proposals)) continue;
 
     for (const proposal of plan.proposals) {
-      if (!existingExtIds.has(proposal.externalProductId)) {
+      if (!existingExtIds.has(String(proposal.externalProductId))) {
         pendingProposals.push({
           ...proposal,
           taskId: action.id,

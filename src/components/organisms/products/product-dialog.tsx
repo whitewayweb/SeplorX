@@ -14,8 +14,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { createProduct, updateProduct } from "@/app/(dashboard)/products/actions";
-import { useState } from "react";
+import { createProduct, updateProduct, getAttributeKeys, getAttributeValuesAction } from "@/app/(dashboard)/products/actions";
+import { useState, useEffect } from "react";
 import { Plus, Pencil, X } from "lucide-react";
 
 type Product = {
@@ -58,6 +58,35 @@ export function ProductDialog({ product }: ProductDialogProps) {
     const entries = Object.entries(initial);
     return entries.length > 0 ? entries.map(([k, v]) => ({ key: k, value: v })) : [];
   });
+
+  const [existingKeys, setExistingKeys] = useState<{key: string; count: number}[]>([]);
+  const [existingValues, setExistingValues] = useState<Record<string, {value: string; count: number}[]>>({});
+
+  useEffect(() => {
+    if (open) {
+      getAttributeKeys().then(setExistingKeys).catch(console.error);
+    }
+  }, [open]);
+
+  const loadValuesForKey = async (k: string) => {
+    const trimmed = k.trim();
+    if (!trimmed || existingValues[trimmed]) return;
+    try {
+      const vals = await getAttributeValuesAction(trimmed);
+      setExistingValues(prev => ({ ...prev, [trimmed]: vals }));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    if (open) {
+      attrs.forEach(a => {
+        if (a.key.trim()) loadValuesForKey(a.key);
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   function addAttr() {
     setAttrs((prev) => [...prev, { key: "", value: "" }]);
@@ -195,18 +224,40 @@ export function ProductDialog({ product }: ProductDialogProps) {
             {attrs.length === 0 && (
               <p className="text-xs text-muted-foreground">No attributes. Click &quot;Add&quot; to add one (e.g., color, size).</p>
             )}
+            {existingKeys.length > 0 && (
+              <datalist id="attr-keys-list">
+                {existingKeys.map((k) => (
+                  <option key={k.key} value={k.key} />
+                ))}
+              </datalist>
+            )}
+            
             {attrs.map((attr, idx) => (
               <div key={idx} className="flex items-center gap-2">
                 <Input
                   className="h-8 text-sm flex-1"
                   placeholder="Key (e.g., color)"
                   value={attr.key}
-                  onChange={(e) => updateAttr(idx, "key", e.target.value)}
+                  list="attr-keys-list"
+                  onChange={(e) => {
+                    updateAttr(idx, "key", e.target.value);
+                    loadValuesForKey(e.target.value);
+                  }}
                 />
+                
+                {existingValues[attr.key.trim()] && existingValues[attr.key.trim()].length > 0 && (
+                  <datalist id={`attr-values-list-${idx}`}>
+                    {existingValues[attr.key.trim()].map((v) => (
+                      <option key={v.value} value={v.value} />
+                    ))}
+                  </datalist>
+                )}
+                
                 <Input
                   className="h-8 text-sm flex-1"
                   placeholder="Value (e.g., Yellow)"
                   value={attr.value}
+                  list={`attr-values-list-${idx}`}
                   onChange={(e) => updateAttr(idx, "value", e.target.value)}
                 />
                 <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => removeAttr(idx)}>

@@ -110,6 +110,8 @@ export async function getProductsList(tx: QueryClient = db) {
       quantityOnHand: products.quantityOnHand,
       reservedQuantity: products.reservedQuantity,
       isActive: products.isActive,
+      description: products.description,
+      attributes: products.attributes,
     })
     .from(products)
     .orderBy(desc(products.createdAt));
