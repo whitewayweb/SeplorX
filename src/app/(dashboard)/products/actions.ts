@@ -29,9 +29,9 @@ import {
 
 export type ChannelProductWithState = ExternalProduct & {
   mappingState:
-    | { kind: "unmapped" }
-    | { kind: "mapped_here" }
-    | { kind: "mapped_other"; productId: number; productName: string };
+  | { kind: "unmapped" }
+  | { kind: "mapped_here" }
+  | { kind: "mapped_other"; productId: number; productName: string };
 };
 import { getAuthenticatedUserId } from "@/lib/auth";
 
@@ -97,6 +97,7 @@ export async function createProduct(_prevState: unknown, formData: FormData) {
   // But if the user edits it later, it triggers.
   // For new products, we don't have mappings yet, so nothing to update here.
 
+  console.log(`[createProduct] Product created successfully: ${rest.name} (${rest.sku || "no sku"})`);
   return { success: true };
 }
 
@@ -177,6 +178,7 @@ export async function updateProduct(_prevState: unknown, formData: FormData) {
 
   revalidatePath("/products");
   revalidatePath(`/products/${id}`);
+  console.log(`[updateProduct] Product updated successfully: ${id} - ${rest.name}`);
   return { success: true };
 }
 
@@ -213,6 +215,7 @@ export async function toggleProductActive(_prevState: unknown, formData: FormDat
 
   revalidatePath("/products");
   revalidatePath(`/products/${id}`);
+  console.log(`[toggleProductActive] Product status toggled for id: ${id}`);
   return { success: true };
 }
 
@@ -237,10 +240,10 @@ export async function deleteProduct(_prevState: unknown, formData: FormData) {
       }
 
       const hasTransactions = await tx
-          .select({ id: inventoryTransactions.id })
-          .from(inventoryTransactions)
-          .where(eq(inventoryTransactions.productId, id))
-          .limit(1);
+        .select({ id: inventoryTransactions.id })
+        .from(inventoryTransactions)
+        .where(eq(inventoryTransactions.productId, id))
+        .limit(1);
 
       if (hasTransactions.length > 0) {
         if (force) {
@@ -265,10 +268,10 @@ export async function deleteProduct(_prevState: unknown, formData: FormData) {
       }
     }
     if (
-        err &&
-        typeof err === "object" &&
-        "code" in err &&
-        err.code === "23503"
+      err &&
+      typeof err === "object" &&
+      "code" in err &&
+      err.code === "23503"
     ) {
       return { error: "Cannot delete product because it is referenced in other records (e.g., invoices or channels)." };
     }
@@ -276,6 +279,7 @@ export async function deleteProduct(_prevState: unknown, formData: FormData) {
   }
 
   revalidatePath("/products");
+  console.log(`[deleteProduct] Product deleted successfully for id: ${id}`);
   return { success: true };
 }
 
@@ -355,6 +359,7 @@ export async function adjustStock(_prevState: unknown, formData: FormData) {
   revalidatePath("/products");
   revalidatePath(`/products/${productId}`);
   revalidatePath("/inventory");
+  console.log(`[adjustStock] Stock adjusted for product ${productId}: ${quantity > 0 ? "+" : ""}${quantity}`);
   return { success: true };
 }
 
@@ -402,7 +407,7 @@ export async function deleteChannelMapping(_prevState: unknown, formData: FormDa
 export async function pushProductStockToChannels(productId: number) {
   try {
     const userId = await getAuthenticatedUserId();
-    
+
     const quantity = await getProductQuantity(productId);
     if (quantity === null) throw new Error("Product not found.");
 
@@ -449,8 +454,10 @@ export async function pushProductStockToChannels(productId: number) {
           m.productType,
           m.rawData as Record<string, unknown> | null
         );
+        console.log(`[pushProductStockToChannels] Successfully pushed stock to ${m.channelName} (externalProductId: ${m.externalProductId})`);
         results.push({ channelName: m.channelName, externalProductId: m.externalProductId, label: m.label, ok: true });
       } catch (err) {
+        console.error(`[pushProductStockToChannels] Error pushing stock to ${m.channelName} (externalProductId: ${m.externalProductId}):`, err);
         const msg = String(err).replace(/^Error:\s*/, "").substring(0, 200);
         results.push({ channelName: m.channelName, externalProductId: m.externalProductId, label: m.label, ok: false, error: msg });
       }
@@ -474,16 +481,16 @@ export async function fetchChannelProducts(
 ): Promise<{ products: ChannelProductWithState[]; total: number } | { error: string }> {
   try {
     const userId = await getAuthenticatedUserId();
-    
+
     const channel = await getConnectedChannel(userId, channelId);
     if (!channel) throw new Error("Channel not found.");
     if (channel.status !== "connected") throw new Error("Channel is not connected.");
 
     const offset = (page - 1) * limit;
-    
+
     try {
       const { products: rawProducts, total } = await getExternalProducts(channelId, search, limit, offset);
-      
+
       const existingMappings = await getExistingMappingsForChannel(channelId);
       const mappingByExternalId = new Map(
         existingMappings.map((m) => [m.externalProductId, { productId: m.productId, productName: m.productName }]),
@@ -532,7 +539,7 @@ export async function fetchChannelVariations(
     if (!channel || channel.status !== "connected") throw new Error("Channel not found or not connected.");
 
     const rawVariations = await getVariationsForParent(channelId, parentId, search);
-    
+
     return rawVariations.map((v): ChannelProductWithState => ({
       ...v,
       sku: v.sku || undefined,
@@ -556,7 +563,7 @@ export async function saveChannelMappings(
 ): Promise<{ added: number; skipped: number } | { error: string }> {
   try {
     const userId = await getAuthenticatedUserId();
-    
+
     if (items.length === 0) return { added: 0, skipped: 0 };
 
     const channel = await getConnectedChannel(userId, channelId);

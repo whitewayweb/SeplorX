@@ -531,6 +531,7 @@ export async function approvePendingChannelMappingItem(
       
     revalidatePath("/products");
     revalidatePath(`/products/${productId}`);
+    console.log("✅ FINISHED ACTION: approvePendingChannelMappingItem", { taskId, externalProductId });
     return { success: true };
   } catch (err) {
     console.error("[approvePendingChannelMappingItem]", err);
@@ -572,6 +573,7 @@ export async function dismissPendingChannelMappingItem(taskId: number, externalP
     });
 
     revalidatePath("/products");
+    console.log("✅ FINISHED ACTION: dismissPendingChannelMappingItem", { taskId, externalProductId });
     return { success: true };
   } catch (err) {
     console.error("[dismissPendingChannelMappingItem]", err);

@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Trash2, Info, Search, ChevronRight, ChevronDown, LayoutList, LayoutGrid, Download, FileImage, FileText } from "lucide-react";
+import { Trash2, Info, Search, ChevronRight, ChevronDown, LayoutList, LayoutGrid, FileImage, FileText } from "lucide-react";
 import type { FitmentRule } from "@/data/fitment";
 import { FitmentDialog } from "./fitment-dialog";
 import { deleteFitmentRule } from "@/app/(dashboard)/products/fitment/actions";
@@ -52,9 +52,8 @@ export function FitmentList({ rules, children }: FitmentListProps) {
     else setIsExportingPDF(true);
 
     try {
-      // @ts-ignore
       const domToImageModule = await import("dom-to-image-more");
-      const domToImage = domToImageModule.default || domToImageModule;
+      const domToImage = (domToImageModule.default || domToImageModule) as typeof import("dom-to-image-more").default;
       
       // Yield to let React render loading state
       await new Promise(r => setTimeout(r, 100));
@@ -95,9 +94,10 @@ export function FitmentList({ rules, children }: FitmentListProps) {
         pdf.addImage(imgData, "JPEG", 0, 0, imgWidth, imgHeight);
         pdf.save(`fitment_matrix_${dateStr}.pdf`);
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      alert("Failed to export matrix: " + (e?.message || e?.toString() || "Unknown error"));
+      const message = e instanceof Error ? e.message : String(e);
+      alert("Failed to export matrix: " + message);
     } finally {
       setIsExportingImage(false);
       setIsExportingPDF(false);

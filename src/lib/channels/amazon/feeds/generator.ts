@@ -1,5 +1,4 @@
 import * as fs from "node:fs";
-// @ts-expect-error — xlsx-populate ships JS-only, no .d.ts; used server-side only
 import XlsxPopulate from "xlsx-populate";
 import { getTemplatePath, type CategoryTemplateEntry } from "./template-registry";
 

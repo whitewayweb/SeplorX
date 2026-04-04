@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -15,7 +16,6 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { createProduct, updateProduct, getAttributeKeys, getAttributeValuesAction } from "@/app/(dashboard)/products/actions";
-import { useState, useEffect } from "react";
 import { Plus, Pencil, X } from "lucide-react";
 
 type Product = {
@@ -117,8 +117,11 @@ export function ProductDialog({ product }: ProductDialogProps) {
         : await createProduct(prev, formData);
 
       if (result?.success) {
+        toast.success(isEdit ? "Product updated successfully" : "Product created successfully");
         setOpen(false);
         setFormKey((k) => k + 1);
+      } else if (result?.error) {
+        toast.error(result.error);
       }
 
       return result;

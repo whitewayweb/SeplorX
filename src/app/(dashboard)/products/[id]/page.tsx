@@ -295,6 +295,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
           connectedChannels={connectedChannels}
           mappings={mappings}
           pendingMappings={pendingMappings}
+          availableStock={availableQuantity}
         />
 
         {/* ─── Purchase Price History ─── */}

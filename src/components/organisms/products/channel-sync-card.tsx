@@ -152,6 +152,7 @@ export interface ChannelSyncCardProps {
   connectedChannels: ConnectedChannel[];
   mappings: MappingRow[];
   pendingMappings?: PendingMappingInteraction[];
+  availableStock: number;
 }
 
 export function ChannelSyncCard({
@@ -159,6 +160,7 @@ export function ChannelSyncCard({
   connectedChannels,
   mappings,
   pendingMappings = [],
+  availableStock,
 }: ChannelSyncCardProps) {
   const [pushing, startPush] = useTransition();
 
@@ -360,10 +362,9 @@ export function ChannelSyncCard({
                               )}
                             </td>
                             <td className="px-4 py-2 w-1 text-right whitespace-nowrap">
-                              {m.channelStock !== null ? (
-                                <span className="text-xs font-medium tabular-nums">{m.channelStock}</span>
-                              ) : (
-                                <span className="text-[10px] text-muted-foreground/50 italic">N/A</span>
+                              <span className="text-xs font-semibold tabular-nums">{availableStock}</span>
+                              {m.channelStock !== null && m.channelStock !== availableStock && (
+                                <span className="text-[10px] text-muted-foreground/60 ml-1" title={`Channel reports ${m.channelStock}`}>({m.channelStock})</span>
                               )}
                             </td>
                             <td className="px-2 py-2 w-[120px] text-right">
