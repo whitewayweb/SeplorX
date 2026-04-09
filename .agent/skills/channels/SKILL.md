@@ -256,7 +256,15 @@ returned → mark for inspection → admin restocks or discards
 - `processReturnAction()` server action in `src/app/(dashboard)/orders/actions.ts`
 - `ReturnActionDialog` component in `src/components/organisms/orders/return-action-dialog.tsx`
 - Per-item qty picker, restock/discard selector, notes field
+- **Restock** adds `+quantity` to `quantityOnHand`, logs `return_restock` transaction
+- **Discard** logs `-quantity` as `return_discard` (units written off, no stock recovery)
+- Order-level `returnDisposition` is aggregated from item states: `restocked` (all), `discarded` (all), or `completed` (mixed)
 - Order detail page shows return badges (order + item level) and "Process Return" button for returned orders
+
+**Webhook error handling:**
+- Signature/parse errors → 400/401 (non-retryable)
+- Transient DB/server errors → 500 (retryable by the channel)
+- Successful processing → 200
 
 **Stock push:** When pushing stock to channels via `pushProductStockToChannels()`, the system pushes `availableQuantity` (= `quantityOnHand - reservedQuantity`), not raw `quantityOnHand`. This ensures reserved stock (from active orders) is excluded.
 

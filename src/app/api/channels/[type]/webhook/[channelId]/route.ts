@@ -95,12 +95,26 @@ export async function POST(
   const isOrderTopic = topic.startsWith("order.");
 
   if (isOrderTopic && handler.parseWebhookOrder) {
+    // Phase 1: Parse the webhook — validation/signature errors are non-retryable
+    let orderEvent;
     try {
-      const orderEvent = handler.parseWebhookOrder(body, signature, secret);
-      if (!orderEvent) {
-        return new NextResponse(null, { status: 200 }); // Unparseable — ack
-      }
+      orderEvent = handler.parseWebhookOrder(body, signature, secret);
+    } catch (parseErr) {
+      const msg = String(parseErr);
+      console.error("[channels/webhook] parse/signature error", {
+        type, channelId, topic, error: msg,
+      });
+      // Signature mismatch = 401, other parse errors = 400
+      const status = msg.includes("signature") ? 401 : 400;
+      return new NextResponse(msg, { status });
+    }
 
+    if (!orderEvent) {
+      return new NextResponse(null, { status: 200 }); // Unparseable payload — ack
+    }
+
+    // Phase 2: Process the order — DB/server errors are retryable
+    try {
       const newStatus = orderEvent.status as SalesOrderStatus;
 
       // Upsert the sales order
@@ -218,11 +232,11 @@ export async function POST(
 
       return new NextResponse(null, { status: 200 });
     } catch (err) {
-      console.error("[channels/webhook] order processing error", {
+      console.error("[channels/webhook] order processing error (retryable)", {
         type, channelId, topic, error: String(err),
       });
-      // Return 200 to prevent retry storms from WooCommerce
-      return new NextResponse(null, { status: 200 });
+      // Return 500 to allow the channel to retry transient failures
+      return new NextResponse("Internal Server Error", { status: 500 });
     }
   }
 

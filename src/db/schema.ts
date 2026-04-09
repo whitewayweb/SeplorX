@@ -61,6 +61,7 @@ export const returnDispositionEnum = pgEnum("return_disposition", [
   "pending_inspection",
   "restocked",
   "discarded",
+  "completed",   // Mixed: some items restocked, others discarded
 ]);
 
 export const agentStatusEnum = pgEnum("agent_status", [
@@ -221,6 +222,7 @@ export const products = pgTable("products", {
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("products_attributes_idx").using("gin", table.attributes),
+  index("products_is_active_idx").on(table.isActive),
 ]).enableRLS();
 
 // ─── Purchase Invoices ───────────────────────────────────────────────────────
@@ -296,6 +298,7 @@ export const inventoryTransactions = pgTable("inventory_transactions", {
 }, (table) => [
   index("inventory_transactions_product_idx").on(table.productId),
   index("inventory_transactions_reference_idx").on(table.referenceType, table.referenceId),
+  index("inventory_transactions_created_at_idx").on(table.createdAt),
 ]).enableRLS();
 
 // ─── Agent Actions ────────────────────────────────────────────────────────────
@@ -467,6 +470,7 @@ export const salesOrders = pgTable("sales_orders", {
   index("sales_orders_channel_idx").on(table.channelId),
   index("sales_orders_status_idx").on(table.status),
   index("sales_orders_return_disposition_idx").on(table.returnDisposition),
+  index("sales_orders_purchased_at_idx").on(table.purchasedAt),
 ]).enableRLS();
 
 export const salesOrderItems = pgTable("sales_order_items", {
@@ -484,6 +488,7 @@ export const salesOrderItems = pgTable("sales_order_items", {
 }, (table) => [
   uniqueIndex("sales_order_items_order_ext_idx").on(table.orderId, table.externalItemId),
   index("sales_order_items_order_idx").on(table.orderId),
+  index("sales_order_items_product_idx").on(table.productId),
 ]).enableRLS();
 
 // ─── Stock Reservations ──────────────────────────────────────────────────────

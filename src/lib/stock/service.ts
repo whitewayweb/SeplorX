@@ -416,11 +416,11 @@ export async function processReturnItem(
         notes: notes || `Restocked ${quantity} unit(s) from return`,
       });
     } else {
-      // Discard — no stock change, but log for audit
+      // Discard — stock is lost, record as negative for audit trail
       await tx.insert(inventoryTransactions).values({
         productId: item.productId,
         type: "return_discard",
-        quantity: 0, // No stock change
+        quantity: -quantity, // Negative = units lost/written off
         referenceType: "sales_order",
         referenceId: item.orderId,
         createdBy: userId,
@@ -443,26 +443,34 @@ export async function processReturnItem(
       .where(eq(salesOrderItems.id, orderItemId));
 
     // Check if all items in the order are now fully processed
-    const pendingItems = await tx
-      .select({ id: salesOrderItems.id })
+    const allItems = await tx
+      .select({
+        id: salesOrderItems.id,
+        returnDisposition: salesOrderItems.returnDisposition,
+      })
       .from(salesOrderItems)
-      .where(
-        and(
-          eq(salesOrderItems.orderId, item.orderId),
-          eq(salesOrderItems.returnDisposition, "pending_inspection"),
-        ),
-      );
+      .where(eq(salesOrderItems.orderId, item.orderId));
 
-    // If this was the last pending item, mark the order as fully processed
-    // (the item we just processed may still show "pending_inspection" before our update,
-    //  so check count excluding the current item)
-    const stillPending = pendingItems.filter((p) => p.id !== orderItemId);
-    if (stillPending.length === 0 && disposition !== "pending_inspection") {
+    // Apply the disposition we just set for the current item (not yet committed)
+    const itemDispositions = allItems.map((it) =>
+      it.id === orderItemId ? disposition : it.returnDisposition,
+    );
+
+    const hasPending = itemDispositions.some((d) => d === "pending_inspection" || d === null);
+
+    if (!hasPending) {
+      // All items processed — compute aggregate disposition
+      const allRestocked = itemDispositions.every((d) => d === "restocked");
+      const allDiscarded = itemDispositions.every((d) => d === "discarded");
+      const orderDisposition = allRestocked
+        ? "restocked"
+        : allDiscarded
+          ? "discarded"
+          : "completed"; // Mixed actions across items
+
       await tx
         .update(salesOrders)
-        .set({
-          returnDisposition: action === "restock" ? "restocked" : "discarded",
-        })
+        .set({ returnDisposition: orderDisposition })
         .where(eq(salesOrders.id, item.orderId));
     }
   });
