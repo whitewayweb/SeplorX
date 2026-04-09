@@ -1,11 +1,19 @@
 import { getAuthenticatedUserId } from "@/lib/auth";
 import { getOrderDetail, getOrderItems } from "@/lib/channels/amazon/queries";
+import { getReservationsForOrder, getReturnItemsForOrder } from "@/data/stock";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Lock, RotateCcw } from "lucide-react";
 import type { OrdersV0Schema } from "@/lib/channels/amazon/api/types/ordersV0Schema";
+import { ReturnActionDialog } from "@/components/organisms/orders/return-action-dialog";
 
 export const dynamic = "force-dynamic";
+
+const RETURN_DISPOSITION_BADGES: Record<string, { label: string; className: string }> = {
+  pending_inspection: { label: "Pending Inspection", className: "bg-amber-100 text-amber-800" },
+  restocked:          { label: "Restocked",          className: "bg-green-100 text-green-800" },
+  discarded:          { label: "Discarded",           className: "bg-red-100 text-red-800" },
+};
 
 export default async function OrderDetailPage({
   params,
@@ -23,13 +31,19 @@ export default async function OrderDetailPage({
   const order = await getOrderDetail(userId, orderIdNum);
   if (!order) notFound();
 
-  const items = await getOrderItems(userId, orderIdNum);
+  const [items, reservations, returnItems] = await Promise.all([
+    getOrderItems(userId, orderIdNum),
+    getReservationsForOrder(orderIdNum),
+    order.status === "returned" ? getReturnItemsForOrder(orderIdNum) : Promise.resolve([]),
+  ]);
 
   // Read from the narrowed JSONB fields directly
   const rawOrder = order.rawOrder;
   const addr = order.shippingAddress?.ShippingAddress;
 
   const matchedCount = items.filter((i) => i.channelProductId !== null).length;
+  const isReturned = order.status === "returned";
+  const returnDisposition = order.returnDisposition;
 
   return (
     <div className="p-8 max-w-5xl">
@@ -51,14 +65,23 @@ export default async function OrderDetailPage({
               })}
             </p>
           </div>
-          <span className={`px-3 py-1 text-sm font-semibold rounded-full ${
-            order.status === "shipped"   ? "bg-green-100 text-green-800"  :
-            order.status === "cancelled" ? "bg-red-100 text-red-800"      :
-            order.status === "returned"  ? "bg-orange-100 text-orange-800":
-                                           "bg-yellow-100 text-yellow-800"
-          }`}>
-            {order.status}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className={`px-3 py-1 text-sm font-semibold rounded-full ${
+              order.status === "shipped"   ? "bg-green-100 text-green-800"  :
+              order.status === "cancelled" ? "bg-red-100 text-red-800"      :
+              order.status === "returned"  ? "bg-orange-100 text-orange-800":
+                                             "bg-yellow-100 text-yellow-800"
+            }`}>
+              {order.status}
+            </span>
+            {isReturned && returnDisposition && (
+              <span className={`px-3 py-1 text-sm font-semibold rounded-full ${
+                RETURN_DISPOSITION_BADGES[returnDisposition]?.className ?? "bg-gray-100 text-gray-800"
+              }`}>
+                {RETURN_DISPOSITION_BADGES[returnDisposition]?.label ?? returnDisposition}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -74,6 +97,10 @@ export default async function OrderDetailPage({
             <div className="divide-y">
               {items.map((item) => {
                 const rawItem = item.rawData as OrdersV0Schema["OrderItem"] | null;
+                const itemDisposition = item.returnDisposition;
+                const maxReturnable = item.quantity - item.returnQuantity;
+                const showReturnDialog = isReturned && item.productId && maxReturnable > 0;
+
                 return (
                   <div key={item.id} className="px-6 py-4">
                     <div className="flex justify-between items-start gap-4">
@@ -103,15 +130,40 @@ export default async function OrderDetailPage({
                           {rawItem?.ASIN && (
                             <span className="text-xs text-gray-400 font-mono">ASIN: {rawItem.ASIN}</span>
                           )}
+                          {/* Return disposition badge per item */}
+                          {isReturned && itemDisposition && (
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                              RETURN_DISPOSITION_BADGES[itemDisposition]?.className ?? "bg-gray-100 text-gray-700"
+                            }`}>
+                              {RETURN_DISPOSITION_BADGES[itemDisposition]?.label ?? itemDisposition}
+                              {item.returnQuantity > 0 && item.returnQuantity < item.quantity && (
+                                <> ({item.returnQuantity}/{item.quantity})</>
+                              )}
+                            </span>
+                          )}
                         </div>
                       </div>
-                      <div className="text-right shrink-0">
+                      <div className="text-right shrink-0 flex flex-col items-end gap-2">
                         <p className="text-sm font-semibold text-gray-900">
                           {item.price && order.currency
                             ? `${order.currency} ${parseFloat(item.price).toFixed(2)}`
                             : "—"}
                         </p>
                         <p className="text-xs text-gray-500">Qty: {item.quantity}</p>
+                        {/* Return action dialog */}
+                        {showReturnDialog && (
+                          <ReturnActionDialog
+                            item={{
+                              id: item.id,
+                              title: item.title,
+                              sku: item.sku,
+                              quantity: item.quantity,
+                              returnQuantity: item.returnQuantity,
+                              returnDisposition: item.returnDisposition,
+                              productId: item.productId,
+                            }}
+                          />
+                        )}
                       </div>
                     </div>
                   </div>
@@ -127,6 +179,90 @@ export default async function OrderDetailPage({
               </span>
             </div>
           </div>
+
+          {/* ─── Stock Reservations ─── */}
+          {reservations.length > 0 && (
+            <div className="bg-white rounded-lg shadow mt-6 overflow-hidden">
+              <div className="px-6 py-4 border-b flex items-center justify-between">
+                <h2 className="font-semibold text-gray-800 flex items-center gap-2">
+                  <Lock className="h-4 w-4 text-orange-500" />
+                  Stock Reservations
+                </h2>
+                <span className="text-xs text-muted-foreground">{reservations.length} active</span>
+              </div>
+              <div className="divide-y">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50/50">
+                    <tr>
+                      <th className="text-left py-2.5 px-6 font-medium text-gray-500 text-xs">Product ID</th>
+                      <th className="text-right py-2.5 px-6 font-medium text-gray-500 text-xs">Quantity Reserved</th>
+                      <th className="text-left py-2.5 px-6 font-medium text-gray-500 text-xs">Created At</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {reservations.map((res) => (
+                      <tr key={res.id}>
+                        <td className="py-3 px-6">
+                          {res.productId ? (
+                            <Link href={`/products/${res.productId}`} className="text-blue-600 hover:underline font-mono text-xs">
+                              {res.productId}
+                            </Link>
+                          ) : "—"}
+                        </td>
+                        <td className="py-3 px-6 text-right font-mono text-orange-600 font-semibold">{res.quantity}</td>
+                        <td className="py-3 px-6 text-gray-500 text-xs">
+                          {res.createdAt ? new Date(res.createdAt).toLocaleString() : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ─── Returns Summary ─── */}
+          {returnItems.length > 0 && (
+            <div className="bg-white rounded-lg shadow mt-6 overflow-hidden">
+              <div className="px-6 py-4 border-b flex items-center justify-between bg-amber-50/30">
+                <h2 className="font-semibold text-amber-900 flex items-center gap-2">
+                  <RotateCcw className="h-4 w-4 text-amber-600" />
+                  Returns Summary
+                </h2>
+              </div>
+              <div className="divide-y">
+                <table className="w-full text-sm">
+                  <thead className="bg-amber-50/50">
+                    <tr>
+                      <th className="text-left py-2.5 px-6 font-medium text-amber-700/70 text-xs">Item</th>
+                      <th className="text-right py-2.5 px-6 font-medium text-amber-700/70 text-xs">Returned Qty</th>
+                      <th className="text-left py-2.5 px-6 font-medium text-amber-700/70 text-xs">Disposition</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y border-amber-100">
+                    {returnItems.map((ret) => (
+                      ret.returnQuantity > 0 && (
+                        <tr key={ret.id} className="hover:bg-amber-50/20">
+                          <td className="py-3 px-6">
+                            <div className="font-medium text-gray-900 line-clamp-1">{ret.title}</div>
+                            <div className="text-xs text-gray-500 font-mono mt-0.5">{ret.sku}</div>
+                          </td>
+                          <td className="py-3 px-6 text-right font-mono font-semibold text-amber-700">{ret.returnQuantity}</td>
+                          <td className="py-3 px-6">
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${RETURN_DISPOSITION_BADGES[ret.returnDisposition ?? ""]?.className ?? "bg-gray-100 text-gray-700"
+                              }`}>
+                              {RETURN_DISPOSITION_BADGES[ret.returnDisposition ?? ""]?.label ?? ret.returnDisposition ?? "Pending"}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
         </div>
 
         {/* Sidebar */}

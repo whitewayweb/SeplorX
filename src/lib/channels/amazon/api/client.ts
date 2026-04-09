@@ -1,6 +1,7 @@
 import * as zlib from "node:zlib";
 import { promisify } from "node:util";
 import type { ExternalProduct } from "../../types";
+import { extractRelationships } from "../config";
 
 import { type SellersSchema } from "./types/sellersSchema";
 import { type CatalogItemsSchema } from "./types/catalogItemsSchema";
@@ -24,6 +25,7 @@ export class AmazonAPIClient {
   private clientSecret: string;
   private refreshToken: string;
   private endpoint: string;
+  private merchantId: string;
 
   constructor(credentials: Record<string, string>, storeUrl: string) {
     this.marketplaceId = credentials.marketplaceId;
@@ -31,6 +33,7 @@ export class AmazonAPIClient {
     this.clientSecret = credentials.clientSecret;
     this.refreshToken = credentials.refreshToken;
     this.endpoint = (credentials.storeUrl || storeUrl).replace(/\/$/, "");
+    this.merchantId = credentials.merchantId ?? "";
   }
 
   private async getAccessToken(): Promise<string> {
@@ -61,16 +64,22 @@ export class AmazonAPIClient {
   /**
    * Internal helper to perform fetch with basic retry logic for 429 Quota Exceeded errors.
    */
-  private async fetchWithRetry(url: string, headers: Record<string, string>, retries = 3): Promise<Response> {
+  private async fetchWithRetry(
+    url: string,
+    options: RequestInit,
+    retries = 3,
+  ): Promise<Response> {
     for (let i = 0; i < retries; i++) {
       const res = await fetch(url, {
-        headers,
-        signal: AbortSignal.timeout(15_000),
+        ...options,
+        signal: options.signal || AbortSignal.timeout(15_000),
       });
 
       if (res.status === 429 && i < retries - 1) {
         // Wait 1s and retry on quota hit
-        console.warn(`[Amazon SP-API] 429 hit for ${url}. Retrying in 1s... (${i + 1}/${retries})`);
+        console.warn(
+          `[Amazon SP-API] 429 hit for ${url}. Retrying in 1s... (${i + 1}/${retries})`,
+        );
         await new Promise((resolve) => setTimeout(resolve, 1000));
         continue;
       }
@@ -78,7 +87,10 @@ export class AmazonAPIClient {
       return res;
     }
     // Final attempt/fall-through (shouldn't really hit here as the loop returns)
-    return fetch(url, { headers, signal: AbortSignal.timeout(15_000) });
+    return fetch(url, {
+      ...options,
+      signal: options.signal || AbortSignal.timeout(15_000),
+    });
   }
 
   public async fetchProducts(search?: string): Promise<ExternalProduct[]> {
@@ -86,19 +98,28 @@ export class AmazonAPIClient {
 
     const reportId = await this.createListingReport(accessToken);
     const reportDocumentId = await this.pollReportStatus(accessToken, reportId);
-    const { url, compressionAlgorithm } = await this.getReportDocumentUrl(accessToken, reportDocumentId);
+    const { url, compressionAlgorithm } = await this.getReportDocumentUrl(
+      accessToken,
+      reportDocumentId,
+    );
 
     return await this.downloadAndParseReport(url, compressionAlgorithm, search);
   }
 
-  public async getCatalogItem(asin: string, sku?: string, fulfillmentChannel?: string): Promise<ExternalProduct> {
+  public async getCatalogItem(
+    asin: string,
+    sku?: string,
+    fulfillmentChannel?: string,
+  ): Promise<ExternalProduct> {
     if (!asin || typeof asin !== "string") {
       throw new Error("A valid ASIN is required.");
     }
 
     const accessToken = await this.getAccessToken();
 
-    const url = new URL(`${this.endpoint}/catalog/2022-04-01/items/${encodeURIComponent(asin)}`);
+    const url = new URL(
+      `${this.endpoint}/catalog/2022-04-01/items/${encodeURIComponent(asin)}`,
+    );
     url.searchParams.set("marketplaceIds", this.marketplaceId);
     url.searchParams.set("includedData", CATALOG_INCLUDED_DATA);
 
@@ -113,7 +134,9 @@ export class AmazonAPIClient {
     if (!res.ok) {
       const errText = await res.text();
       console.error("[Amazon SP-API] getCatalogItem Error:", errText);
-      throw new Error(`Failed to get catalog item for ASIN ${asin}: ${res.status}`);
+      throw new Error(
+        `Failed to get catalog item for ASIN ${asin}: ${res.status}`,
+      );
     }
 
     const data = (await res.json()) as CatalogItemsSchema["Item"];
@@ -122,7 +145,10 @@ export class AmazonAPIClient {
     try {
       pricingData = await this.getProductPricing(accessToken, asin);
     } catch (err) {
-      console.warn(`[Amazon SP-API] Failed to fetch pricing for ASIN ${asin}`, err);
+      console.warn(
+        `[Amazon SP-API] Failed to fetch pricing for ASIN ${asin}`,
+        err,
+      );
     }
 
     // Extract item name from the summaries array
@@ -136,10 +162,11 @@ export class AmazonAPIClient {
     //   VARIATION_PARENT → "variable" (has children)
     //   default          → undefined (simple / unknown)
     const itemClassification =
-      summaries.find((s) => s.marketplaceId === this.marketplaceId)?.itemClassification ??
-      summaries[0]?.itemClassification;
+      summaries.find((s) => s.marketplaceId === this.marketplaceId)
+        ?.itemClassification ?? summaries[0]?.itemClassification;
 
-    let productType: "variable" | "variation" | "simple" | undefined = itemClassification === "VARIATION_PARENT" ? "variable" : undefined;
+    let productType: "variable" | "variation" | "simple" | undefined =
+      itemClassification === "VARIATION_PARENT" ? "variable" : undefined;
 
     if (!productType && Array.isArray(data.relationships)) {
       for (const byMarketplace of data.relationships) {
@@ -153,22 +180,60 @@ export class AmazonAPIClient {
       }
     }
 
-    // If we have a SKU and the product is FBA, fetch warehouse inventory
+    // ── Stock quantity ─────────────────────────────────────────────────────────
+    // Ask the Listings Items API what fulfillment channel this SKU uses, then
+    // fetch the correct quantity source — no need to trust the caller-supplied
+    // fulfillmentChannel parameter:
+    //   • MFN (DEFAULT) → quantity is already in the fulfillmentAvailability slot
+    //   • FBA (AMAZON)  → use FBA Inventory API for warehouse-accurate quantity
     let stockQuantity: number | undefined = undefined;
-    const isFba = fulfillmentChannel && fulfillmentChannel !== "DEFAULT";
-    
-    if (sku && isFba && data.summaries?.[0]?.itemClassification !== "VARIATION_PARENT") {
-        try {
+    const isVariantParent =
+      data.summaries?.[0]?.itemClassification === "VARIATION_PARENT";
+
+    if (sku && this.merchantId && !isVariantParent) {
+      try {
+        const listing = await this.getListingItem(
+          this.merchantId,
+          sku,
+          "fulfillmentAvailability",
+        );
+
+        type FulfillmentSlot = { fulfillmentChannelCode: string; quantity?: number };
+        const availability = (
+          listing as unknown as Record<string, FulfillmentSlot[]>
+        ).fulfillmentAvailability ?? [];
+
+        // Derive FBA vs MFN from the listing itself
+        const fbaSlot = availability.find((a) => a.fulfillmentChannelCode?.startsWith("AMAZON"));
+        const mfnSlot = availability.find((a) => a.fulfillmentChannelCode === "DEFAULT");
+
+        if (fbaSlot) {
+          (data as Record<string, unknown>).fulfillmentChannelCode = fbaSlot.fulfillmentChannelCode;
+          // FBA — get warehouse-accurate fulfillable quantity
+          try {
             const fbaMap = await this.fetchFbaInventorySummaries(accessToken, [sku]);
             const fbaSummary = fbaMap.get(sku);
             if (fbaSummary?.inventoryDetails?.fulfillableQuantity !== undefined) {
               stockQuantity = fbaSummary.inventoryDetails.fulfillableQuantity;
-              // Inject FBA details for UI
               (data as Record<string, unknown>).fbaInventory = fbaSummary;
             }
-        } catch (e) {
-            console.warn(`[Amazon SP-API] Failed to fetch FBA inventory for single item ${asin}`, e);
+          } catch (fbaErr) {
+            console.warn(`[Amazon SP-API] FBA inventory fetch failed/timed out for ${sku}`, fbaErr);
+          }
+          console.log(`[Amazon SP-API] Set FBA code for ${sku}`);
+        } else if (mfnSlot) {
+          // MFN — quantity is already in the listing response
+          if (typeof mfnSlot.quantity === "number") {
+            stockQuantity = mfnSlot.quantity;
+          }
+          (data as Record<string, unknown>).fulfillmentChannelCode = "DEFAULT";
+          console.log(`[Amazon SP-API] Set MFN code for ${sku}. stock:`, stockQuantity);
+        } else {
+          console.log(`[Amazon SP-API] NO MFN/FBA slot found for ${sku}. Slots were:`, availability);
         }
+      } catch (e) {
+        console.warn(`[Amazon SP-API] Failed to fetch listing availability for SKU ${sku}`, e);
+      }
     }
 
     // Derive category from the API response — marketplace-aware with fallback.
@@ -183,13 +248,16 @@ export class AmazonAPIClient {
       rawPayload: {
         ...data,
         pricing: pricingData,
-        ...(category   ? { category }          : {}),
+        ...(category ? { category } : {}),
         ...(amazonProductType ? { amazonProductType } : {}),
       },
     };
   }
 
-  public async getProductPricing(accessToken: string, asin: string): Promise<unknown> {
+  public async getProductPricing(
+    accessToken: string,
+    asin: string,
+  ): Promise<unknown> {
     if (!asin || typeof asin !== "string") {
       throw new Error("A valid ASIN is required.");
     }
@@ -217,48 +285,135 @@ export class AmazonAPIClient {
     return res.json();
   }
 
-  public async getMarketplaceParticipations(): Promise<SellersSchema["GetMarketplaceParticipationsResponse"]> {
+  public async getMarketplaceParticipations(): Promise<
+    SellersSchema["GetMarketplaceParticipationsResponse"]
+  > {
     const accessToken = await this.getAccessToken();
-    const url = new URL(`${this.endpoint}/sellers/v1/marketplaceParticipations`);
+    const url = new URL(
+      `${this.endpoint}/sellers/v1/marketplaceParticipations`,
+    );
     const res = await fetch(url.toString(), {
-      headers: { Accept: "application/json", "x-amz-access-token": accessToken },
+      headers: {
+        Accept: "application/json",
+        "x-amz-access-token": accessToken,
+      },
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) {
       const errText = await res.text();
-      console.error("[Amazon SP-API] getMarketplaceParticipations Error:", errText);
-      throw new Error(`Failed to get marketplace participations: ${res.status}`);
+      console.error(
+        "[Amazon SP-API] getMarketplaceParticipations Error:",
+        errText,
+      );
+      throw new Error(
+        `Failed to get marketplace participations: ${res.status}`,
+      );
     }
     return res.json();
   }
 
-  public async getListingItem(sellerId: string, sku: string, includedData = "summaries"): Promise<ListingsItemsSchema["Item"]> {
+  public async getListingItem(
+    sellerId: string,
+    sku: string,
+    includedData = "summaries",
+  ): Promise<ListingsItemsSchema["Item"]> {
     if (!sellerId || !sku) throw new Error("sellerId and sku are required.");
     const accessToken = await this.getAccessToken();
     const url = new URL(
-      `${this.endpoint}/listings/2021-08-01/items/${encodeURIComponent(sellerId)}/${encodeURIComponent(sku)}`
+      `${this.endpoint}/listings/2021-08-01/items/${encodeURIComponent(sellerId)}/${encodeURIComponent(sku)}`,
     );
     url.searchParams.set("marketplaceIds", this.marketplaceId);
     url.searchParams.set("includedData", includedData);
     const res = await fetch(url.toString(), {
-      headers: { Accept: "application/json", "Content-Type": "application/json", "x-amz-access-token": accessToken },
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "x-amz-access-token": accessToken,
+      },
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) {
       const errText = await res.text();
       console.error("[Amazon SP-API] getListingItem Error:", errText);
-      throw new Error(`Failed to get listing item for SKU ${sku}: ${res.status}`);
+      throw new Error(
+        `Failed to get listing item for SKU ${sku}: ${res.status}`,
+      );
     }
     return res.json();
   }
 
-  public async searchProductTypes(keywords?: string): Promise<ProductTypesSchema["ProductTypeList"]> {
+  public async patchListingsItem(
+    sellerId: string,
+    sku: string,
+    patches: {
+      op: "replace" | "add" | "delete";
+      path: string;
+      value?: unknown;
+    }[],
+    productType = "PRODUCT",
+  ): Promise<unknown> {
+    if (!sellerId || !sku) throw new Error("sellerId and sku are required.");
+    const accessToken = await this.getAccessToken();
+    const url = new URL(
+      `${this.endpoint}/listings/2021-08-01/items/${encodeURIComponent(sellerId)}/${encodeURIComponent(sku)}`,
+    );
+    url.searchParams.set("marketplaceIds", this.marketplaceId);
+    url.searchParams.set("issueLocale", "en_US");
+
+    const res = await this.fetchWithRetry(
+      url.toString(),
+      {
+        method: "PATCH",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "x-amz-access-token": accessToken,
+        },
+        body: JSON.stringify({
+          productType,
+          patches,
+        }),
+      },
+      1,
+    );
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[Amazon SP-API] patchListingsItem Error:", errText);
+      let amazonError = "";
+      try {
+        const parsed = JSON.parse(errText);
+        if (parsed.errors && parsed.errors.length > 0) {
+          amazonError = parsed.errors[0].message;
+        }
+      } catch {
+        // ignore
+      }
+      if (amazonError) {
+        throw new Error(
+          `Failed to patch listing item for SKU ${sku} (${res.status}): ${amazonError}`,
+        );
+      }
+      throw new Error(
+        `Failed to patch listing item for SKU ${sku}: ${res.status}`,
+      );
+    }
+
+    return res.json();
+  }
+
+  public async searchProductTypes(
+    keywords?: string,
+  ): Promise<ProductTypesSchema["ProductTypeList"]> {
     const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}/definitions/2020-09-01/productTypes`);
     url.searchParams.set("marketplaceIds", this.marketplaceId);
     if (keywords) url.searchParams.set("keywords", keywords);
     const res = await fetch(url.toString(), {
-      headers: { Accept: "application/json", "x-amz-access-token": accessToken },
+      headers: {
+        Accept: "application/json",
+        "x-amz-access-token": accessToken,
+      },
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) {
@@ -269,7 +424,9 @@ export class AmazonAPIClient {
     return res.json();
   }
 
-  public async createFeedDocument(contentType: string): Promise<FeedsSchema["CreateFeedDocumentResponse"]> {
+  public async createFeedDocument(
+    contentType: string,
+  ): Promise<FeedsSchema["CreateFeedDocumentResponse"]> {
     const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}/feeds/2021-06-30/documents`);
 
@@ -292,8 +449,15 @@ export class AmazonAPIClient {
     return res.json();
   }
 
-  public async uploadFeedData(presignedUrl: string, data: Uint8Array, contentType: string): Promise<void> {
-    const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+  public async uploadFeedData(
+    presignedUrl: string,
+    data: Uint8Array,
+    contentType: string,
+  ): Promise<void> {
+    const arrayBuffer = data.buffer.slice(
+      data.byteOffset,
+      data.byteOffset + data.byteLength,
+    ) as ArrayBuffer;
     const blob = new Blob([arrayBuffer], { type: contentType });
     const res = await fetch(presignedUrl, {
       method: "PUT",
@@ -309,7 +473,10 @@ export class AmazonAPIClient {
     }
   }
 
-  public async createFeed(feedType: string, inputFeedDocumentId: string): Promise<FeedsSchema["CreateFeedResponse"]> {
+  public async createFeed(
+    feedType: string,
+    inputFeedDocumentId: string,
+  ): Promise<FeedsSchema["CreateFeedResponse"]> {
     const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}/feeds/2021-06-30/feeds`);
 
@@ -341,7 +508,9 @@ export class AmazonAPIClient {
       }
 
       if (amazonError) {
-        throw new Error(`Failed to create feed (${res.status}): ${amazonError}`);
+        throw new Error(
+          `Failed to create feed (${res.status}): ${amazonError}`,
+        );
       }
       throw new Error(`Failed to create feed: ${res.status}`);
     }
@@ -351,7 +520,9 @@ export class AmazonAPIClient {
 
   public async getFeed(feedId: string): Promise<FeedsSchema["Feed"]> {
     const accessToken = await this.getAccessToken();
-    const url = new URL(`${this.endpoint}/feeds/2021-06-30/feeds/${encodeURIComponent(feedId)}`);
+    const url = new URL(
+      `${this.endpoint}/feeds/2021-06-30/feeds/${encodeURIComponent(feedId)}`,
+    );
 
     const res = await fetch(url.toString(), {
       headers: {
@@ -370,9 +541,13 @@ export class AmazonAPIClient {
     return res.json();
   }
 
-  public async getFeedDocument(feedDocumentId: string): Promise<FeedsSchema["FeedDocument"]> {
+  public async getFeedDocument(
+    feedDocumentId: string,
+  ): Promise<FeedsSchema["FeedDocument"]> {
     const accessToken = await this.getAccessToken();
-    const url = new URL(`${this.endpoint}/feeds/2021-06-30/documents/${encodeURIComponent(feedDocumentId)}`);
+    const url = new URL(
+      `${this.endpoint}/feeds/2021-06-30/documents/${encodeURIComponent(feedDocumentId)}`,
+    );
 
     const res = await fetch(url.toString(), {
       headers: {
@@ -385,14 +560,18 @@ export class AmazonAPIClient {
     if (!res.ok) {
       const errText = await res.text();
       console.error("[Amazon SP-API] getFeedDocument Error:", errText);
-      throw new Error(`Failed to get feed document ${feedDocumentId}: ${res.status}`);
+      throw new Error(
+        `Failed to get feed document ${feedDocumentId}: ${res.status}`,
+      );
     }
 
     return res.json();
   }
 
   private async createListingReport(accessToken: string): Promise<string> {
-    const createReportUrl = new URL(`${this.endpoint}/reports/2021-06-30/reports`);
+    const createReportUrl = new URL(
+      `${this.endpoint}/reports/2021-06-30/reports`,
+    );
     const createReportRes = await fetch(createReportUrl.toString(), {
       method: "POST",
       headers: {
@@ -410,14 +589,19 @@ export class AmazonAPIClient {
     if (!createReportRes.ok) {
       const errText = await createReportRes.text();
       console.error("[Amazon SP-API] Create Report Error:", errText);
-      throw new Error(`Failed to request Amazon report: ${createReportRes.status}`);
+      throw new Error(
+        `Failed to request Amazon report: ${createReportRes.status}`,
+      );
     }
 
     const { reportId } = await createReportRes.json();
     return reportId;
   }
 
-  private async pollReportStatus(accessToken: string, reportId: string): Promise<string> {
+  private async pollReportStatus(
+    accessToken: string,
+    reportId: string,
+  ): Promise<string> {
     const DEADLINE_MS = 40_000;
     const deadline = Date.now() + DEADLINE_MS;
     let intervalMs = 3_000;
@@ -428,7 +612,9 @@ export class AmazonAPIClient {
 
       if (Date.now() >= deadline) break;
 
-      const getReportUrl = new URL(`${this.endpoint}/reports/2021-06-30/reports/${reportId}`);
+      const getReportUrl = new URL(
+        `${this.endpoint}/reports/2021-06-30/reports/${reportId}`,
+      );
       const getReportRes = await fetch(getReportUrl.toString(), {
         headers: {
           Accept: "application/json",
@@ -446,15 +632,24 @@ export class AmazonAPIClient {
         reportStatus.processingStatus === "CANCELLED" ||
         reportStatus.processingStatus === "FATAL"
       ) {
-        throw new Error(`Amazon report failed: ${reportStatus.processingStatus}`);
+        throw new Error(
+          `Amazon report failed: ${reportStatus.processingStatus}`,
+        );
       }
     }
 
-    throw new Error(`Amazon report timed out while generating (exceeded ${Math.round(DEADLINE_MS / 1000)}s deadline).`);
+    throw new Error(
+      `Amazon report timed out while generating (exceeded ${Math.round(DEADLINE_MS / 1000)}s deadline).`,
+    );
   }
 
-  private async getReportDocumentUrl(accessToken: string, reportDocumentId: string): Promise<{ url: string; compressionAlgorithm?: string }> {
-    const getDocUrl = new URL(`${this.endpoint}/reports/2021-06-30/documents/${reportDocumentId}`);
+  private async getReportDocumentUrl(
+    accessToken: string,
+    reportDocumentId: string,
+  ): Promise<{ url: string; compressionAlgorithm?: string }> {
+    const getDocUrl = new URL(
+      `${this.endpoint}/reports/2021-06-30/documents/${reportDocumentId}`,
+    );
     const getDocRes = await fetch(getDocUrl.toString(), {
       headers: {
         Accept: "application/json",
@@ -466,7 +661,9 @@ export class AmazonAPIClient {
     if (!getDocRes.ok) {
       const errText = await getDocRes.text();
       console.error("[Amazon SP-API] Get Document Error:", errText);
-      throw new Error(`Failed to get Amazon report document info: ${getDocRes.status}`);
+      throw new Error(
+        `Failed to get Amazon report document info: ${getDocRes.status}`,
+      );
     }
 
     const docDetails = await getDocRes.json();
@@ -476,7 +673,11 @@ export class AmazonAPIClient {
     };
   }
 
-  private async downloadAndParseReport(downloadUrl: string, compressionAlgorithm?: string, search?: string): Promise<ExternalProduct[]> {
+  private async downloadAndParseReport(
+    downloadUrl: string,
+    compressionAlgorithm?: string,
+    search?: string,
+  ): Promise<ExternalProduct[]> {
     const downloadRes = await fetch(downloadUrl, {
       signal: AbortSignal.timeout(30_000),
     });
@@ -497,15 +698,24 @@ export class AmazonAPIClient {
     if (lines.length < 2) return [];
 
     const headers = lines[0].split("\t").map((h) => h.trim().toLowerCase());
-    const asinIdx = headers.findIndex(h => h === "asin1" || h === "asin");
-    const skuIdx = headers.findIndex(h => h === "seller-sku" || h === "sku" || h === "merchant-sku");
-    const nameIdx = headers.findIndex(h => h === "item-name" || h === "product-name" || h === "title");
-    const qtyIdx = headers.findIndex(h => h === "quantity" || h === "qty" || h === "stock");
+    const asinIdx = headers.findIndex((h) => h === "asin1" || h === "asin");
+    const skuIdx = headers.findIndex(
+      (h) => h === "seller-sku" || h === "sku" || h === "merchant-sku",
+    );
+    const nameIdx = headers.findIndex(
+      (h) => h === "item-name" || h === "product-name" || h === "title",
+    );
+    const qtyIdx = headers.findIndex(
+      (h) => h === "quantity" || h === "qty" || h === "stock",
+    );
+    const fulfillmentChannelIdx = headers.findIndex(
+      (h) => h === "fulfillment-channel",
+    );
 
     const externalProducts: ExternalProduct[] = [];
     for (let i = 1; i < lines.length; i++) {
       if (!lines[i].trim()) continue;
-      const cols = lines[i].split("\t").map(c => c.trim());
+      const cols = lines[i].split("\t").map((c) => c.trim());
 
       const asin = asinIdx >= 0 ? cols[asinIdx] : "";
       const sku = skuIdx >= 0 ? cols[skuIdx] : "";
@@ -533,6 +743,16 @@ export class AmazonAPIClient {
         }
       }
 
+      // Map TSV fulfillment-channel to our standard code
+      if (fulfillmentChannelIdx >= 0 && cols[fulfillmentChannelIdx]) {
+        const rawFc = cols[fulfillmentChannelIdx].toUpperCase();
+        if (rawFc.startsWith("AMAZON")) {
+          rawPayload.fulfillmentChannelCode = rawFc;
+        } else {
+          rawPayload.fulfillmentChannelCode = "DEFAULT";
+        }
+      }
+
       externalProducts.push({
         id: asin,
         name,
@@ -548,25 +768,31 @@ export class AmazonAPIClient {
     try {
       const fbaProducts = externalProducts.filter((p) => {
         const payload = p.rawPayload as Record<string, unknown>;
-        const isFba = payload["fulfillment-channel"] && payload["fulfillment-channel"] !== "DEFAULT";
+        const isFba =
+          payload["fulfillment-channel"] &&
+          payload["fulfillment-channel"] !== "DEFAULT";
         return !!p.sku && isFba;
       });
-      
-      const skus = fbaProducts.map(p => p.sku as string);
+
+      const skus = fbaProducts.map((p) => p.sku as string);
       if (skus.length > 0) {
         const fbaMap = await this.fetchFbaInventorySummaries(accessToken, skus);
         for (const product of fbaProducts) {
           const summary = fbaMap.get(product.sku!);
           if (summary?.inventoryDetails?.fulfillableQuantity !== undefined) {
-            product.stockQuantity = summary.inventoryDetails.fulfillableQuantity;
+            product.stockQuantity =
+              summary.inventoryDetails.fulfillableQuantity;
             if (product.rawPayload) {
-              (product.rawPayload as Record<string, unknown>).fbaInventory = summary;
+              (product.rawPayload as Record<string, unknown>).fbaInventory =
+                summary;
             }
           }
         }
       }
     } catch (err) {
-      console.error("[Amazon SP-API] Failed fetch FBA inventory", { error: String(err) });
+      console.error("[Amazon SP-API] Failed fetch FBA inventory", {
+        error: String(err),
+      });
     }
 
     this.processProductRelationships(externalProducts);
@@ -575,10 +801,26 @@ export class AmazonAPIClient {
   }
 
   private async fetchFbaInventorySummaries(
-    accessToken: string, 
-    skus: string[]
-  ): Promise<Map<string, NonNullable<NonNullable<FbaInventorySchema["GetInventorySummariesResponse"]["payload"]>["inventorySummaries"]>[number]>> {
-    const results = new Map<string, NonNullable<NonNullable<FbaInventorySchema["GetInventorySummariesResponse"]["payload"]>["inventorySummaries"]>[number]>();
+    accessToken: string,
+    skus: string[],
+  ): Promise<
+    Map<
+      string,
+      NonNullable<
+        NonNullable<
+          FbaInventorySchema["GetInventorySummariesResponse"]["payload"]
+        >["inventorySummaries"]
+      >[number]
+    >
+  > {
+    const results = new Map<
+      string,
+      NonNullable<
+        NonNullable<
+          FbaInventorySchema["GetInventorySummariesResponse"]["payload"]
+        >["inventorySummaries"]
+      >[number]
+    >();
     const BATCH_SIZE = 50;
 
     for (let i = 0; i < skus.length; i += BATCH_SIZE) {
@@ -591,12 +833,16 @@ export class AmazonAPIClient {
       url.searchParams.set("details", "true");
 
       const res = await fetch(url.toString(), {
-        headers: { Accept: "application/json", "x-amz-access-token": accessToken },
+        headers: {
+          Accept: "application/json",
+          "x-amz-access-token": accessToken,
+        },
         signal: AbortSignal.timeout(15_000),
       });
 
       if (res.ok) {
-        const data = (await res.json()) as FbaInventorySchema["GetInventorySummariesResponse"];
+        const data =
+          (await res.json()) as FbaInventorySchema["GetInventorySummariesResponse"];
         const summaries = data.payload?.inventorySummaries || [];
         for (const summary of summaries) {
           if (summary.sellerSku) {
@@ -604,7 +850,7 @@ export class AmazonAPIClient {
           }
         }
       }
-      
+
       if (i + BATCH_SIZE < skus.length) {
         await new Promise((resolve) => setTimeout(resolve, 550));
       }
@@ -612,7 +858,10 @@ export class AmazonAPIClient {
     return results;
   }
 
-  private async enrichWithCatalogData(accessToken: string, products: ExternalProduct[]): Promise<void> {
+  private async enrichWithCatalogData(
+    accessToken: string,
+    products: ExternalProduct[],
+  ): Promise<void> {
     const BATCH_SIZE = 20;
     for (let i = 0; i < products.length; i += BATCH_SIZE) {
       const batch = products.slice(i, i + BATCH_SIZE);
@@ -627,7 +876,10 @@ export class AmazonAPIClient {
 
       try {
         const res = await fetch(url.toString(), {
-          headers: { Accept: "application/json", "x-amz-access-token": accessToken },
+          headers: {
+            Accept: "application/json",
+            "x-amz-access-token": accessToken,
+          },
           signal: AbortSignal.timeout(15_000),
         });
 
@@ -638,33 +890,44 @@ export class AmazonAPIClient {
             const product = batch.find((p) => p.id === item.asin);
             if (product) {
               const payload = product.rawPayload as Record<string, unknown>;
-              if (item.summaries)   payload.summaries   = item.summaries;
-              if (item.images)      payload.images      = item.images;
+              if (item.summaries) payload.summaries = item.summaries;
+              if (item.images) payload.images = item.images;
               if (item.identifiers) payload.identifiers = item.identifiers;
-              if (item.attributes)  payload.attributes  = item.attributes;
-              if (item.dimensions)  payload.dimensions  = item.dimensions;
+              if (item.attributes) payload.attributes = item.attributes;
+              if (item.dimensions) payload.dimensions = item.dimensions;
               if (item.productTypes) payload.productTypes = item.productTypes;
 
               // Derive and persist Amazon category — single source of truth.
-              const { category, amazonProductType } = this.extractAmazonCategory(
-                item as CatalogItemsSchema["Item"],
-              );
-              if (category)          payload.category         = category;
-              if (amazonProductType) payload.amazonProductType = amazonProductType;
+              const { category, amazonProductType } =
+                this.extractAmazonCategory(item as CatalogItemsSchema["Item"]);
+              if (category) payload.category = category;
+              if (amazonProductType)
+                payload.amazonProductType = amazonProductType;
 
               let fullRelationships = item.relationships;
-              const hasChildren = item.relationships?.some((r: { relationships?: Array<{ childAsins?: string[] }> }) =>
-                r.relationships?.some((rel) => rel.childAsins && rel.childAsins.length > 0)
+              const hasChildren = item.relationships?.some(
+                (r: { relationships?: Array<{ childAsins?: string[] }> }) =>
+                  r.relationships?.some(
+                    (rel) => rel.childAsins && rel.childAsins.length > 0,
+                  ),
               );
 
               if (hasChildren) {
                 try {
-                  const fullItemUrl = new URL(`${this.endpoint}/catalog/2022-04-01/items/${encodeURIComponent(item.asin)}`);
-                  fullItemUrl.searchParams.set("marketplaceIds", this.marketplaceId);
+                  const fullItemUrl = new URL(
+                    `${this.endpoint}/catalog/2022-04-01/items/${encodeURIComponent(item.asin)}`,
+                  );
+                  fullItemUrl.searchParams.set(
+                    "marketplaceIds",
+                    this.marketplaceId,
+                  );
                   fullItemUrl.searchParams.set("includedData", "relationships");
 
                   const singleRes = await fetch(fullItemUrl.toString(), {
-                    headers: { Accept: "application/json", "x-amz-access-token": accessToken },
+                    headers: {
+                      Accept: "application/json",
+                      "x-amz-access-token": accessToken,
+                    },
                     signal: AbortSignal.timeout(15_000),
                   });
                   if (singleRes.ok) {
@@ -675,7 +938,10 @@ export class AmazonAPIClient {
                   }
                   await new Promise((r) => setTimeout(r, 550));
                 } catch (e) {
-                  console.warn(`[Amazon SP-API] Failed to fetch full relationships for parent ASIN ${item.asin}`, e);
+                  console.warn(
+                    `[Amazon SP-API] Failed to fetch full relationships for parent ASIN ${item.asin}`,
+                    e,
+                  );
                 }
               }
 
@@ -696,40 +962,67 @@ export class AmazonAPIClient {
   }
 
   private processProductRelationships(products: ExternalProduct[]): void {
+    const virtualParents = new Map<string, ExternalProduct>();
+
     for (const product of products) {
       const payload = product.rawPayload as Record<string, unknown>;
 
-      const summaries = payload.summaries as Array<{ marketplaceId?: string; itemClassification?: string }> | undefined;
+      const summaries = payload.summaries as
+        | Array<{ marketplaceId?: string; itemClassification?: string }>
+        | undefined;
       const itemClassification =
-        summaries?.find((s) => s.marketplaceId === this.marketplaceId)?.itemClassification ??
-        summaries?.[0]?.itemClassification;
+        summaries?.find((s) => s.marketplaceId === this.marketplaceId)
+          ?.itemClassification ?? summaries?.[0]?.itemClassification;
 
       if (itemClassification === "VARIATION_PARENT") {
         product.type = "variable";
       }
 
-      if (Array.isArray(payload.relationships)) {
-        for (const byMarketplace of payload.relationships) {
-          if (!Array.isArray(byMarketplace.relationships)) continue;
-          for (const rel of byMarketplace.relationships) {
-            if (rel.type === "VARIATION" && Array.isArray(rel.childAsins)) {
-              product.type = "variable";
-              for (const childAsin of rel.childAsins) {
-                if (childAsin && childAsin !== product.id) {
-                  const childObj = products.find((p) => p.id === childAsin);
-                  if (childObj) {
-                    childObj.type = "variation";
-                    childObj.parentId = product.id;
-                    if (childObj.rawPayload) {
-                      childObj.rawPayload.parentId = product.id;
-                    }
-                  }
-                }
+      const rels = extractRelationships(payload);
+
+      // Top-down: Parent -> Children
+      if (rels.childIds.length > 0) {
+        product.type = "variable";
+        for (const childId of rels.childIds) {
+          if (childId !== product.id) {
+            const childObj = products.find((p) => p.id === childId);
+            if (childObj) {
+              childObj.type = "variation";
+              childObj.parentId = product.id;
+              if (childObj.rawPayload) {
+                childObj.rawPayload.parentId = product.id;
               }
             }
           }
         }
       }
+
+      // Bottom-up: Orphaned Child -> Missing Parent
+      if (rels.parentId && rels.parentId !== product.id) {
+        product.type = "variation";
+        product.parentId = rels.parentId;
+        if (product.rawPayload) {
+          product.rawPayload.parentId = rels.parentId;
+        }
+
+        // If parent doesn't exist in the batch natively, stage a virtual parent
+        if (
+          !products.some((p) => p.id === rels.parentId) &&
+          !virtualParents.has(rels.parentId)
+        ) {
+          virtualParents.set(rels.parentId, {
+            id: rels.parentId,
+            name: `Variation Family: ${rels.parentId}`,
+            type: "variable",
+            rawPayload: {},
+          });
+        }
+      }
+    }
+
+    // Append synthesized virtual parents to the sync batch
+    for (const vp of virtualParents.values()) {
+      products.push(vp);
     }
   }
 
@@ -740,9 +1033,13 @@ export class AmazonAPIClient {
    * marketplace, falling back to the first element if none matches.
    * This pattern is repeated everywhere the SP-API returns per-marketplace arrays.
    */
-  private forMarketplace<T extends { marketplaceId?: string }>(arr: T[] | undefined): T | undefined {
+  private forMarketplace<T extends { marketplaceId?: string }>(
+    arr: T[] | undefined,
+  ): T | undefined {
     if (!arr?.length) return undefined;
-    return arr.find((entry) => entry.marketplaceId === this.marketplaceId) ?? arr[0];
+    return (
+      arr.find((entry) => entry.marketplaceId === this.marketplaceId) ?? arr[0]
+    );
   }
 
   /**
@@ -775,7 +1072,11 @@ export class AmazonAPIClient {
    * Yields one page of orders at a time to keep memory bounded.
    * API: /orders/v0/orders (getOrders)
    */
-  public async *getOrdersPagedGenerator(createdAfter?: string): AsyncGenerator<NonNullable<OrdersV0Schema["GetOrdersResponse"]["payload"]>["Orders"]> {
+  public async *getOrdersPagedGenerator(
+    createdAfter?: string,
+  ): AsyncGenerator<
+    NonNullable<OrdersV0Schema["GetOrdersResponse"]["payload"]>["Orders"]
+  > {
     const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}/orders/v0/orders`);
     url.searchParams.set("MarketplaceIds", this.marketplaceId);
@@ -807,7 +1108,7 @@ export class AmazonAPIClient {
       if (data.payload?.Orders && data.payload.Orders.length > 0) {
         yield data.payload.Orders;
       }
-      
+
       nextToken = data.payload?.NextToken;
     } while (nextToken);
   }
@@ -815,14 +1116,18 @@ export class AmazonAPIClient {
   /**
    * Fetch all orders by accumulating pages (legacy wrapper, use getOrdersPagedGenerator when possible).
    */
-  public async getOrders(createdAfter?: string): Promise<OrdersV0Schema["GetOrdersResponse"]["payload"]> {
+  public async getOrders(
+    createdAfter?: string,
+  ): Promise<OrdersV0Schema["GetOrdersResponse"]["payload"]> {
     const generator = this.getOrdersPagedGenerator(createdAfter);
-    let allOrders: NonNullable<OrdersV0Schema["GetOrdersResponse"]["payload"]>["Orders"] = [];
-    
+    let allOrders: NonNullable<
+      OrdersV0Schema["GetOrdersResponse"]["payload"]
+    >["Orders"] = [];
+
     for await (const pageOrders of generator) {
       allOrders = allOrders.concat(pageOrders);
     }
-    
+
     return { Orders: allOrders };
   }
 
@@ -830,19 +1135,27 @@ export class AmazonAPIClient {
    * Fetch line items for a specific order.
    * API: /orders/v0/orders/{orderId}/orderItems (getOrderItems)
    */
-  public async getOrderItems(orderId: string): Promise<OrdersV0Schema["GetOrderItemsResponse"]["payload"]> {
+  public async getOrderItems(
+    orderId: string,
+  ): Promise<OrdersV0Schema["GetOrderItemsResponse"]["payload"]> {
     const accessToken = await this.getAccessToken();
-    const url = new URL(`${this.endpoint}/orders/v0/orders/${encodeURIComponent(orderId)}/orderItems`);
+    const url = new URL(
+      `${this.endpoint}/orders/v0/orders/${encodeURIComponent(orderId)}/orderItems`,
+    );
 
     const res = await this.fetchWithRetry(url.toString(), {
-      Accept: "application/json",
-      "x-amz-access-token": accessToken,
+      headers: {
+        Accept: "application/json",
+        "x-amz-access-token": accessToken,
+      },
     });
 
     if (!res.ok) {
       const errText = await res.text();
       console.error("[Amazon SP-API] getOrderItems Error:", errText);
-      throw new Error(`Failed to get order items for ${orderId}: ${res.status}`);
+      throw new Error(
+        `Failed to get order items for ${orderId}: ${res.status}`,
+      );
     }
 
     const data = (await res.json()) as OrdersV0Schema["GetOrderItemsResponse"];
@@ -853,13 +1166,19 @@ export class AmazonAPIClient {
    * Fetch buyer info for a specific order.
    * API: /orders/v0/orders/{orderId}/buyerInfo (getOrderBuyerInfo)
    */
-  public async getOrderBuyerInfo(orderId: string): Promise<OrdersV0Schema["GetOrderBuyerInfoResponse"]["payload"]> {
+  public async getOrderBuyerInfo(
+    orderId: string,
+  ): Promise<OrdersV0Schema["GetOrderBuyerInfoResponse"]["payload"]> {
     const accessToken = await this.getAccessToken();
-    const url = new URL(`${this.endpoint}/orders/v0/orders/${encodeURIComponent(orderId)}/buyerInfo`);
+    const url = new URL(
+      `${this.endpoint}/orders/v0/orders/${encodeURIComponent(orderId)}/buyerInfo`,
+    );
 
     const res = await this.fetchWithRetry(url.toString(), {
-      Accept: "application/json",
-      "x-amz-access-token": accessToken,
+      headers: {
+        Accept: "application/json",
+        "x-amz-access-token": accessToken,
+      },
     });
 
     if (!res.ok) {
@@ -868,7 +1187,8 @@ export class AmazonAPIClient {
       throw new Error(`Failed to get buyer info for ${orderId}: ${res.status}`);
     }
 
-    const data = (await res.json()) as OrdersV0Schema["GetOrderBuyerInfoResponse"];
+    const data =
+      (await res.json()) as OrdersV0Schema["GetOrderBuyerInfoResponse"];
     return data.payload;
   }
 
@@ -876,13 +1196,19 @@ export class AmazonAPIClient {
    * Fetch shipping address for a specific order.
    * API: /orders/v0/orders/{orderId}/address (getOrderAddress)
    */
-  public async getOrderAddress(orderId: string): Promise<OrdersV0Schema["GetOrderAddressResponse"]["payload"]> {
+  public async getOrderAddress(
+    orderId: string,
+  ): Promise<OrdersV0Schema["GetOrderAddressResponse"]["payload"]> {
     const accessToken = await this.getAccessToken();
-    const url = new URL(`${this.endpoint}/orders/v0/orders/${encodeURIComponent(orderId)}/address`);
+    const url = new URL(
+      `${this.endpoint}/orders/v0/orders/${encodeURIComponent(orderId)}/address`,
+    );
 
     const res = await this.fetchWithRetry(url.toString(), {
-      Accept: "application/json",
-      "x-amz-access-token": accessToken,
+      headers: {
+        Accept: "application/json",
+        "x-amz-access-token": accessToken,
+      },
     });
 
     if (!res.ok) {
@@ -891,7 +1217,8 @@ export class AmazonAPIClient {
       throw new Error(`Failed to get address for ${orderId}: ${res.status}`);
     }
 
-    const data = (await res.json()) as OrdersV0Schema["GetOrderAddressResponse"];
+    const data =
+      (await res.json()) as OrdersV0Schema["GetOrderAddressResponse"];
     return data.payload;
   }
 }

@@ -9,7 +9,7 @@ import {
   channels,
   channelProducts,
 } from "@/db/schema";
-import { and, desc, eq, sql, or } from "drizzle-orm";
+import { and, desc, eq, sql, count } from "drizzle-orm";
 
 export async function getProductById(productId: number, tx: QueryClient = db) {
   const result = await tx
@@ -23,6 +23,7 @@ export async function getProductById(productId: number, tx: QueryClient = db) {
       purchasePrice: products.purchasePrice,
       sellingPrice: products.sellingPrice,
       quantityOnHand: products.quantityOnHand,
+      reservedQuantity: products.reservedQuantity,
       reorderLevel: products.reorderLevel,
       description: products.description,
       attributes: products.attributes,
@@ -43,8 +44,16 @@ export async function getProductMappings(productId: number, tx: QueryClient = db
       externalProductId: channelProductMappings.externalProductId,
       label: channelProductMappings.label,
       syncStatus: channelProductMappings.syncStatus,
+      channelStock: channelProducts.stockQuantity,
     })
     .from(channelProductMappings)
+    .leftJoin(
+      channelProducts,
+      and(
+        eq(channelProductMappings.channelId, channelProducts.channelId),
+        eq(channelProductMappings.externalProductId, channelProducts.externalId)
+      )
+    )
     .where(eq(channelProductMappings.productId, productId));
 }
 
@@ -58,8 +67,10 @@ export async function getInventoryTransactionsForProduct(productId: number, tx: 
       referenceId: inventoryTransactions.referenceId,
       notes: inventoryTransactions.notes,
       createdAt: inventoryTransactions.createdAt,
+      companyId: purchaseInvoices.companyId,
     })
     .from(inventoryTransactions)
+    .leftJoin(purchaseInvoices, eq(inventoryTransactions.referenceId, purchaseInvoices.id))
     .where(eq(inventoryTransactions.productId, productId))
     .orderBy(desc(inventoryTransactions.createdAt))
     .limit(50);
@@ -72,6 +83,7 @@ export async function getProductPurchaseHistory(productId: number, tx: QueryClie
       invoiceId: purchaseInvoices.id,
       invoiceNumber: purchaseInvoices.invoiceNumber,
       invoiceDate: purchaseInvoices.invoiceDate,
+      companyId: companies.id,
       companyName: companies.name,
       quantity: purchaseInvoiceItems.quantity,
       unitPrice: purchaseInvoiceItems.unitPrice,
@@ -96,7 +108,10 @@ export async function getProductsList(tx: QueryClient = db) {
       sellingPrice: products.sellingPrice,
       reorderLevel: products.reorderLevel,
       quantityOnHand: products.quantityOnHand,
+      reservedQuantity: products.reservedQuantity,
       isActive: products.isActive,
+      description: products.description,
+      attributes: products.attributes,
     })
     .from(products)
     .orderBy(desc(products.createdAt));
@@ -118,12 +133,17 @@ export async function getActiveProductsForDropdown(tx: QueryClient = db) {
 
 export async function getProductQuantity(productId: number, tx: QueryClient = db) {
   const productRows = await tx
-    .select({ quantityOnHand: products.quantityOnHand })
+    .select({
+      quantityOnHand: products.quantityOnHand,
+      reservedQuantity: products.reservedQuantity,
+    })
     .from(products)
     .where(eq(products.id, productId))
     .limit(1);
 
-  return productRows.length > 0 ? productRows[0].quantityOnHand : null;
+  if (productRows.length === 0) return null;
+  // Push availableQuantity to channels (on-hand minus reserved)
+  return productRows[0].quantityOnHand - productRows[0].reservedQuantity;
 }
 
 export async function getChannelMappingsForStockPush(
@@ -142,9 +162,20 @@ export async function getChannelMappingsForStockPush(
       credentials: channels.credentials,
       channelName: channels.name,
       status: channels.status,
+      parentId: sql<string | null>`${channelProducts.rawData}->>'parentId'`,
+      productType: sql<string | null>`${channelProducts.rawData}->>'amazonProductType'`,
+      channelSku: channelProducts.sku,
+      rawData: channelProducts.rawData,
     })
     .from(channelProductMappings)
     .innerJoin(channels, eq(channelProductMappings.channelId, channels.id))
+    .leftJoin(
+      channelProducts,
+      and(
+        eq(channelProductMappings.channelId, channelProducts.channelId),
+        eq(channelProductMappings.externalProductId, channelProducts.externalId)
+      )
+    )
     .where(
       and(
         eq(channelProductMappings.productId, productId),
@@ -167,40 +198,144 @@ export async function getConnectedChannel(userId: number, channelId: number, tx:
   return channelRows.length > 0 ? channelRows[0] : null;
 }
 
+// Define ChannelProductWithState if it's not already defined
+type ChannelProductWithState = {
+  id: string;
+  name: string;
+  sku: string | null;
+  type: "simple" | "variable" | "variation";
+  parentId: string | null;
+  images: string[] | null;
+  stockQuantity: number | null;
+  rawPayload?: Record<string, unknown>;
+  mappingState: { kind: "unmapped" } | { kind: "mapped_here" } | { kind: "mapped_other"; productId: number; productName: string };
+};
+
 export async function getExternalProducts(
   channelId: number,
   search?: string,
   limit: number = 50,
   offset: number = 0,
   tx: QueryClient = db,
-) {
-  return await tx
+): Promise<{ products: ChannelProductWithState[]; total: number }> {
+  // Only fetch top-level products (Simple or Variable parents)
+  // Deep Search: Match parent name OR any of its variations matching name/sku
+  const where = and(
+    eq(channelProducts.channelId, channelId),
+    sql`${channelProducts.rawData}->>'parentId' IS NULL`,
+    search
+      ? sql`(
+          ${channelProducts.name} ILIKE ${`%${search}%`} OR 
+          ${channelProducts.sku} ILIKE ${`%${search}%`} OR
+          EXISTS (
+            SELECT 1 FROM ${channelProducts} AS variations 
+            WHERE variations.channel_id = ${channelId} 
+            AND variations.raw_data->>'parentId' = ${channelProducts.externalId}
+            AND (
+              variations.name ILIKE ${`%${search}%`} OR 
+              variations.sku ILIKE ${`%${search}%`}
+            )
+          )
+        )`
+      : undefined,
+  );
+
+  const [countResult] = await tx
+    .select({ count: count() })
+    .from(channelProducts)
+    .where(where);
+
+  const results = await tx
     .select({
       id: channelProducts.externalId,
       name: channelProducts.name,
       sku: channelProducts.sku,
-      stockQuantity: channelProducts.stockQuantity,
       type: channelProducts.type,
+      stockQuantity: channelProducts.stockQuantity,
       rawPayload: channelProducts.rawData,
-      parentId: sql<
-        string | null
-      >`COALESCE(raw_data->>'parentId', CAST(raw_data->>'parent_id' AS TEXT))`,
+      parentId: sql<string | null>`${channelProducts.rawData}->>'parentId'`,
+      images: sql<string[] | null>`${channelProducts.rawData}->'images'`,
+      mappingState: sql<ChannelProductWithState["mappingState"]>`
+        CASE 
+          WHEN ${channelProductMappings.productId} = ${-1} THEN jsonb_build_object('kind', 'unmapped')
+          WHEN ${channelProductMappings.productId} IS NOT NULL THEN 
+            jsonb_build_object('kind', 'mapped_other', 'productName', ${products.name}, 'productId', ${products.id})
+          ELSE jsonb_build_object('kind', 'unmapped')
+        END
+      `.mapWith(
+        (val) =>
+          typeof val === "string"
+            ? JSON.parse(val)
+            : val || { kind: "unmapped" },
+      ),
     })
     .from(channelProducts)
-    .where(
-      and(
-        eq(channelProducts.channelId, channelId),
-        search && search.trim() !== ""
-          ? or(
-              sql`${channelProducts.name} ILIKE ${`%${search}%`}`,
-              sql`${channelProducts.sku} ILIKE ${`%${search}%`}`,
-            )
-          : undefined,
-      ),
+    .leftJoin(
+      channelProductMappings,
+      eq(channelProducts.externalId, channelProductMappings.externalProductId),
     )
+    .leftJoin(products, eq(channelProductMappings.productId, products.id))
+    .where(where)
     .orderBy(channelProducts.externalId)
     .limit(limit)
     .offset(offset);
+
+  return {
+    products: results as unknown as ChannelProductWithState[],
+    total: Number(countResult?.count || 0),
+  };
+}
+
+export async function getVariationsForParent(
+  channelId: number,
+  parentId: string,
+  search?: string,
+  tx: QueryClient = db,
+): Promise<ChannelProductWithState[]> {
+  const where = and(
+    eq(channelProducts.channelId, channelId),
+    sql`${channelProducts.rawData}->>'parentId' = ${parentId}`,
+    search
+      ? sql`(
+          ${channelProducts.name} ILIKE ${`%${search}%`} OR 
+          ${channelProducts.sku} ILIKE ${`%${search}%`}
+        )`
+      : undefined,
+  );
+  const results = await tx
+    .select({
+      id: channelProducts.externalId,
+      name: channelProducts.name,
+      sku: channelProducts.sku,
+      type: channelProducts.type,
+      stockQuantity: channelProducts.stockQuantity,
+      rawPayload: channelProducts.rawData,
+      parentId: sql<string | null>`${channelProducts.rawData}->>'parentId'`,
+      images: sql<string[] | null>`${channelProducts.rawData}->'images'`,
+      mappingState: sql<ChannelProductWithState["mappingState"]>`
+        CASE 
+          WHEN ${channelProductMappings.productId} = ${-1} THEN jsonb_build_object('kind', 'unmapped')
+          WHEN ${channelProductMappings.productId} IS NOT NULL THEN 
+            jsonb_build_object('kind', 'mapped_other', 'productName', ${products.name}, 'productId', ${products.id})
+          ELSE jsonb_build_object('kind', 'unmapped')
+        END
+      `.mapWith(
+        (val) =>
+          typeof val === "string"
+            ? JSON.parse(val)
+            : val || { kind: "unmapped" },
+      ),
+    })
+    .from(channelProducts)
+    .leftJoin(
+      channelProductMappings,
+      eq(channelProducts.externalId, channelProductMappings.externalProductId),
+    )
+    .leftJoin(products, eq(channelProductMappings.productId, products.id))
+    .where(where)
+    .orderBy(channelProducts.externalId);
+
+  return results as unknown as ChannelProductWithState[];
 }
 
 export async function getExistingMappingsForChannel(channelId: number, tx: QueryClient = db) {
@@ -232,4 +367,25 @@ export async function insertChannelMappingQuietly(
     })
     .onConflictDoNothing()
     .returning({ id: channelProductMappings.id });
+}
+
+export async function getUniqueAttributeKeys(tx: QueryClient = db) {
+  const result = await tx.execute(sql`
+    SELECT key, count(*)::int as count
+    FROM ${products}, jsonb_object_keys(${products.attributes}) as key
+    GROUP BY key
+    ORDER BY count DESC
+  `);
+  return result as unknown as { key: string; count: number }[];
+}
+
+export async function getAttributeValues(key: string, tx: QueryClient = db) {
+  const result = await tx.execute(sql`
+    SELECT ${products.attributes}->>${key} as value, count(*)::int as count
+    FROM ${products}
+    WHERE ${products.attributes} ? ${key}
+    GROUP BY value
+    ORDER BY count DESC
+  `);
+  return result as unknown as { value: string; count: number }[];
 }

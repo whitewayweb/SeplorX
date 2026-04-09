@@ -64,7 +64,7 @@ Data flows one way: **Server Component → props → Client Component → Server
 
 ## Database Queries
 
-- **Tables:** `users`, `app_installations`, `channels`, `channel_product_mappings`, `channel_product_changelog`, `companies` (type: supplier/customer/both), `products`, `purchase_invoices`, `purchase_invoice_items`, `payments`, `inventory_transactions`, `agent_actions`, `settings`. (All have RLS). Decimal(12,2) for money; integer for stock.
+- **Tables:** `users`, `sessions`, `accounts`, `app_installations`, `channels`, `channel_products`, `channel_product_mappings`, `channel_product_changelog`, `channel_feeds`, `companies` (type: supplier/customer/both), `products`, `purchase_invoices`, `purchase_invoice_items`, `payments`, `inventory_transactions`, `agent_actions`, `settings`, `sales_orders`, `sales_order_items`, `stock_reservations`. (All have RLS). Decimal(12,2) for money; integer for stock.
 - **Data Access Layer (DAL)** (`src/data/*.ts`):
   - Pure TypeScript functions containing raw SQL/Drizzle queries.
   - Extracts reusable Read logic away from UI components (Server Components) and Server Actions.
@@ -96,9 +96,11 @@ Data flows one way: **Server Component → props → Client Component → Server
 
 ## UI & Layout Patterns
 
-- **PageHeader Molecule:** Use `<PageHeader title="..." description="..." />` from `@/components/molecules/layout/page-header` for all dashboard pages. This component handles the 48px left-margin (`ml-12`) needed to clear the floating sidebar trigger.
-- **No `container mx-auto`:** Dashboard pages should use `p-6 space-y-6` on the root div. Avoid `container` or `mx-auto` as they conflict with the layout's sidebar-aware margin selectors.
-- **Header Actions:** Pass buttons or triggers (like `Add Button`) as children to `PageHeader` to have them appear on the top-right.
+- **Shadcn Forms & Validation (Compulsory)**: All forms MUST use the `shadcn` Form components (`react-hook-form` + `@hookform/resolvers/zod`). Always wrap inputs in `<Form>`, `<FormField>`, `<FormItem>`, `<FormLabel>`, `<FormControl>`, and `<FormMessage>`. Always use Zod schemas to validate form values both on the client and server.
+- **Searchable Dropdowns**: Whenever a searchable dropdown is required, you must use the Shadcn `Combobox` pattern (which combines `<Popover>` and `<Command>` components), exactly as described in the official Shadcn inline docs. Do not build custom `<datalist>` elements or raw input hacks.
+- **PageHeader Molecule**: Use `<PageHeader title="..." description="..." />` from `@/components/molecules/layout/page-header` for all dashboard pages. This component handles the 48px left-margin (`ml-12`) needed to clear the floating sidebar trigger.
+- **No `container mx-auto`**: Dashboard pages should use `p-6 space-y-6` on the root div. Avoid `container` or `mx-auto` as they conflict with the layout's sidebar-aware margin selectors.
+- **Header Actions**: Pass buttons or triggers (like `Add Button`) as children to `PageHeader` to have them appear on the top-right.
 
 ## Design Principles
 
@@ -107,10 +109,15 @@ Data flows one way: **Server Component → props → Client Component → Server
 - No speculative features or config flags.
 - Three similar lines > one premature helper function.
 
-## Lint Rules
+## Search Patterns (Performant)
 
-- React 19: no `setState` inside `useEffect`, no ref access during render.
-- Never prefix variables with `_` to bypass ESLint — remove unused variables entirely.
+To provide a responsive search experience without overloading the database:
+
+1.  **Client-Side Debouncing**: Use a 500ms `setTimeout` in a `useEffect` to bridge the gap between user keystrokes (`searchQuery`) and the actual filtering logic (`activeSearch`).
+2.  **Server-Side Deep Search**: When filtering parent products, use `EXISTS` subqueries to also match against their children/variations. This ensures that a search for a specific variation SKU still returns its parent container if relevant.
+3.  **Global Flattening**: For search-intensive tasks (like mapping), flatten hierarchies during search so that matching variations appear as primary results alongside simple products. This improves visibility and simplifies interaction.
+
+## Lint Rules
 
 ## Key Files
 

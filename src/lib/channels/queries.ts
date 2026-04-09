@@ -208,6 +208,7 @@ export async function getChannelProductsWithVariations(channelId: number, option
     type: p.type,
     stockQuantity: p.stockQuantity,
     lastSyncedAt: p.lastSyncedAt,
+    fulfillmentChannelCode: (p.rawData as Record<string, unknown>)?.fulfillmentChannelCode as string | undefined,
     productUrl: sanitizeUrl(getProductUrl?.(p.externalId, credentials, p.rawData)),
   }));
 
@@ -220,6 +221,7 @@ export async function getChannelProductsWithVariations(channelId: number, option
     stockQuantity: v.stockQuantity,
     lastSyncedAt: v.lastSyncedAt,
     parentId: v.parentId,
+    fulfillmentChannelCode: (v.rawData as Record<string, unknown>)?.fulfillmentChannelCode as string | undefined,
     productUrl: sanitizeUrl(getProductUrl?.(v.externalId, credentials, v.rawData)),
   }));
 

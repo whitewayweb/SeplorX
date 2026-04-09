@@ -77,6 +77,7 @@ export interface OrderDetail {
   purchasedAt: Date | null;
   channelId: number;
   channelName: string | null;
+  returnDisposition: string | null;
   /** Extracted sub-fields from rawData JSONB — only what the UI needs. */
   rawOrder: OrdersV0Schema["Order"] | null;
   shippingAddress: OrdersV0Schema["OrderAddress"] | null;
@@ -94,6 +95,9 @@ export interface OrderItemRow {
   channelProductId: number | null;
   productName: string | null;
   productSku: string | null;
+  productId: number | null;
+  returnQuantity: number;
+  returnDisposition: string | null;
 }
 
 /** All orders across all channels for a user (joined with channel name). */
@@ -134,7 +138,7 @@ export async function getAllOrders(
 
 /** Total count of all orders across all channels for a user. */
 export async function countAllOrders(
-  userId: number, 
+  userId: number,
   status?: string,
   dateFrom?: Date,
   dateTo?: Date
@@ -155,7 +159,7 @@ export async function countAllOrders(
 
 /** Grouped count of orders by status for a user's channel(s) */
 export async function getOrderStatusCounts(
-  userId: number, 
+  userId: number,
   channelId?: number,
   dateFrom?: Date,
   dateTo?: Date
@@ -265,6 +269,7 @@ export async function getOrderDetail(
       // the full rawData blob across the network.
       rawOrder: sql<OrdersV0Schema["Order"] | null>`(${salesOrders.rawData}->>'order')::jsonb`,
       shippingAddress: sql<OrdersV0Schema["OrderAddress"] | null>`(${salesOrders.rawData}->>'shippingAddress')::jsonb`,
+      returnDisposition: salesOrders.returnDisposition,
     })
     .from(salesOrders)
     .innerJoin(
@@ -288,6 +293,9 @@ export async function getOrderItems(userId: number, orderId: number): Promise<Or
       quantity: salesOrderItems.quantity,
       price: salesOrderItems.price,
       rawData: salesOrderItems.rawData,
+      productId: salesOrderItems.productId,
+      returnQuantity: salesOrderItems.returnQuantity,
+      returnDisposition: salesOrderItems.returnDisposition,
       channelProductId: channelProducts.id,
       productName: channelProducts.name,
       productSku: channelProducts.sku,
@@ -320,7 +328,16 @@ export async function getOrderItems(userId: number, orderId: number): Promise<Or
     )
     .where(eq(salesOrderItems.orderId, orderId));
 
-  return rows as unknown as OrderItemRow[];
+  // Deduplicate in case leftJoin matched multiple channel products for the same SKU
+  // (e.g. variations or duplicate listings in the channel)
+  const uniqueItems = new Map<number, typeof rows[0]>();
+  for (const row of rows) {
+    if (!uniqueItems.has(row.id)) {
+      uniqueItems.set(row.id, row);
+    }
+  }
+
+  return Array.from(uniqueItems.values()) as unknown as OrderItemRow[];
 }
 
 

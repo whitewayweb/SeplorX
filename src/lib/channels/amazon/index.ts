@@ -13,6 +13,7 @@ import {
   validateConfig,
   buildConnectUrl,
   extractProductFields,
+  extractRelationships,
 } from "./config";
 import { extractSqlField, getBrands, getLastOrderDate } from "./queries";
 
@@ -21,9 +22,9 @@ export const amazonHandler: ChannelHandler = {
   configFields,
   capabilities,
   webhookTopics: [],
-
   validateConfig,
   buildConnectUrl,
+  extractRelationships,
 
   parseCallback() {
     // Not used for API key auth type.
@@ -31,8 +32,15 @@ export const amazonHandler: ChannelHandler = {
   },
 
   async fetchProducts(storeUrl, credentials, search) {
-    if (!credentials.marketplaceId || !credentials.clientId || !credentials.clientSecret || !credentials.refreshToken) {
-      throw new Error("Missing required Amazon credentials (marketplaceId, clientId, clientSecret, refreshToken)");
+    if (
+      !credentials.marketplaceId ||
+      !credentials.clientId ||
+      !credentials.clientSecret ||
+      !credentials.refreshToken
+    ) {
+      throw new Error(
+        "Missing required Amazon credentials (marketplaceId, clientId, clientSecret, refreshToken)",
+      );
     }
 
     const client = new AmazonAPIClient(credentials, storeUrl);
@@ -40,21 +48,82 @@ export const amazonHandler: ChannelHandler = {
   },
 
   async getCatalogItem(storeUrl, credentials, asin, sku, fulfillmentChannel) {
-    if (!credentials.marketplaceId || !credentials.clientId || !credentials.clientSecret || !credentials.refreshToken) {
-      throw new Error("Missing required Amazon credentials (marketplaceId, clientId, clientSecret, refreshToken)");
+    if (
+      !credentials.marketplaceId ||
+      !credentials.clientId ||
+      !credentials.clientSecret ||
+      !credentials.refreshToken
+    ) {
+      throw new Error(
+        "Missing required Amazon credentials (marketplaceId, clientId, clientSecret, refreshToken)",
+      );
     }
 
     const client = new AmazonAPIClient(credentials, storeUrl);
     return await client.getCatalogItem(asin, sku, fulfillmentChannel);
   },
 
-  // pushStock: not implemented — capabilities.canPushStock = false
+  async pushStock(
+    storeUrl,
+    credentials,
+    externalProductId,
+    quantity,
+    parentId,
+    sku,
+    productType,
+    rawData,
+  ) {
+    if (
+      !credentials.marketplaceId ||
+      !credentials.clientId ||
+      !credentials.clientSecret ||
+      !credentials.refreshToken ||
+      !credentials.merchantId
+    ) {
+      throw new Error(
+        "Missing required Amazon credentials (merchantId missing?). Please update channel settings.",
+      );
+    }
+
+    const client = new AmazonAPIClient(credentials, storeUrl);
+
+    const identifier = sku || externalProductId;
+
+    if (!identifier)
+      throw new Error("No SKU or external ID found for this Amazon mapping.");
+
+    const fcCode = (rawData?.fulfillmentChannelCode as string) || "DEFAULT";
+
+    console.log(
+      `[Amazon pushStock] Pushing stock for ${identifier} (Type: ${productType || "PRODUCT"}, Channel: ${fcCode}, Qty: ${quantity})`,
+    );
+
+    // Direct PATCH to Listings API
+    await client.patchListingsItem(
+      credentials.merchantId,
+      identifier,
+      [
+        {
+          op: "replace",
+          path: "/attributes/fulfillment_availability",
+          value: [
+            {
+              fulfillment_channel_code: fcCode,
+              quantity: quantity,
+            },
+          ],
+        },
+      ],
+      productType || "PRODUCT",
+    );
+  },
+
   // registerWebhooks: not applicable — capabilities.usesWebhooks = false
   // processWebhook: not applicable — capabilities.usesWebhooks = false
 
   mergeProductUpdate(_existingRawData, patch) {
     const updates: Record<string, unknown> = {};
-    
+
     // Flat mapping for Amazon updates
     if (patch.price) updates["price"] = patch.price;
     if (patch.itemCondition) updates["item-condition"] = patch.itemCondition;
@@ -64,7 +133,7 @@ export const amazonHandler: ChannelHandler = {
     if (patch.color) updates["color"] = patch.color;
     if (patch.itemTypeKw) updates["item_type_keyword"] = patch.itemTypeKw;
     if (patch.description) updates["product_description"] = patch.description;
-    
+
     // Weights
     if (patch.pkgWeight) updates["pkg_weight"] = patch.pkgWeight;
     if (patch.itemWeight) updates["item_weight"] = patch.itemWeight;
@@ -79,24 +148,34 @@ export const amazonHandler: ChannelHandler = {
   /**
    * High-level orchestrator to fetch orders from Amazon and persist them.
    */
-  async fetchAndSaveOrders(userId: number, channelId: number): Promise<{ fetched: number; saved: number }> {
+  async fetchAndSaveOrders(
+    userId: number,
+    channelId: number,
+  ): Promise<{ fetched: number; saved: number }> {
     const { db } = await import("@/db");
-    const { channels, salesOrders, salesOrderItems, channelProductMappings, products } = await import("@/db/schema");
+    const {
+      channels,
+      salesOrders,
+      salesOrderItems,
+      channelProductMappings,
+      products,
+    } = await import("@/db/schema");
     const { eq, and, or, isNull } = await import("drizzle-orm");
     const { decryptChannelCredentials } = await import("@/lib/channels/utils");
 
     const [channel] = await db
-      .select({ 
-        storeUrl: channels.storeUrl, 
+      .select({
+        storeUrl: channels.storeUrl,
         credentials: channels.credentials,
-        channelType: channels.channelType 
+        channelType: channels.channelType,
       })
       .from(channels)
       .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
       .limit(1);
 
     if (!channel) throw new Error("Channel not found.");
-    if (channel.channelType !== "amazon") throw new Error("Channel is not an Amazon channel");
+    if (channel.channelType !== "amazon")
+      throw new Error("Channel is not an Amazon channel");
 
     const creds = decryptChannelCredentials(channel.credentials);
     const client = new AmazonAPIClient(creds, channel.storeUrl || "");
@@ -104,13 +183,16 @@ export const amazonHandler: ChannelHandler = {
     // Determine fetch window: last order in DB minus 1 hour for safety, or fallback 90 days
     const lastOrderDate = await getLastOrderDate(channelId);
     const bufferMs = 60 * 60 * 1000; // 1 hour buffer for safety
-    const createdAfter = (lastOrderDate 
-      ? new Date(lastOrderDate.getTime() - bufferMs) 
-      : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+    const createdAfter = (
+      lastOrderDate
+        ? new Date(lastOrderDate.getTime() - bufferMs)
+        : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
     ).toISOString();
-    
+
     // Log the sync range for debugging
-    console.log(`[Amazon Sync] Syncing orders for channel ${channelId} from ${createdAfter}`);
+    console.log(
+      `[Amazon Sync] Syncing orders for channel ${channelId} from ${createdAfter}`,
+    );
     const ordersGenerator = client.getOrdersPagedGenerator(createdAfter);
 
     let fetchedCount = 0;
@@ -118,14 +200,19 @@ export const amazonHandler: ChannelHandler = {
 
     for await (const pageOrders of ordersGenerator) {
       fetchedCount += pageOrders.length;
-      
+
       for (const amzOrder of pageOrders) {
         try {
           // 1. Pre-check if order already exists (out of tx to save connection)
           const [existing] = await db
             .select({ id: salesOrders.id })
             .from(salesOrders)
-            .where(and(eq(salesOrders.channelId, channelId), eq(salesOrders.externalOrderId, amzOrder.AmazonOrderId)))
+            .where(
+              and(
+                eq(salesOrders.channelId, channelId),
+                eq(salesOrders.externalOrderId, amzOrder.AmazonOrderId),
+              ),
+            )
             .limit(1);
 
           if (existing) {
@@ -147,7 +234,12 @@ export const amazonHandler: ChannelHandler = {
             const [insideExisting] = await tx
               .select({ id: salesOrders.id })
               .from(salesOrders)
-              .where(and(eq(salesOrders.channelId, channelId), eq(salesOrders.externalOrderId, amzOrder.AmazonOrderId)))
+              .where(
+                and(
+                  eq(salesOrders.channelId, channelId),
+                  eq(salesOrders.externalOrderId, amzOrder.AmazonOrderId),
+                ),
+              )
               .limit(1);
 
             if (insideExisting) return;
@@ -164,21 +256,26 @@ export const amazonHandler: ChannelHandler = {
             const resolvedBuyerEmail: string | null = null;
 
             // 3. Insert Sales Order with full rawData
-            const [insertedOrder] = await tx.insert(salesOrders).values({
-              channelId,
-              externalOrderId: amzOrder.AmazonOrderId,
-              status: mapAmazonStatus(amzOrder.OrderStatus),
-              totalAmount: amzOrder.OrderTotal?.Amount,
-              currency: amzOrder.OrderTotal?.CurrencyCode,
-              buyerName: resolvedBuyerName,
-              buyerEmail: resolvedBuyerEmail,
-              purchasedAt: amzOrder.PurchaseDate ? new Date(amzOrder.PurchaseDate) : null,
-              rawData: {
-                order: amzOrder as Record<string, unknown>,
-                buyerInfo: buyerRes as Record<string, unknown>,
-                shippingAddress: addressRes as Record<string, unknown>,
-              },
-            }).returning({ id: salesOrders.id });
+            const [insertedOrder] = await tx
+              .insert(salesOrders)
+              .values({
+                channelId,
+                externalOrderId: amzOrder.AmazonOrderId,
+                status: mapAmazonStatus(amzOrder.OrderStatus),
+                totalAmount: amzOrder.OrderTotal?.Amount,
+                currency: amzOrder.OrderTotal?.CurrencyCode,
+                buyerName: resolvedBuyerName,
+                buyerEmail: resolvedBuyerEmail,
+                purchasedAt: amzOrder.PurchaseDate
+                  ? new Date(amzOrder.PurchaseDate)
+                  : null,
+                rawData: {
+                  order: amzOrder as Record<string, unknown>,
+                  buyerInfo: buyerRes as Record<string, unknown>,
+                  shippingAddress: addressRes as Record<string, unknown>,
+                },
+              })
+              .returning({ id: salesOrders.id });
 
             // 4. Insert Order Items
             const amzItems = itemsRes?.OrderItems || [];
@@ -187,21 +284,32 @@ export const amazonHandler: ChannelHandler = {
               const sku = item.SellerSKU ?? "";
 
               // Match by ASIN and SKU
-              const [mapping] = (asin || sku)
-                ? await tx
-                    .select({ productId: channelProductMappings.productId })
-                    .from(channelProductMappings)
-                    .where(
-                      and(
-                        eq(channelProductMappings.channelId, channelId),
-                        or(
-                          asin ? eq(channelProductMappings.externalProductId, asin) : undefined,
-                          sku  ? eq(channelProductMappings.externalProductId, sku)  : undefined,
+              const [mapping] =
+                asin || sku
+                  ? await tx
+                      .select({ productId: channelProductMappings.productId })
+                      .from(channelProductMappings)
+                      .where(
+                        and(
+                          eq(channelProductMappings.channelId, channelId),
+                          or(
+                            asin
+                              ? eq(
+                                  channelProductMappings.externalProductId,
+                                  asin,
+                                )
+                              : undefined,
+                            sku
+                              ? eq(
+                                  channelProductMappings.externalProductId,
+                                  sku,
+                                )
+                              : undefined,
+                          ),
                         ),
                       )
-                    )
-                    .limit(1)
-                : [];
+                      .limit(1)
+                  : [];
 
               let matchedProductId = mapping?.productId;
 
@@ -230,8 +338,41 @@ export const amazonHandler: ChannelHandler = {
             }
             savedCount++;
           });
+
+          // Process stock for this newly saved order (date-gated)
+          try {
+            const { processOrderStockChange, STOCK_CUTOFF_DATE } =
+              await import("@/lib/stock/service");
+            const [savedOrder] = await db
+              .select({ id: salesOrders.id, status: salesOrders.status, purchasedAt: salesOrders.purchasedAt })
+              .from(salesOrders)
+              .where(
+                and(
+                  eq(salesOrders.channelId, channelId),
+                  eq(salesOrders.externalOrderId, amzOrder.AmazonOrderId),
+                ),
+              )
+              .limit(1);
+
+            if (savedOrder && savedOrder.purchasedAt && savedOrder.purchasedAt >= STOCK_CUTOFF_DATE) {
+              await processOrderStockChange(
+                savedOrder.id,
+                savedOrder.status,
+                null, // new order, no previous status
+                userId,
+              );
+            }
+          } catch (stockErr) {
+            console.error(
+              `[Amazon Sync] Stock processing failed for order ${amzOrder.AmazonOrderId}:`,
+              stockErr,
+            );
+          }
         } catch (err) {
-          console.error(`[Amazon Sync] Failed to save order ${amzOrder.AmazonOrderId}:`, err);
+          console.error(
+            `[Amazon Sync] Failed to save order ${amzOrder.AmazonOrderId}:`,
+            err,
+          );
         }
       }
     }
@@ -241,16 +382,17 @@ export const amazonHandler: ChannelHandler = {
       const pendingItems = await db
         .select({
           id: salesOrderItems.id,
+          orderId: salesOrderItems.orderId,
           sku: salesOrderItems.sku,
-          rawData: salesOrderItems.rawData
+          rawData: salesOrderItems.rawData,
         })
         .from(salesOrderItems)
         .innerJoin(salesOrders, eq(salesOrderItems.orderId, salesOrders.id))
         .where(
           and(
             eq(salesOrders.channelId, channelId),
-            isNull(salesOrderItems.productId)
-          )
+            isNull(salesOrderItems.productId),
+          ),
         );
 
       for (const item of pendingItems) {
@@ -260,21 +402,26 @@ export const amazonHandler: ChannelHandler = {
 
         let matchedProductId: number | undefined;
 
-        const [mapping] = (asin || sku)
-          ? await db
-              .select({ productId: channelProductMappings.productId })
-              .from(channelProductMappings)
-              .where(
-                and(
-                  eq(channelProductMappings.channelId, channelId),
-                  or(
-                    asin ? eq(channelProductMappings.externalProductId, asin) : undefined,
-                    sku  ? eq(channelProductMappings.externalProductId, sku)  : undefined,
+        const [mapping] =
+          asin || sku
+            ? await db
+                .select({ productId: channelProductMappings.productId })
+                .from(channelProductMappings)
+                .where(
+                  and(
+                    eq(channelProductMappings.channelId, channelId),
+                    or(
+                      asin
+                        ? eq(channelProductMappings.externalProductId, asin)
+                        : undefined,
+                      sku
+                        ? eq(channelProductMappings.externalProductId, sku)
+                        : undefined,
+                    ),
                   ),
                 )
-              )
-              .limit(1)
-          : [];
+                .limit(1)
+            : [];
 
         matchedProductId = mapping?.productId;
 
@@ -294,6 +441,27 @@ export const amazonHandler: ChannelHandler = {
             .update(salesOrderItems)
             .set({ productId: matchedProductId })
             .where(eq(salesOrderItems.id, item.id));
+
+          // Process stock for retroactively mapped orders (date-gated)
+          try {
+            const [order] = await db
+              .select({
+                id: salesOrders.id,
+                status: salesOrders.status,
+                purchasedAt: salesOrders.purchasedAt,
+                stockProcessed: salesOrders.stockProcessed,
+              })
+              .from(salesOrders)
+              .where(eq(salesOrders.id, item.orderId))
+              .limit(1);
+
+            const { STOCK_CUTOFF_DATE, processOrderStockChange } = await import("@/lib/stock/service");
+            if (order && !order.stockProcessed && order.purchasedAt && order.purchasedAt >= STOCK_CUTOFF_DATE) {
+              await processOrderStockChange(order.id, order.status, null, userId);
+            }
+          } catch (stockErr) {
+            console.error(`[Amazon Sync] Retroactive stock failed for item ${item.id}:`, stockErr);
+          }
         }
       }
     } catch (err) {
@@ -304,7 +472,20 @@ export const amazonHandler: ChannelHandler = {
   },
 };
 
-function mapAmazonStatus(status: string | undefined): "pending" | "processing" | "on-hold" | "packed" | "shipped" | "delivered" | "cancelled" | "returned" | "refunded" | "failed" | "draft" {
+function mapAmazonStatus(
+  status: string | undefined,
+):
+  | "pending"
+  | "processing"
+  | "on-hold"
+  | "packed"
+  | "shipped"
+  | "delivered"
+  | "cancelled"
+  | "returned"
+  | "refunded"
+  | "failed"
+  | "draft" {
   if (!status) return "pending";
   switch (status) {
     case "PendingAvailability":
@@ -313,7 +494,7 @@ function mapAmazonStatus(status: string | undefined): "pending" | "processing" |
     case "Unshipped":
       return "processing"; // Amazon Unshipped aligns with WooCommerce Processing
     case "PartiallyShipped":
-      return "packed";     // Amazon PartiallyShipped aligns with WooCommerce Packed
+      return "packed"; // Amazon PartiallyShipped aligns with WooCommerce Packed
     case "Shipped":
       return "shipped";
     case "InvoiceUnconfirmed":
@@ -326,4 +507,3 @@ function mapAmazonStatus(status: string | undefined): "pending" | "processing" |
       return "pending";
   }
 }
-

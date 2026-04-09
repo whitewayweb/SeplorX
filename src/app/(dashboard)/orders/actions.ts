@@ -84,3 +84,41 @@ export async function clearChannelOrdersAction(rawChannelId: unknown) {
   }
 }
 
+/**
+ * Server Action for processing a return (restock or discard) on a specific order item.
+ */
+export async function processReturnAction(data: {
+  orderItemId: number;
+  action: "restock" | "discard";
+  quantity: number;
+  notes?: string;
+}) {
+  const userId = await getAuthenticatedUserId();
+  if (!userId) throw new Error("Unauthorized");
+
+  // Defense-in-depth: validate quantity before calling stock service
+  const qty = Number(data.quantity);
+  if (!Number.isFinite(qty) || !Number.isInteger(qty) || qty <= 0) {
+    return { success: false, error: "Quantity must be a positive integer." };
+  }
+
+  const { processReturnItem } = await import("@/lib/stock/service");
+
+  try {
+    await processReturnItem(
+      data.orderItemId,
+      data.action,
+      data.quantity,
+      userId,
+      data.notes,
+    );
+
+    revalidatePath("/orders");
+    revalidatePath("/inventory");
+    revalidatePath("/products");
+    return { success: true };
+  } catch (err) {
+    console.error("[processReturnAction]", { ...data, userId, error: String(err) });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}

@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -5,6 +6,7 @@ import { AGENT_REGISTRY } from "@/lib/agents/registry";
 import { runChannelMappingAgent } from "@/lib/agents/channel-mapping-agent";
 import { getChannelById } from "@/lib/channels/registry";
 import { getChannelForAgent } from "@/lib/channels/queries";
+import { getAuthenticatedUserId } from "@/lib/auth";
 
 export async function POST(request: Request) {
   const [setting] = await db
@@ -21,9 +23,10 @@ export async function POST(request: Request) {
     return Response.json({ error: "Channel Mapping agent is disabled." }, { status: 503 });
   }
 
-  if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+  // At least one AI provider must be configured
+  if (!process.env.OPENROUTER_KEY && !process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
     return Response.json(
-      { error: "Gemini API key not configured. Add GOOGLE_GENERATIVE_AI_API_KEY to your environment." },
+      { error: "No AI provider configured. Add OPENROUTER_KEY or GOOGLE_GENERATIVE_AI_API_KEY to your environment." },
       { status: 503 },
     );
   }
@@ -40,7 +43,6 @@ export async function POST(request: Request) {
   }
 
   // Guard: verify the channel exists, is connected, and supports product fetching.
-  // This prevents crafted requests from triggering agent failures for unsupported types.
   const channelRow = await getChannelForAgent(channelId);
 
   if (!channelRow) {
@@ -54,11 +56,28 @@ export async function POST(request: Request) {
     return Response.json({ error: "This channel type does not support product fetching." }, { status: 400 });
   }
 
-  try {
-    const result = await runChannelMappingAgent(channelId);
-    return Response.json(result);
-  } catch (err) {
-    console.error("[agent/channel-mapping]", { channelId, error: String(err) });
-    return Response.json({ error: "Agent failed. Please try again." }, { status: 500 });
-  }
+  // Extract userId before passing to after() since headers() are lost in background
+  const userId = await getAuthenticatedUserId();
+
+  // Run agent in background via after() — respond immediately
+  after(async () => {
+    try {
+      console.log(`[agent/channel-mapping] Starting background run for channel ${channelId}`);
+      const result = await runChannelMappingAgent(channelId, userId);
+      if ("error" in result) {
+        console.error("[agent/channel-mapping] Background error:", result.error);
+      } else if ("taskId" in result) {
+        console.log("[agent/channel-mapping] Proposals saved, taskId:", result.taskId);
+      } else if ("message" in result) {
+        console.log("[agent/channel-mapping]", result.message);
+      }
+    } catch (err) {
+      console.error("[agent/channel-mapping] Background exception:", String(err));
+    }
+  });
+
+  return Response.json({
+    status: "processing",
+    message: "Mapping started — AI is analyzing products in the background. Refresh the page in a moment to see proposals.",
+  });
 }

@@ -18,6 +18,7 @@ export async function getLowStockProducts() {
       sku: products.sku,
       unit: products.unit,
       quantityOnHand: products.quantityOnHand,
+      reservedQuantity: products.reservedQuantity,
       reorderLevel: products.reorderLevel,
     })
     .from(products)
@@ -43,6 +44,7 @@ export async function getRecentInventoryTransactions() {
       type: inventoryTransactions.type,
       quantity: inventoryTransactions.quantity,
       referenceType: inventoryTransactions.referenceType,
+      referenceId: inventoryTransactions.referenceId,
       notes: inventoryTransactions.notes,
       createdAt: inventoryTransactions.createdAt,
       productName: products.name,

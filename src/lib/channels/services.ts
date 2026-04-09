@@ -1,18 +1,31 @@
 import { db } from "@/db";
-import { channels, channelProducts, channelProductMappings, channelProductChangelog } from "@/db/schema";
+import {
+  channels,
+  channelProducts,
+  channelProductMappings,
+  channelProductChangelog,
+} from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { encrypt } from "@/lib/crypto";
 import { getChannelById } from "@/lib/channels/registry";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
-import { upsertChannelProducts, upsertProductWithVariationsTx } from "@/lib/channels/queries";
+import {
+  upsertChannelProducts,
+  upsertProductWithVariationsTx,
+} from "@/lib/channels/queries";
 import type { ChannelType, ChannelPushSyncResult } from "@/lib/channels/types";
 import { env } from "@/lib/env";
 
 export async function createChannelService(
   userId: number,
-  data: { channelType: string; name: string; storeUrl?: string; defaultPickupLocation?: string },
-  rawConfig: Record<string, string>
+  data: {
+    channelType: string;
+    name: string;
+    storeUrl?: string;
+    defaultPickupLocation?: string;
+  },
+  rawConfig: Record<string, string>,
 ) {
   const channelDef = getChannelById(data.channelType as ChannelType);
 
@@ -57,7 +70,7 @@ export async function updateChannelService(
   userId: number,
   id: number,
   data: { name: string; defaultPickupLocation?: string },
-  rawConfig: Record<string, string>
+  rawConfig: Record<string, string>,
 ) {
   const existing = await db
     .select({
@@ -79,13 +92,26 @@ export async function updateChannelService(
 
   if (channelDef?.configFields) {
     if (channelDef.validateConfig) {
-      const configError = channelDef.validateConfig(rawConfig);
+      // Merge current decrypted credentials with new non-empty values for validation
+      const currentConfig: Record<string, string> = {
+        ...decryptChannelCredentials(existingChannel.credentials || {}),
+        storeUrl: existingChannel.storeUrl || "",
+      };
+      
+      const mergedConfig = { ...currentConfig };
+      for (const [key, val] of Object.entries(rawConfig)) {
+        if (typeof val === "string" && val.trim() !== "") {
+          mergedConfig[key] = val.trim();
+        }
+      }
+
+      const configError = channelDef.validateConfig(mergedConfig);
       if (configError) throw new Error(configError);
     }
 
     for (const field of channelDef.configFields) {
       const val = rawConfig[field.key];
-      if (val && typeof val === "string" && val.trim() !== "") {
+      if (typeof val === "string" && val.trim() !== "") {
         if (field.key === "storeUrl") {
           storeUrl = val.trim();
         } else {
@@ -107,7 +133,10 @@ export async function updateChannelService(
     .where(eq(channels.id, id));
 }
 
-export async function resetChannelStatusService(userId: number, channelId: number) {
+export async function resetChannelStatusService(
+  userId: number,
+  channelId: number,
+) {
   const [row] = await db
     .select({ id: channels.id, storeUrl: channels.storeUrl })
     .from(channels)
@@ -124,7 +153,10 @@ export async function resetChannelStatusService(userId: number, channelId: numbe
   return row;
 }
 
-export async function disconnectChannelService(userId: number, channelId: number) {
+export async function disconnectChannelService(
+  userId: number,
+  channelId: number,
+) {
   const existing = await db
     .select({ id: channels.id })
     .from(channels)
@@ -151,7 +183,10 @@ export async function deleteChannelService(userId: number, channelId: number) {
   await db.delete(channels).where(eq(channels.id, channelId));
 }
 
-export async function registerChannelWebhooksService(userId: number, channelId: number) {
+export async function registerChannelWebhooksService(
+  userId: number,
+  channelId: number,
+) {
   const rows = await db
     .select({
       id: channels.id,
@@ -167,7 +202,8 @@ export async function registerChannelWebhooksService(userId: number, channelId: 
   if (rows.length === 0) throw new Error("Channel not found.");
 
   const channel = rows[0];
-  if (channel.status !== "connected") throw new Error("Channel is not connected.");
+  if (channel.status !== "connected")
+    throw new Error("Channel is not connected.");
   if (!channel.storeUrl) throw new Error("Channel has no store URL.");
 
   const handler = getChannelHandler(channel.channelType);
@@ -178,10 +214,12 @@ export async function registerChannelWebhooksService(userId: number, channelId: 
 
   const creds = channel.credentials ?? {};
   const decryptedCreds = decryptChannelCredentials(creds);
-  if (Object.keys(decryptedCreds).length === 0) throw new Error("Channel credentials are missing.");
+  if (Object.keys(decryptedCreds).length === 0)
+    throw new Error("Channel credentials are missing.");
 
   const appUrl = (env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
-  const webhookBaseUrl = `${appUrl}/api/channels/${channel.channelType}/webhook/${channelId}`;
+  const webhookSig = encrypt(String(channelId));
+  const webhookBaseUrl = `${appUrl}/api/channels/${channel.channelType}/webhook/${channelId}?sig=${encodeURIComponent(webhookSig)}`;
 
   const { secret } = await handler.registerWebhooks(
     channel.storeUrl,
@@ -192,13 +230,19 @@ export async function registerChannelWebhooksService(userId: number, channelId: 
   await db
     .update(channels)
     .set({
-      credentials: { ...creds, webhookSecret: encrypt(secret) },
+      credentials: {
+        ...creds,
+        webhookSecret: encrypt(secret),
+      },
       updatedAt: new Date(),
     })
     .where(eq(channels.id, channelId));
 }
 
-export async function syncChannelProductsService(userId: number, channelId: number) {
+export async function syncChannelProductsService(
+  userId: number,
+  channelId: number,
+) {
   const rows = await db
     .select({
       id: channels.id,
@@ -214,18 +258,27 @@ export async function syncChannelProductsService(userId: number, channelId: numb
   if (rows.length === 0) throw new Error("Channel not found.");
 
   const channel = rows[0];
-  if (channel.status !== "connected") throw new Error("Channel is not connected.");
+  if (channel.status !== "connected")
+    throw new Error("Channel is not connected.");
   if (!channel.storeUrl) throw new Error("Channel has no store URL.");
 
   const handler = getChannelHandler(channel.channelType);
-  if (!handler || !handler.capabilities.canFetchProducts || !handler.fetchProducts) {
+  if (
+    !handler ||
+    !handler.capabilities.canFetchProducts ||
+    !handler.fetchProducts
+  ) {
     throw new Error("This channel type does not support fetching products.");
   }
 
   const decryptedCreds = decryptChannelCredentials(channel.credentials);
-  if (Object.keys(decryptedCreds).length === 0) throw new Error("Channel credentials missing.");
+  if (Object.keys(decryptedCreds).length === 0)
+    throw new Error("Channel credentials missing.");
 
-  const externalProducts = await handler.fetchProducts(channel.storeUrl, decryptedCreds);
+  const externalProducts = await handler.fetchProducts(
+    channel.storeUrl,
+    decryptedCreds,
+  );
 
   if (externalProducts.length > 0) {
     const BATCH_SIZE = 100;
@@ -246,7 +299,10 @@ export async function syncChannelProductsService(userId: number, channelId: numb
   return externalProducts.length;
 }
 
-export async function clearChannelProductsService(userId: number, channelId: number) {
+export async function clearChannelProductsService(
+  userId: number,
+  channelId: number,
+) {
   const rows = await db
     .select({ id: channels.id })
     .from(channels)
@@ -255,10 +311,16 @@ export async function clearChannelProductsService(userId: number, channelId: num
 
   if (rows.length === 0) throw new Error("Channel not found.");
 
-  await db.delete(channelProducts).where(eq(channelProducts.channelId, channelId));
+  await db
+    .delete(channelProducts)
+    .where(eq(channelProducts.channelId, channelId));
 }
 
-export async function getCatalogItemService(userId: number, channelId: number, asin: string) {
+export async function getCatalogItemService(
+  userId: number,
+  channelId: number,
+  asin: string,
+) {
   const rows = await db
     .select({
       id: channels.id,
@@ -274,73 +336,110 @@ export async function getCatalogItemService(userId: number, channelId: number, a
   if (rows.length === 0) throw new Error("Channel not found.");
 
   const channel = rows[0];
-  if (channel.status !== "connected") throw new Error("Channel is not connected.");
+  if (channel.status !== "connected")
+    throw new Error("Channel is not connected.");
   if (!channel.storeUrl) throw new Error("Channel has no store URL.");
 
   const handler = getChannelHandler(channel.channelType);
   if (!handler || !handler.getCatalogItem) {
-    throw new Error("This channel type does not support fetching catalog items.");
+    throw new Error(
+      "This channel type does not support fetching catalog items.",
+    );
   }
 
   const decryptedCreds = decryptChannelCredentials(channel.credentials);
-  if (Object.keys(decryptedCreds).length === 0) throw new Error("Channel credentials missing.");
+  if (Object.keys(decryptedCreds).length === 0)
+    throw new Error("Channel credentials missing.");
 
-  // For Amazon, we need the SKU and fulfillment channel to fetch FBA inventory. 
+  // For Amazon, we need the SKU and fulfillment channel to fetch FBA inventory.
   // Let's try to get them from the DB if they're already there.
   const existingProduct = await db
     .select({ sku: channelProducts.sku, rawData: channelProducts.rawData })
     .from(channelProducts)
-    .where(and(eq(channelProducts.channelId, channelId), eq(channelProducts.externalId, asin)))
+    .where(
+      and(
+        eq(channelProducts.channelId, channelId),
+        eq(channelProducts.externalId, asin),
+      ),
+    )
     .limit(1);
-    
+
   const sku = existingProduct[0]?.sku || undefined;
-  const rawData = existingProduct[0]?.rawData as Record<string, unknown> | undefined;
-  const fulfillmentChannel = (rawData?.["fulfillment-channel"] as string) || undefined;
+  const rawData = existingProduct[0]?.rawData as
+    | Record<string, unknown>
+    | undefined;
+  const fulfillmentChannel =
+    (rawData?.["fulfillment-channel"] as string) || undefined;
 
-  const product = await handler.getCatalogItem(channel.storeUrl, decryptedCreds, asin, sku, fulfillmentChannel);
+  const product = await handler.getCatalogItem(
+    channel.storeUrl,
+    decryptedCreds,
+    asin,
+    sku,
+    fulfillmentChannel,
+  );
 
-  // ── Extract and map child variations ─────────────────────────────────────
-  // Amazon stores child ASINs in rawPayload.relationships. We collect all unique
-  // childAsins from VARIATION relationships and natively update their existing DB rows
-  // to set type="variation" and parentId, bypassing extra API fetches.
-  const childAsinSet = new Set<string>();
-  try {
-    const relationships = product.rawPayload?.relationships as Array<{
-      marketplaceId?: string;
-      relationships?: Array<{ type?: string; childAsins?: string[] }>;
-    }> | undefined;
+  // ── Extract and map child AND parent variations ─────────────────────────
+  let childAsins: string[] = [];
+  let parentAsin: string | undefined = undefined;
 
-    if (Array.isArray(relationships)) {
-      for (const byMarketplace of relationships) {
-        if (!Array.isArray(byMarketplace.relationships)) continue;
-        for (const rel of byMarketplace.relationships) {
-          if (rel.type === "VARIATION" && Array.isArray(rel.childAsins)) {
-            for (const childAsin of rel.childAsins) {
-              if (childAsin && childAsin !== asin) {
-                childAsinSet.add(childAsin);
-              }
-            }
-          }
-        }
+  if (handler.extractRelationships) {
+    try {
+      const rels = handler.extractRelationships(product.rawPayload);
+
+      childAsins = rels.childIds.filter((id) => id !== asin);
+      if (childAsins.length > 0) {
+        product.type = "variable";
       }
+
+      const pa = rels.parentId;
+      if (pa && pa !== asin) {
+        parentAsin = pa;
+        product.type = "variation";
+        product.parentId = parentAsin;
+      }
+    } catch (err) {
+      console.warn("[getCatalogItemService] Failed to map variations", {
+        action: "mapVariations",
+        error: String(err),
+      });
     }
-  } catch (err) {
-    // Don't fail the whole operation if child variation mapping fails
-    console.warn("[getCatalogItemService] Failed to map child variations", { action: "mapChildVariations", error: String(err) });
   }
 
-  const childAsins = [...childAsinSet];
+  // If this item is a Variation but the parent doesn't exist in the DB, it will become invisible.
+  // We MUST proactively stage a Virtual Parent row into the DB first!
+  if (parentAsin) {
+    await db
+      .insert(channelProducts)
+      .values({
+        channelId,
+        externalId: parentAsin,
+        name: `Variation Family: ${parentAsin}`,
+        type: "variable",
+        rawData: {},
+        lastSyncedAt: new Date(),
+      })
+      .onConflictDoNothing({
+        target: [channelProducts.channelId, channelProducts.externalId],
+      });
+  }
 
   // Upsert into channel_products cache in a transaction
-  await upsertProductWithVariationsTx({
-    channelId,
-    externalId: asin,
-    name: product.name,
-    sku: product.sku || null,
-    stockQuantity: product.stockQuantity ?? null,
-    type: product.type || null,
-    rawData: { ...product.rawPayload, parentId: product.parentId },
-  }, childAsins);
+  await upsertProductWithVariationsTx(
+    {
+      channelId,
+      externalId: asin,
+      name: product.name,
+      sku: product.sku || null,
+      stockQuantity: product.stockQuantity ?? null,
+      type: product.type || null,
+      rawData: {
+        ...product.rawPayload,
+        parentId: product.parentId || parentAsin,
+      },
+    },
+    childAsins,
+  );
 
   return product;
 }
@@ -352,19 +451,19 @@ export async function getCatalogItemService(userId: number, channelId: number, a
  * and stages the mapping for provider sync.
  */
 export interface ChannelProductUpdatePatch {
-  name?:          string;
-  sku?:           string;
+  name?: string;
+  sku?: string;
   stockQuantity?: number | null;
-  price?:         string;
+  price?: string;
   itemCondition?: string;
-  description?:   string;
-  brand?:         string;
-  manufacturer?:  string;
-  partNumber?:    string;
-  color?:         string;
-  itemTypeKw?:    string;
-  pkgWeight?:     string;
-  itemWeight?:    string;
+  description?: string;
+  brand?: string;
+  manufacturer?: string;
+  partNumber?: string;
+  color?: string;
+  itemTypeKw?: string;
+  pkgWeight?: string;
+  itemWeight?: string;
 }
 
 // Fields that correspond to columns in the channel_products table.
@@ -400,7 +499,9 @@ export async function updateChannelProductService(
     .limit(1);
 
   if (!mapping) {
-    throw new Error("Product must be mapped to a SeplorX inventory item before it can be updated.");
+    throw new Error(
+      "Product must be mapped to a SeplorX inventory item before it can be updated.",
+    );
   }
 
   // Read existing state
@@ -456,7 +557,10 @@ export async function updateChannelProductService(
   if (dbPatch.sku !== undefined && dbPatch.sku !== existing.sku) {
     delta.sku = dbPatch.sku;
   }
-  if (dbPatch.stockQuantity !== undefined && dbPatch.stockQuantity !== existing.stockQuantity) {
+  if (
+    dbPatch.stockQuantity !== undefined &&
+    dbPatch.stockQuantity !== existing.stockQuantity
+  ) {
     delta.stockQuantity = dbPatch.stockQuantity;
   }
   // For rawData changes, extract only the individual rawData fields that differ
@@ -491,14 +595,17 @@ export async function updateChannelProductService(
         .where(eq(channelProductMappings.id, mapping.id));
 
       const [existingStaged] = await tx
-        .select({ id: channelProductChangelog.id, delta: channelProductChangelog.delta })
+        .select({
+          id: channelProductChangelog.id,
+          delta: channelProductChangelog.delta,
+        })
         .from(channelProductChangelog)
         .where(
           and(
             eq(channelProductChangelog.channelId, channelId),
             eq(channelProductChangelog.channelProductId, productId),
-            eq(channelProductChangelog.status, "staged")
-          )
+            eq(channelProductChangelog.status, "staged"),
+          ),
         )
         .limit(1);
 
@@ -506,7 +613,7 @@ export async function updateChannelProductService(
         // Merge with existing staged delta
         const mergedDelta = {
           ...(existingStaged.delta as Record<string, unknown>),
-          ...delta
+          ...delta,
         };
         await tx
           .update(channelProductChangelog)
@@ -540,18 +647,31 @@ export async function pushChannelProductUpdatesService(
 ): Promise<ChannelPushSyncResult> {
   // Verify ownership + resolve channel type
   const [channel] = await db
-    .select({ id: channels.id, channelType: channels.channelType, status: channels.status })
+    .select({
+      id: channels.id,
+      channelType: channels.channelType,
+      status: channels.status,
+    })
     .from(channels)
     .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
     .limit(1);
 
   if (!channel) throw new Error("Channel not found.");
-  if (channel.status !== "connected") throw new Error("Channel is not connected.");
+  if (channel.status !== "connected")
+    throw new Error("Channel is not connected.");
 
   const handler = getChannelHandler(channel.channelType);
-  if (!handler) throw new Error(`No handler registered for channel type "${channel.channelType}".`);
-  if (!handler.capabilities.canPushProductUpdates || !handler.pushPendingUpdates) {
-    throw new Error(`Channel type "${channel.channelType}" does not support direct product update sync.`);
+  if (!handler)
+    throw new Error(
+      `No handler registered for channel type "${channel.channelType}".`,
+    );
+  if (
+    !handler.capabilities.canPushProductUpdates ||
+    !handler.pushPendingUpdates
+  ) {
+    throw new Error(
+      `Channel type "${channel.channelType}" does not support direct product update sync.`,
+    );
   }
 
   return handler.pushPendingUpdates(userId, channelId);

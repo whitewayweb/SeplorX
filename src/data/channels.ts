@@ -26,13 +26,15 @@ export async function getChannelsListWithWebhooks(userId: number) {
     .orderBy(channels.createdAt);
 }
 
-export async function getMappedProductsCountPerChannel() {
+export async function getMappedProductsCountPerChannel(userId: number) {
   return await db
     .select({
       channelId: channelProductMappings.channelId,
       count: countDistinct(channelProductMappings.productId),
     })
     .from(channelProductMappings)
+    .innerJoin(channels, eq(channelProductMappings.channelId, channels.id))
+    .where(eq(channels.userId, userId))
     .groupBy(channelProductMappings.channelId);
 }
 
@@ -90,4 +92,51 @@ export async function getChannelFeedsList(channelId: number) {
     .where(eq(channelFeeds.channelId, channelId))
     .orderBy(desc(channelFeeds.createdAt))
     .limit(50);
+}
+
+export async function getTotalUnmappedProductsCount(userId: number): Promise<number> {
+  const result = await db
+    .select({ count: sql<number>`COUNT(*)::int` })
+    .from(channelProducts)
+    .innerJoin(channels, eq(channelProducts.channelId, channels.id))
+    .where(
+      and(
+        eq(channels.userId, userId),
+        eq(channels.status, "connected"),
+        sql`NOT EXISTS (
+          SELECT 1 FROM ${channelProductMappings} m 
+          WHERE m.channel_id = ${channelProducts.channelId} 
+          AND m.external_product_id = ${channelProducts.externalId}
+        )`
+      )
+    );
+
+  return result[0]?.count ?? 0;
+}
+
+export async function getUnmappedChannelProducts(userId: number, limit: number = 10) {
+  return await db
+    .select({
+      id: channelProducts.id,
+      name: channelProducts.name,
+      externalId: channelProducts.externalId,
+      channelId: channelProducts.channelId,
+      channelName: channels.name,
+      lastSyncedAt: channelProducts.lastSyncedAt,
+    })
+    .from(channelProducts)
+    .innerJoin(channels, eq(channelProducts.channelId, channels.id))
+    .where(
+      and(
+        eq(channels.userId, userId),
+        eq(channels.status, "connected"),
+        sql`NOT EXISTS (
+          SELECT 1 FROM ${channelProductMappings} m 
+          WHERE m.channel_id = ${channelProducts.channelId} 
+          AND m.external_product_id = ${channelProducts.externalId}
+        )`
+      )
+    )
+    .orderBy(desc(channelProducts.id))
+    .limit(limit);
 }

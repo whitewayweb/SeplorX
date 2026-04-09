@@ -1,5 +1,5 @@
 ---
-name: add-new-agent
+name: agents
 description: >
   How to add a new AI agent to SeplorX. Use when implementing a new agent feature,
   creating a new AI-powered automation, or extending the agent registry with a new
@@ -230,6 +230,7 @@ agentActions: {
 | Variable | Purpose |
 |----------|---------|
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Required for all agents. Get at aistudio.google.com |
+| `OPENROUTER_KEY` | Optional. Primary provider for channel mapping agent. Get at openrouter.ai |
 
 ## Common Mistakes to Avoid
 

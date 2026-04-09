@@ -97,6 +97,14 @@ export function AppSidebarClient({
                           <Link href="/products">{PORTAL_NAME} Products</Link>
                         </SidebarMenuSubButton>
                       </SidebarMenuSubItem>
+                      <SidebarMenuSubItem>
+                        <SidebarMenuSubButton
+                          asChild
+                          isActive={pathname === "/products/fitment"}
+                        >
+                          <Link href="/products/fitment">Fitment Registry</Link>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
                       {userChannels.map((channel) => (
                         <SidebarMenuSubItem key={channel.id}>
                           <SidebarMenuSubButton

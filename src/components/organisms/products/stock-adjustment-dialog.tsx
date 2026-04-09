@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -15,7 +16,6 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { adjustStock } from "@/app/(dashboard)/products/actions";
-import { useState } from "react";
 import { PackagePlus } from "lucide-react";
 
 interface StockAdjustmentDialogProps {
@@ -32,10 +32,12 @@ export function StockAdjustmentDialog({ productId, productName }: StockAdjustmen
       const result = await adjustStock(prev, formData);
 
       if (result?.success) {
+        toast.success("Stock adjusted successfully");
         setOpen(false);
         setFormKey((k) => k + 1);
+      } else if (result?.error) {
+        toast.error(result.error);
       }
-
       return result;
     },
     null,

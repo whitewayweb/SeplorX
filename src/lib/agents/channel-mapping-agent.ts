@@ -1,73 +1,315 @@
 /**
- * Channel Mapping Agent — matches SeplorX products to channel (WooCommerce) products.
+ * Channel Mapping Agent — matches SeplorX products to channel products.
  *
- * Flow:
- * 1. Calls getSeplorxProducts → gets all active SeplorX products
- * 2. Calls getChannelProducts({ channelId }) → gets unmapped WC products only
- * 3. If 0 unmapped products → returns { message: "All products are already mapped." }
- * 4. Matches by name/SKU similarity → assigns confidence (high/medium/low)
- * 5. Calls proposeChannelMappings → saves to agent_actions for human approval
+ * ONE-TO-ONE ARCHITECTURE (Free Tier Optimized):
+ * 1. Fetches all required data locally in TypeScript.
+ * 2. For each unmapped channel product, uses a tiny LLM call to extract
+ *    {make, model, position, color} from the product title (~150 tokens).
+ * 3. Looks up FITMENT_CHART locally to determine the series (A–E).
+ * 4. Matches series + color to a SeplorX product via attributes/name.
+ * 5. Collects all results and saves as a single proposal batch.
+ *
+ * PROVIDER CASCADE (3-tier, all free):
+ *   Tier 1: OpenRouter — google/gemini-2.0-flash-001 (paid model, free quota)
+ *   Tier 2: OpenRouter — google/gemini-2.0-flash-exp:free (explicitly free)
+ *   Tier 3: Gemini Direct — gemini-2.0-flash via GOOGLE_GENERATIVE_AI_API_KEY
+ *
+ * On 429/rate-limit errors, the current tier is marked exhausted and all
+ * subsequent products use the next tier. This is "sticky" per run.
  */
 
-import { generateText, stepCountIs } from "ai";
+import { generateObject } from "ai";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { google } from "@ai-sdk/google";
+import { z } from "zod";
 import {
-  getSeplorxProducts,
-  getChannelProducts,
-  proposeChannelMappings,
+  saveChannelMappingProposal,
+  fetchSeplorxProducts,
+  fetchChannelProducts,
+  lookupFitmentSeries,
+  findSeplorxProduct,
 } from "./tools/channel-mapping-tools";
 
-const SYSTEM_PROMPT = `You are a product catalog matching assistant for a shipping management company.
-Your job is to match SeplorX inventory products to products listed on a WooCommerce store, so that when an order is placed on WooCommerce, stock automatically decrements in SeplorX.
+// ─── Provider Cascade ─────────────────────────────────────────────────────────
 
-Follow this exact process:
-1. Call getSeplorxProducts to get all active SeplorX products (with id, name, sku).
-2. Call getChannelProducts with the provided channelId to get unmapped WooCommerce products.
-3. If getChannelProducts returns 0 products (all already mapped), stop and say "All products are already mapped for this channel." — do NOT call proposeChannelMappings.
-4. For each unmapped WC product, find the best matching SeplorX product using name and SKU:
-   - confidence "high": exact SKU match, or WC product name is identical (case-insensitive) to SeplorX name
-   - confidence "medium": WC product name contains or starts with the SeplorX product name (or vice versa), or strong partial SKU overlap
-   - confidence "low": fuzzy name similarity (e.g. abbreviations, different word order but clearly same product)
-   - No match: add the WC product name to the "unmatched" array
-5. One SeplorX product CAN map to multiple WC products (e.g. same product sold in different pack sizes on WooCommerce). This is intentional.
-6. Build a rationale string for each proposal (one sentence explaining the match reasoning).
-7. Call proposeChannelMappings exactly once with all proposals, the unmatched list, and a brief reasoning summary.
+type TierLevel = 1 | 2 | 3;
 
-Rules:
-- Only propose matches you are reasonably confident about. When in doubt, assign "low" confidence rather than inventing a match.
-- If no matches are found at all, do NOT call proposeChannelMappings. Instead explain why in your response.
-- Keep rationale fields concise — one sentence is enough.`;
+/** Sticky tier state — once a tier 429s, we never go back. */
+let currentTier: TierLevel = 1;
 
+function getModel() {
+  if (currentTier === 1 && process.env.OPENROUTER_KEY) {
+    const openrouter = createOpenRouter({ apiKey: process.env.OPENROUTER_KEY });
+    return openrouter.chat("google/gemini-2.0-flash-001");
+  }
+  if (currentTier <= 2 && process.env.OPENROUTER_KEY) {
+    const openrouter = createOpenRouter({ apiKey: process.env.OPENROUTER_KEY });
+    return openrouter.chat("google/gemini-2.0-flash-exp:free");
+  }
+  // Tier 3: Gemini direct
+  return google("gemini-2.0-flash");
+}
+
+function isRateLimitError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return (
+    msg.includes("429") ||
+    msg.includes("rate") ||
+    msg.includes("quota") ||
+    msg.includes("resource_exhausted") ||
+    msg.includes("too many requests")
+  );
+}
+
+function downgrade(): boolean {
+  if (currentTier < 3) {
+    currentTier = (currentTier + 1) as TierLevel;
+    console.log(`[channel-mapping] Downgraded to tier ${currentTier}`);
+    return true; // retryable
+  }
+  return false; // all tiers exhausted
+}
+
+// ─── Extraction Schema ────────────────────────────────────────────────────────
+
+const ExtractionSchema = z.object({
+  make: z.string().describe("Car manufacturer (e.g., 'Mercedes', 'Maruti Suzuki', 'BMW', 'KIA')"),
+  model: z.string().describe("Car model (e.g., 'C 220', 'Swift', 'X-1', 'Sonet')"),
+  position: z
+    .enum(["front", "rear", "both"])
+    .describe("Buffer pad position: front, rear, or both (for 4pc sets)"),
+  color: z
+    .string()
+    .nullable()
+    .describe("Product color if mentioned (e.g., 'Yellow', 'Transparent', 'Black'). null if not mentioned."),
+});
+
+// ─── Main Agent ───────────────────────────────────────────────────────────────
+
+/**
+ * Extracts automotive fitment from each product title one-by-one, looks up
+ * the series from the fitment chart, and maps to a SeplorX product.
+ */
 export async function runChannelMappingAgent(
   channelId: number,
+  userId: number,
 ): Promise<{ taskId: number } | { message: string } | { error: string }> {
-  const result = await generateText({
-    model: google("gemini-2.0-flash"),
-    system: SYSTEM_PROMPT,
-    prompt: `Match SeplorX products to channel products for channelId: ${channelId}`,
-    tools: {
-      getSeplorxProducts,
-      getChannelProducts,
-      proposeChannelMappings,
-    },
-    stopWhen: stepCountIs(10),
-  });
+  // Reset tier for each run
+  currentTier = 1;
 
-  // Check if the agent produced a proposal
-  for (const toolResult of result.toolResults) {
-    if (
-      toolResult.toolName === "proposeChannelMappings" &&
-      "output" in toolResult &&
-      toolResult.output &&
-      typeof toolResult.output === "object" &&
-      "taskId" in toolResult.output
-    ) {
-      return { taskId: (toolResult.output as { taskId: number }).taskId };
+  try {
+    // 1. Fetch Local Context
+    const [seplorxProducts, channelResponse] = await Promise.all([
+      fetchSeplorxProducts(),
+      fetchChannelProducts(channelId, userId),
+    ]);
+
+    if ("message" in channelResponse) {
+      return { message: channelResponse.message as string };
+    }
+
+    const unmapped = channelResponse.products;
+    if (unmapped.length === 0) {
+      return { message: "All products are already mapped." };
+    }
+
+    // Protect against massive catalogs: only process 50 unmapped products max per run.
+    // This ensures the background job finishes in ~45 seconds and safely saves a batch
+    // proposal to the database, preventing data loss if the server crashes.
+    const unmappedBatch = unmapped.slice(0, 50);
+
+    console.log(`[agent/channel-mapping] Found ${unmapped.length} unmapped products. Processing a batch of ${unmappedBatch.length}.`);
+
+    // 2. Process each product one-by-one (sequential for rate-limit safety)
+    const proposals: Array<{
+      seplorxProductId: number;
+      seplorxProductName: string;
+      seplorxSku: string | null;
+      externalProductId: string;
+      externalProductName: string;
+      externalSku: string | null;
+      confidence: "high" | "medium" | "low";
+      rationale: string;
+    }> = [];
+    const errors: string[] = [];
+
+    // Counters for final logging
+    let unmatchCount = 0;
+    let skippedNonAuto = 0;
+
+    for (const product of unmappedBatch) {
+      try {
+        // Step A: LLM extracts {make, model, position, color} from title
+        const extraction = await extractFitmentFromTitle(product.name);
+
+        if (!extraction) {
+          // Non-automotive product — fallback to direct LLM matching against SeplorX catalog
+          console.log(`[agent/channel-mapping] 🏷️ Non-automotive fallback for: "${product.name}"`);
+          
+          const seplorxId = await findNonAutomotiveMatch(product.name, seplorxProducts);
+          if (seplorxId) {
+            const seplorx = seplorxProducts.find(p => p.id === seplorxId);
+            if (seplorx) {
+              console.log(`[agent/channel-mapping] ✅ Mapped (Direct LLM): "${product.name}" -> "${seplorx.name}"`);
+              proposals.push({
+                seplorxProductId: seplorx.id,
+                seplorxProductName: seplorx.name,
+                seplorxSku: seplorx.sku,
+                externalProductId: product.id,
+                externalProductName: product.name,
+                externalSku: product.sku,
+                confidence: "medium",
+                rationale: `Direct LLM semantic match (Non-Automotive): Title suggests compatibility.`,
+              });
+              continue;
+            }
+          }
+          
+          console.log(`[agent/channel-mapping] ⏭️ Skipped (No Direct Match): "${product.name}"`);
+          skippedNonAuto++;
+          continue;
+        }
+
+        // Step B: Local fitment chart lookup → series
+        const fitment = await lookupFitmentSeries(
+          extraction.make,
+          extraction.model,
+          extraction.position,
+        );
+
+        if (!fitment) {
+          console.log(`[agent/channel-mapping] ⏭️ Skipped (Local Registry Miss): "${product.name}" → Extracted: ${extraction.make} ${extraction.model}`);
+          unmatchCount++;
+          continue;
+        }
+
+        // Step C: Match series + color → SeplorX product
+        const seplorx = findSeplorxProduct(fitment.series, extraction.color, seplorxProducts);
+
+        if (!seplorx) {
+          console.log(`[agent/channel-mapping] ⚠️ No SeplorX match found for "${product.name}" (Series ${fitment.series}, Color: ${extraction.color || 'none'})`);
+          unmatchCount++;
+          continue;
+        }
+
+        console.log(`[agent/channel-mapping] ✅ Mapped: "${product.name}" -> "${seplorx.name}" (Series ${fitment.series})`);
+        
+        proposals.push({
+          seplorxProductId: seplorx.id,
+          seplorxProductName: seplorx.name,
+          seplorxSku: seplorx.sku,
+          externalProductId: product.id,
+          externalProductName: product.name,
+          externalSku: product.sku,
+          confidence: "high",
+          rationale: `${fitment.matchedMake} ${fitment.matchedModel} ${extraction.position} → Series ${fitment.series}${extraction.color ? ` (${extraction.color})` : ""}`,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[agent/channel-mapping] ❌ Error processing "${product.name}": ${msg}`);
+        errors.push(`${product.name}: ${msg}`);
+        // Continue processing remaining products — don't abort the run
+      }
+    }
+
+    if (proposals.length === 0) {
+      return { message: `AI processed a batch of ${unmappedBatch.length} products but found no reliable matches.` };
+    }
+
+    // 3. Save all proposals as a single batch
+    const reasoning = [
+      `Processed a batch of ${unmappedBatch.length} products (out of ${unmapped.length} unmapped).`,
+      `Matched ${proposals.length}, unmatched ${unmatchCount}, non-automotive skipped ${skippedNonAuto}, errors ${errors.length}.`,
+      `Provider cascade used up to tier ${currentTier}.`,
+    ].join(" ");
+
+    console.log(`[agent/channel-mapping] Run complete! Created ${proposals.length} proposals. Saving to agent_actions...`);
+
+    const result = await saveChannelMappingProposal({
+      channelId,
+      channelName: channelResponse.channelName,
+      proposals,
+      reasoning,
+    });
+
+    return result;
+  } catch (error) {
+    console.error("[runChannelMappingAgent]", error);
+    return { error: error instanceof Error ? error.message : "Internal Agent Error" };
+  }
+}
+
+// ─── Per-Product LLM Extraction ───────────────────────────────────────────────
+
+/**
+ * Extracts {make, model, position, color} from a single product title.
+ * Uses the current provider tier. On 429, downgrades and retries once.
+ */
+async function extractFitmentFromTitle(
+  title: string,
+): Promise<{ make: string; model: string; position: "front" | "rear" | "both"; color: string | null; } | null> {
+  const maxAttempts = 3; // at most 3 tiers
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const { object } = await generateObject({
+        model: getModel(),
+        schema: ExtractionSchema,
+        prompt: `Extract the car make, model, buffer pad position, and product color from this product title. If position is not clear or it says "4 PCs" or "4pc set", use "both". If color is not mentioned, return null for color.\n\nTitle: "${title}"`,
+        maxRetries: 1,
+      });
+
+      return object;
+    } catch (err) {
+      if (isRateLimitError(err)) {
+        const canRetry = downgrade();
+        if (canRetry) continue; // retry with next tier
+      }
+      // Non-rate-limit error or all tiers exhausted
+      console.warn(`[channel-mapping] Extraction failed for "${title}":`, err instanceof Error ? err.message : err);
+      return null;
     }
   }
 
-  // Agent finished without a proposal (all mapped, no matches found, etc.)
-  return {
-    message: result.text || "Channel mapping complete. No new proposals at this time.",
-  };
+  return null;
+}
+
+// ─── Non-Automotive Direct Match ──────────────────────────────────────────────
+
+/**
+ * When extraction fails (e.g. "Silicone Spray"), this uses the LLM to directly 
+ * match the channel product title against the SeplorX catalog names.
+ */
+async function findNonAutomotiveMatch(
+  channelTitle: string,
+  seplorxProducts: Array<{ id: number; name: string }>,
+): Promise<number | null> {
+  const maxAttempts = 2;
+  const catalogList = seplorxProducts.map(p => `ID: ${p.id} | NAME: ${p.name}`).join("\n");
+  
+  const DirectMatchSchema = z.object({
+    matchedSeplorxId: z.number().nullable().describe("The ID of the best matching product, or null if no reasonable match exists"),
+  });
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const { object } = await generateObject({
+        model: getModel(),
+        schema: DirectMatchSchema,
+        prompt: `You are mapping an external e-commerce product title to a local catalog. The external product is NOT a car-specific part, so it does not have a make/model.\n\nExternal Title: "${channelTitle}"\n\nLocal Catalog:\n${catalogList}\n\nFind the best matching local product ID. If none are a clear match, return null.`,
+        maxRetries: 1,
+      });
+
+      return object.matchedSeplorxId;
+    } catch (err) {
+      if (isRateLimitError(err)) {
+        const canRetry = downgrade();
+        if (canRetry) continue;
+      }
+      return null;
+    }
+  }
+
+  return null;
 }

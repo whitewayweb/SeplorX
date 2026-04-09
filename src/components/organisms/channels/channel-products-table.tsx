@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, useCallback, Fragment } from "react";
-import { CornerDownRight, RefreshCw, Loader2, ChevronRight, ChevronDown, ExternalLink } from "lucide-react";
-import { toast } from "sonner";
-import { useRouter } from "next/navigation";
+import { CornerDownRight, Loader2, ChevronRight, ChevronDown, ExternalLink } from "lucide-react";
+
 import {
     Table,
     TableBody,
@@ -21,9 +20,9 @@ import {
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getCatalogItem } from "@/app/(dashboard)/channels/actions";
 import { ProductDetailTabs } from "./product-detail-tabs";
 import { useChannelProductDetail } from "@/lib/channels/hooks/use-channel-product-detail";
+import { SyncProductButton } from "@/components/atoms/sync-product-button";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Types
@@ -38,6 +37,7 @@ interface ProductRow {
     stockQuantity: number | null;
     lastSyncedAt: Date | null;
     productUrl?: string | null;
+    fulfillmentChannelCode?: string | null;
 }
 
 interface VariationRow extends ProductRow {
@@ -63,13 +63,11 @@ export function ChannelProductsTable({
     variations,
     canRefetchItem,
 }: ChannelProductsTableProps) {
-    const router = useRouter();
     const [drawerOpen, setDrawerOpen] = useState(false);
-    const [refetchingId, setRefetchingId] = useState<string | null>(null);
     const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
 
     const { selectedProduct, isLoading, openProduct, invalidate } = useChannelProductDetail();
-    
+
     const toggleExpand = useCallback((e: React.MouseEvent, externalId: string) => {
         e.stopPropagation();
         setExpandedParents((prev) => {
@@ -91,36 +89,6 @@ export function ChannelProductsTable({
             openProduct(productId);
         },
         [openProduct],
-    );
-
-    const handleRefetch = useCallback(
-        (e: React.MouseEvent, externalId: string) => {
-            e.stopPropagation();
-            setRefetchingId(externalId);
-            (async () => {
-                try {
-                    const result = await getCatalogItem(channelId, externalId);
-                    if (result.error) {
-                        toast.error("Failed to refetch product", { description: result.error });
-                    } else {
-                        toast.success("Product refreshed", {
-                            description: `"${result.product?.name ?? externalId}" has been updated.`,
-                        });
-
-                        const productId = result.product?.id;
-                        if (productId && typeof productId === "number") {
-                            invalidate(productId);
-                        }
-                        router.refresh();
-                    }
-                } catch (err) {
-                    toast.error("Failed to refetch product", { description: String(err) });
-                } finally {
-                    setRefetchingId(null);
-                }
-            })();
-        },
-        [channelId, router, invalidate],
     );
 
     // ── Helpers ─────────────────────────────────────────────────────────────
@@ -158,7 +126,6 @@ export function ChannelProductsTable({
                                     const productVariations = variations.filter(
                                         (v) => v.parentId === product.externalId
                                     );
-                                    const isRefetching = refetchingId === product.externalId;
 
                                     return (
                                         <Fragment key={product.id}>
@@ -203,8 +170,14 @@ export function ChannelProductsTable({
                                                             </a>
                                                         )}
                                                     </div>
-                                                    <div className="font-mono text-xs text-muted-foreground/70 mt-0.5">
+                                                    <div className="font-mono text-xs text-muted-foreground/70 mt-0.5 flex items-center gap-2">
                                                         {product.sku || "-"}
+                                                        {product.fulfillmentChannelCode?.startsWith("AMAZON") && (
+                                                            <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 bg-orange-50 text-orange-700 border-orange-200">FBA</Badge>
+                                                        )}
+                                                        {product.fulfillmentChannelCode === "DEFAULT" && (
+                                                            <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 bg-blue-50 text-blue-700 border-blue-200">MFN</Badge>
+                                                        )}
                                                     </div>
                                                 </TableCell>
                                                 <TableCell>
@@ -236,17 +209,12 @@ export function ChannelProductsTable({
                                                     )}
                                                 </TableCell>
                                                 {canRefetchItem && (
-                                                    <TableCell className="text-center">
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="h-7 w-7"
-                                                            onClick={(e) => handleRefetch(e, product.externalId)}
-                                                            disabled={isRefetching}
-                                                            title="Refetch from channel"
-                                                        >
-                                                            <RefreshCw className={`h-3.5 w-3.5 ${isRefetching ? "animate-spin" : ""}`} />
-                                                        </Button>
+                                                    <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                                                        <SyncProductButton 
+                                                            channelId={channelId} 
+                                                            externalId={product.externalId} 
+                                                            onSuccess={(pid) => pid && invalidate(pid)} 
+                                                        />
                                                     </TableCell>
                                                 )}
                                             </TableRow>
@@ -281,8 +249,14 @@ export function ChannelProductsTable({
                                                                 </a>
                                                             )}
                                                         </div>
-                                                        <div className="font-mono text-xs text-muted-foreground/70 mt-0.5">
+                                                        <div className="font-mono text-xs text-muted-foreground/70 mt-0.5 flex items-center gap-2">
                                                             {variation.sku || "-"}
+                                                            {variation.fulfillmentChannelCode?.startsWith("AMAZON") && (
+                                                                <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 bg-orange-50 text-orange-700 border-orange-200">FBA</Badge>
+                                                            )}
+                                                            {variation.fulfillmentChannelCode === "DEFAULT" && (
+                                                                <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 bg-blue-50 text-blue-700 border-blue-200">MFN</Badge>
+                                                            )}
                                                         </div>
                                                     </TableCell>
                                                     <TableCell>
@@ -313,7 +287,15 @@ export function ChannelProductsTable({
                                                             "—"
                                                         )}
                                                     </TableCell>
-                                                    {canRefetchItem && <TableCell />}
+                                                    {canRefetchItem && (
+                                                        <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                                                            <SyncProductButton 
+                                                                channelId={channelId} 
+                                                                externalId={variation.externalId} 
+                                                                onSuccess={(pid) => pid && invalidate(pid)} 
+                                                            />
+                                                        </TableCell>
+                                                    )}
                                                 </TableRow>
                                             ))}
                                         </Fragment>
@@ -327,39 +309,49 @@ export function ChannelProductsTable({
 
             {/* ── Product Detail Drawer ────────────────────────────────────────── */}
             <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
-                <SheetContent side="right" className="sm:max-w-[80vw] w-full overflow-y-auto w-[55vw]">
+                <SheetContent side="right" className="sm:max-w-[80vw] w-[55vw] max-w-full p-0 flex flex-col gap-0">
                     {isLoading ? (
-                        <div className="flex items-center justify-center h-full">
+                        <div className="flex items-center justify-center h-full p-6">
                             <SheetTitle className="sr-only">Loading product details...</SheetTitle>
                             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                         </div>
                     ) : selectedProduct ? (
                         <>
-                            <SheetHeader>
+                            <SheetHeader className="p-6 border-b shrink-0">
                                 <SheetTitle className="text-base leading-snug pr-6">
                                     {selectedProduct.name}
                                 </SheetTitle>
-                                <SheetDescription>
-                                    {selectedProduct.productUrl ? (
-                                        <a
-                                            href={selectedProduct.productUrl}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-blue-600 hover:underline"
-                                        >
-                                            {selectedProduct.externalId}
-                                        </a>
-                                    ) : (
-                                        selectedProduct.externalId
-                                    )}
-                                    {selectedProduct.sku && ` · ${selectedProduct.sku}`}
+                                <SheetDescription className="flex items-center gap-2">
+                                    <span>
+                                        {selectedProduct.productUrl ? (
+                                            <a
+                                                href={selectedProduct.productUrl}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-blue-600 hover:underline"
+                                            >
+                                                {selectedProduct.externalId}
+                                            </a>
+                                        ) : (
+                                            selectedProduct.externalId
+                                        )}
+                                        {selectedProduct.sku && ` · ${selectedProduct.sku}`}
+                                    </span>
+                                    <span>·</span>
+                                    <span>
+                                        <strong>Last Synced:</strong> {selectedProduct.lastSyncedAt ? new Date(selectedProduct.lastSyncedAt).toLocaleString() : "Never"}
+                                    </span>
                                 </SheetDescription>
                             </SheetHeader>
-                            <div className="flex-1 w-full pb-0 flex flex-col items-start px-0">
-                                <ProductDetailTabs 
-                                    product={selectedProduct} 
-                                    onSaveSuccess={invalidate} 
-                                    channelName={channelName} 
+                            <div className="flex-1 flex flex-col min-h-0 w-full relative">
+                                <ProductDetailTabs
+                                    product={selectedProduct}
+                                    onSaveSuccess={(id) => {
+                                        invalidate(id);
+                                        setDrawerOpen(false);
+                                    }}
+                                    onClose={() => setDrawerOpen(false)}
+                                    channelName={channelName}
                                 />
                             </div>
                         </>

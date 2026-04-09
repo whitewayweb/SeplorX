@@ -1,6 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
-import type { ChannelHandler, WebhookStockChange, ExternalProduct, ChannelPushSyncResult } from "../types";
+import type { ChannelHandler, WebhookStockChange, WebhookOrderEvent, ExternalProduct, ChannelPushSyncResult } from "../types";
 import { extractSqlField, getBrands } from "./queries";
+import { PORTAL_NAME } from "@/utils/constants";
 
 // ─── WooCommerce REST API helpers ─────────────────────────────────────────────
 // credentials JSONB keys: consumerKey, consumerSecret (encrypted),
@@ -36,18 +37,18 @@ import { StandardizedProductRecord } from "../types";
 // This avoids giant switch/case blocks and makes it easy to add new fields.
 // Key = SeplorX field, value = WooCommerce field name (keyof WCProduct or meta key).
 const FIELD_MAP: Partial<Record<keyof StandardizedProductRecord, keyof WCProduct | string>> = {
-  name:              "name",
-  sku:               "sku",
-  stockQuantity:     "stock_quantity",
-  description:       "description",
-  price:             "regular_price",
-  itemWeight:        "weight",       // Standard attribute for item weight
-  pkgWeight:         "pkg_weight",   // Use a distinct key to prevent collision with itemWeight
-  brand:             "brand-name",
-  itemCondition:     "item-condition", 
-  manufacturer:      "manufacturer", 
-  partNumber:        "part_number",  
-  color:             "color",        
+  name: "name",
+  sku: "sku",
+  stockQuantity: "stock_quantity",
+  description: "description",
+  price: "regular_price",
+  itemWeight: "weight",       // Standard attribute for item weight
+  pkgWeight: "pkg_weight",   // Use a distinct key to prevent collision with itemWeight
+  brand: "brand-name",
+  itemCondition: "item-condition",
+  manufacturer: "manufacturer",
+  partNumber: "part_number",
+  color: "color",
 };
 
 // ─── Handler ──────────────────────────────────────────────────────────────────
@@ -65,8 +66,9 @@ export const woocommerceHandler: ChannelHandler = {
   configFields,
   capabilities,
   // Topics registered as webhooks on the remote WooCommerce store.
-  // To add new topics in future: add the string here + handle in processWebhook().
-  webhookTopics: ["order.created", "order.cancelled"] as const,
+  // order.created = new order, order.updated = any status change (incl. cancellation).
+  // Note: WooCommerce has no 'order.cancelled' topic — cancellations arrive via order.updated.
+  webhookTopics: ["order.created", "order.updated"] as const,
 
   validateConfig,
   buildConnectUrl,
@@ -180,8 +182,12 @@ export const woocommerceHandler: ChannelHandler = {
     return results;
   },
 
-  async pushStock(storeUrl, credentials, externalProductId, quantity) {
-    const res = await wcFetch(storeUrl, `/products/${externalProductId}`, {
+  async pushStock(storeUrl, credentials, externalProductId, quantity, parentId) {
+    const endpoint = parentId 
+      ? `/products/${parentId}/variations/${externalProductId}`
+      : `/products/${externalProductId}`;
+
+    const res = await wcFetch(storeUrl, endpoint, {
       method: "PUT",
       headers: { Authorization: basicAuth(credentials.consumerKey, credentials.consumerSecret) },
       body: JSON.stringify({ stock_quantity: quantity, manage_stock: true }),
@@ -196,13 +202,37 @@ export const woocommerceHandler: ChannelHandler = {
     const secret = randomBytes(32).toString("hex");
     const auth = basicAuth(credentials.consumerKey, credentials.consumerSecret);
 
+    // 1. Fetch existing webhooks to clean up duplicates
+    try {
+      const getRes = await wcFetch(storeUrl, "/webhooks", {
+        headers: { Authorization: auth },
+      });
+      if (getRes.ok) {
+        const existingWebhooks = await getRes.json() as Array<{ id: number, delivery_url: string }>;
+        const toDelete = existingWebhooks.filter(w => w.delivery_url.startsWith(channelWebhookBaseUrl.split("?")[0]));
+
+        for (const w of toDelete) {
+          await wcFetch(storeUrl, `/webhooks/${w.id}?force=true`, {
+            method: "DELETE",
+            headers: { Authorization: auth },
+          });
+        }
+      }
+    } catch (err) {
+      console.warn("[woocommerce] failed to cleanup existing webhooks, proceeding with creation", err);
+    }
+
     const webhookIds: string[] = [];
+    const topicLabel: Record<string, string> = {
+      "order.created": "Order Create",
+      "order.updated": "Order Update",
+    };
     for (const topic of woocommerceHandler.webhookTopics) {
       const res = await wcFetch(storeUrl, "/webhooks", {
         method: "POST",
         headers: { Authorization: auth },
         body: JSON.stringify({
-          name: `SeplorX — ${topic}`,
+          name: `${PORTAL_NAME} ${topicLabel[topic] ?? topic} Webhook`,
           topic,
           delivery_url: channelWebhookBaseUrl,
           secret,
@@ -252,18 +282,11 @@ export const woocommerceHandler: ChannelHandler = {
             referenceType: "woocommerce_order",
           }));
       }
-      case "order.cancelled": {
-        const order = JSON.parse(body) as WCOrderPayload;
-        const lineItems = order.line_items || [];
-        return lineItems
-          .filter((item) => item.product_id && (item.quantity ?? 0) > 0)
-          .map((item): WebhookStockChange => ({
-            externalProductId: String(item.product_id),
-            quantity: (item.quantity ?? 0),    // return: increment
-            type: "return",
-            referenceId: order.id ?? 0,
-            referenceType: "woocommerce_order",
-          }));
+      case "order.cancelled":
+      case "order.updated": {
+        // Both handled via parseWebhookOrder() in the webhook route.
+        // Return empty — the route calls processOrderStockChange() directly.
+        return [];
       }
       default:
         // Unknown/future topic — no-op, return empty (route will still 200)
@@ -417,6 +440,68 @@ export const woocommerceHandler: ChannelHandler = {
   extractProductFields,
 
   /**
+   * Parse a webhook body into a structured order event.
+   * Used by the webhook route to feed into processOrderStockChange().
+   */
+  parseWebhookOrder(body: string, signature: string, secret: string): WebhookOrderEvent | null {
+    // Verify HMAC-SHA256 signature
+    const expected = createHmac("sha256", secret).update(body).digest("base64");
+    let sigBuffer: Buffer;
+    try {
+      sigBuffer = Buffer.from(signature, "base64");
+    } catch {
+      throw new Error("Invalid webhook signature format");
+    }
+    const expectedBuffer = Buffer.from(expected, "base64");
+    if (
+      sigBuffer.length !== expectedBuffer.length ||
+      !timingSafeEqual(sigBuffer, expectedBuffer)
+    ) {
+      throw new Error("Webhook signature mismatch");
+    }
+
+    const order = JSON.parse(body) as WCOrderPayload;
+    if (!order.id) return null;
+
+    const lineItems = (order.line_items || []).filter(
+      (item) => item.id && (item.quantity ?? 0) > 0,
+    );
+
+    const buyerName = order.billing
+      ? `${order.billing.first_name || ""} ${order.billing.last_name || ""}`.trim() || null
+      : null;
+
+    return {
+      externalOrderId: String(order.id),
+      status: mapWooCommerceStatus(order.status) as string,
+      lineItems: lineItems.map((item) => ({
+        externalItemId: String(item.id),
+        externalProductId: String(
+          item.variation_id && item.variation_id !== 0
+            ? item.variation_id
+            : item.product_id,
+        ),
+        variationId: item.variation_id ? String(item.variation_id) : undefined,
+        sku: item.sku || undefined,
+        quantity: item.quantity ?? 0,
+        title: typeof item.name === "string" ? item.name : undefined,
+        price: item.price !== undefined && item.price !== null ? String(item.price) : undefined,
+        rawData: item as Record<string, unknown>,
+      })),
+      rawData: order as Record<string, unknown>,
+      buyerName,
+      buyerEmail: order.billing?.email || null,
+      totalAmount: order.total ? String(order.total) : null,
+      currency: order.currency || null,
+      purchasedAt: order.date_created_gmt
+        ? new Date(order.date_created_gmt as unknown as string + "Z")
+        : order.date_created
+          ? new Date(order.date_created as unknown as string)
+          : null,
+    };
+  },
+
+  /**
    * Fetch orders from the remote channel and persist them as sales_orders.
    */
   async fetchAndSaveOrders(userId: number, channelId: number): Promise<{ fetched: number; saved: number }> {
@@ -427,10 +512,10 @@ export const woocommerceHandler: ChannelHandler = {
     const { getLastOrderDate } = await import("./queries");
 
     const [channel] = await db
-      .select({ 
-        storeUrl: channels.storeUrl, 
+      .select({
+        storeUrl: channels.storeUrl,
         credentials: channels.credentials,
-        channelType: channels.channelType 
+        channelType: channels.channelType
       })
       .from(channels)
       .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
@@ -502,8 +587,8 @@ export const woocommerceHandler: ChannelHandler = {
 
             if (insideExisting) return;
 
-            const buyerName = wcOrder.billing 
-              ? `${wcOrder.billing.first_name || ""} ${wcOrder.billing.last_name || ""}`.trim() || null 
+            const buyerName = wcOrder.billing
+              ? `${wcOrder.billing.first_name || ""} ${wcOrder.billing.last_name || ""}`.trim() || null
               : null;
             const buyerEmail = wcOrder.billing?.email || null;
 
@@ -520,14 +605,14 @@ export const woocommerceHandler: ChannelHandler = {
             }).returning({ id: salesOrders.id });
 
             const lineItems = wcOrder.line_items || [];
-            
+
             for (const item of lineItems) {
               if (!item.id) continue;
-              
+
               const sku = item.sku ?? "";
               const wcProductId = String(item.product_id || "");
               const wcVariationId = String(item.variation_id || "");
-              
+
               // We match by Variation ID if it exists, otherwise Product ID. 
               const searchId = item.variation_id && item.variation_id !== 0 ? wcVariationId : wcProductId;
 
@@ -544,7 +629,7 @@ export const woocommerceHandler: ChannelHandler = {
                     )
                   )
                   .limit(1);
-                
+
                 matchedProductId = mapping?.productId;
               }
 
@@ -572,11 +657,35 @@ export const woocommerceHandler: ChannelHandler = {
             }
             savedCount++;
           });
+
+          // Process stock for this newly saved order
+          // Only process stock for orders from 5 Apr 2026 onwards
+          // (stock was manually set on 4 Apr 2026 as the baseline)
+          try {
+            const { processOrderStockChange, STOCK_CUTOFF_DATE } = await import("@/lib/stock/service");
+            const [savedOrder] = await db
+              .select({ id: salesOrders.id, status: salesOrders.status, purchasedAt: salesOrders.purchasedAt })
+              .from(salesOrders)
+              .where(and(eq(salesOrders.channelId, channelId), eq(salesOrders.externalOrderId, externalOrderId)))
+              .limit(1);
+
+            if (savedOrder && savedOrder.purchasedAt && savedOrder.purchasedAt >= STOCK_CUTOFF_DATE) {
+              await processOrderStockChange(
+                savedOrder.id,
+                savedOrder.status,
+                null, // new order, no previous status
+                userId,
+              );
+            }
+          } catch (stockErr) {
+            console.error(`[WooCommerce Sync] Stock processing failed for order ${externalOrderId}:`, stockErr);
+            // Non-fatal: order is saved, stock processing can be retried
+          }
         } catch (err) {
           console.error(`[WooCommerce Sync] Failed to save order ${externalOrderId}:`, err);
         }
       }
-      
+
       page++;
     } while (page <= totalPages);
 
@@ -585,8 +694,9 @@ export const woocommerceHandler: ChannelHandler = {
       const pendingItems = await db
         .select({
           id: salesOrderItems.id,
+          orderId: salesOrderItems.orderId,
           sku: salesOrderItems.sku,
-          rawData: salesOrderItems.rawData
+          rawData: salesOrderItems.rawData,
         })
         .from(salesOrderItems)
         .innerJoin(salesOrders, eq(salesOrderItems.orderId, salesOrders.id))
@@ -638,6 +748,27 @@ export const woocommerceHandler: ChannelHandler = {
             .update(salesOrderItems)
             .set({ productId: matchedProductId })
             .where(eq(salesOrderItems.id, item.id));
+
+          // Process stock for retroactively mapped orders (date-gated)
+          try {
+            const [order] = await db
+              .select({
+                id: salesOrders.id,
+                status: salesOrders.status,
+                purchasedAt: salesOrders.purchasedAt,
+                stockProcessed: salesOrders.stockProcessed,
+              })
+              .from(salesOrders)
+              .where(eq(salesOrders.id, item.orderId))
+              .limit(1);
+
+            const { STOCK_CUTOFF_DATE, processOrderStockChange } = await import("@/lib/stock/service");
+            if (order && !order.stockProcessed && order.purchasedAt && order.purchasedAt >= STOCK_CUTOFF_DATE) {
+              await processOrderStockChange(order.id, order.status, null, userId);
+            }
+          } catch (stockErr) {
+            console.error(`[WooCommerce Sync] Retroactive stock failed for item ${item.id}:`, stockErr);
+          }
         }
       }
     } catch (err) {
@@ -650,9 +781,9 @@ export const woocommerceHandler: ChannelHandler = {
 
 function mapWooCommerceStatus(rawStatus: string | undefined): "pending" | "processing" | "on-hold" | "packed" | "shipped" | "delivered" | "cancelled" | "returned" | "refunded" | "failed" | "draft" {
   if (!rawStatus) return "pending";
-  
+
   const status = rawStatus.startsWith("wc-") ? rawStatus.substring(3) : rawStatus;
-  
+
   switch (status) {
     case "pending": return "pending";
     case "processing": return "processing";

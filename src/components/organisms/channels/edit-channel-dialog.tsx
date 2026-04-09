@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, startTransition } from "react";
+import { useActionState, useEffect, useRef, startTransition } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -34,13 +34,23 @@ export function EditChannelDialog({ channel, onOpenChange }: EditChannelDialogPr
 
   const channelDef = channel ? getChannelById(channel.channelType as ChannelType) : null;
 
+  // Track which channel ID we've already fetched config for to prevent double-firing.
+  // useActionState returns a new fetchConfigAction reference each render, so we
+  // cannot put it in the dependency array — that would cause an infinite loop.
+  const fetchedForId = useRef<number | null>(null);
+
   useEffect(() => {
-    if (channel) {
+    if (channel && fetchedForId.current !== channel.id) {
+      fetchedForId.current = channel.id;
       startTransition(() => {
         fetchConfigAction(channel.id);
       });
     }
-  }, [channel, fetchConfigAction]);
+    if (!channel) {
+      fetchedForId.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channel?.id]);
 
   useEffect(() => {
     if (state?.success) {

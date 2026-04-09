@@ -15,8 +15,18 @@ export interface StandardizedProductRecord {
   itemCondition: string;
   pkgWeight: string;
   itemWeight: string;
-  images: { link: string; variant?: string; width: string | number; height: string | number }[];
-  relationships: { type?: string; childAsins?: string[]; parentAsins?: string[]; variationTheme?: { theme: string } }[];
+  images: {
+    link: string;
+    variant?: string;
+    width: string | number;
+    height: string | number;
+  }[];
+  relationships: {
+    type?: string;
+    childAsins?: string[];
+    parentAsins?: string[];
+    variationTheme?: { theme: string };
+  }[];
 }
 
 export interface ChannelDefinition {
@@ -35,9 +45,17 @@ export interface ChannelDefinition {
   configFields?: ChannelConfigField[];
   capabilities?: ChannelCapabilities;
   validateConfig?: (config: Partial<Record<string, string>>) => string | null;
-  buildConnectUrl?: (channelId: number, config: Record<string, string>, appUrl: string) => string;
+  buildConnectUrl?: (
+    channelId: number,
+    config: Record<string, string>,
+    appUrl: string,
+  ) => string;
   /** Generate a public product link if available (e.g. Amazon DP link) */
-  getProductUrl?: (externalId: string, credentials?: Record<string, string>, rawData?: unknown) => string | null;
+  getProductUrl?: (
+    externalId: string,
+    credentials?: Record<string, string>,
+    rawData?: unknown,
+  ) => string | null;
   /** UI Hint for the connection step */
   connectionHint?: string;
 
@@ -45,8 +63,10 @@ export interface ChannelDefinition {
    * Extract standardized fields from channel-specific rawData payload to be displayed
    * in the product details UI.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  extractProductFields?: (rawData: Record<string, any>) => StandardizedProductRecord;
+   
+  extractProductFields?: (
+    rawData: Record<string, unknown>,
+  ) => StandardizedProductRecord;
 }
 
 export type ChannelStatus = "pending" | "connected" | "disconnected";
@@ -87,6 +107,36 @@ export interface WebhookStockChange {
   referenceId: number;
   /** e.g. "woocommerce_order" */
   referenceType: string;
+}
+
+/**
+ * Richer webhook event for order-status-driven stock changes.
+ * Returned by processWebhook() for order.updated/order.created topics.
+ * The webhook route uses this to call processOrderStockChange().
+ */
+export interface WebhookOrderEvent {
+  externalOrderId: string;
+  status: string;
+  /** Parsed line items from the webhook payload */
+  lineItems: Array<{
+    /** Stable external line-item identifier (e.g. WC line_item.id) */
+    externalItemId: string;
+    externalProductId: string;
+    variationId?: string;
+    sku?: string;
+    quantity: number;
+    title?: string;
+    price?: string;
+    rawData: Record<string, unknown>;
+  }>;
+  /** Full raw order payload for storage */
+  rawData: Record<string, unknown>;
+  /** Buyer info parsed from the webhook */
+  buyerName?: string | null;
+  buyerEmail?: string | null;
+  totalAmount?: string | null;
+  currency?: string | null;
+  purchasedAt?: Date | null;
 }
 
 export interface ExternalProduct {
@@ -183,6 +233,10 @@ export interface ChannelHandler {
     credentials: Record<string, string>,
     externalProductId: string,
     quantity: number,
+    parentId?: string | null,
+    sku?: string | null,
+    productType?: string | null,
+    rawData?: Record<string, unknown> | null,
   ): Promise<void>;
 
   /**
@@ -211,6 +265,17 @@ export interface ChannelHandler {
   ): WebhookStockChange[];
 
   /**
+   * Parse a webhook body into a structured order event for the stock service.
+   * Used by the webhook route to upsert orders and call processOrderStockChange().
+   * Optional — only needed for channels with order-status-driven webhooks.
+   */
+  parseWebhookOrder?(
+    body: string,
+    signature: string,
+    secret: string,
+  ): WebhookOrderEvent | null;
+
+  /**
    * Fetch a single catalog item by its external ID (e.g. ASIN for Amazon).
    * Returns the item details as an ExternalProduct, or throws if not found.
    */
@@ -221,6 +286,16 @@ export interface ChannelHandler {
     sku?: string,
     fulfillmentChannel?: string,
   ): Promise<ExternalProduct>;
+
+  /**
+   * Extract generic relationship pointers (children and missing parents) from
+   * a single channel product's raw payload. Used during single-product syncs
+   * to automatically pull variation families together.
+   */
+  extractRelationships?(rawPayload: Record<string, unknown>): {
+    childIds: string[];
+    parentId?: string;
+  };
 
   /**
    * Map generic update fields submitted from the product-detail form into the
@@ -267,7 +342,7 @@ export interface ChannelHandler {
   getBrands?(channelId: number): Promise<string[]>;
 
   /**
-   * Returns the Drizzle SQL expression to extract a given filter field (e.g. "brand", "category") 
+   * Returns the Drizzle SQL expression to extract a given filter field (e.g. "brand", "category")
    * from the channel_products.raw_data JSONB column. Used by the DAL for filtering and grouping.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -277,8 +352,10 @@ export interface ChannelHandler {
    * Extract standardized fields from channel-specific rawData payload to be displayed
    * in the product details UI.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  extractProductFields?: (rawData: Record<string, any>) => StandardizedProductRecord;
+   
+  extractProductFields?: (
+    rawData: Record<string, unknown>,
+  ) => StandardizedProductRecord;
 
   /**
    * Fetch orders from the remote channel and persist them as sales_orders.
@@ -289,4 +366,3 @@ export interface ChannelHandler {
     channelId: number,
   ): Promise<{ fetched: number; saved: number }>;
 }
-
