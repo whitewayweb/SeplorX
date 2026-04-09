@@ -4,7 +4,7 @@ import { channels, salesOrders, salesOrderItems, channelProductMappings, product
 import { and, eq } from "drizzle-orm";
 import { decrypt } from "@/lib/crypto";
 import { getChannelHandler } from "@/lib/channels/handlers";
-import { processOrderStockChange } from "@/lib/stock/service";
+import { processOrderStockChange, STOCK_CUTOFF_DATE } from "@/lib/stock/service";
 import type { SalesOrderStatus } from "@/db/schema";
 
 /**
@@ -183,7 +183,7 @@ export async function POST(
 
             await tx.insert(salesOrderItems).values({
               orderId: insertedOrder.id,
-              externalItemId: item.externalProductId,
+              externalItemId: item.externalItemId,
               productId: matchedProductId,
               sku: item.sku || null,
               title: item.title || null,
@@ -196,7 +196,7 @@ export async function POST(
 
         // Process stock for the new order (outside tx for isolation)
         const [savedOrder] = await db
-          .select({ id: salesOrders.id })
+          .select({ id: salesOrders.id, purchasedAt: salesOrders.purchasedAt })
           .from(salesOrders)
           .where(
             and(
@@ -206,7 +206,7 @@ export async function POST(
           )
           .limit(1);
 
-        if (savedOrder) {
+        if (savedOrder && (!savedOrder.purchasedAt || savedOrder.purchasedAt >= STOCK_CUTOFF_DATE)) {
           await processOrderStockChange(
             savedOrder.id,
             newStatus,

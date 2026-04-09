@@ -1,8 +1,9 @@
 import { getAuthenticatedUserId } from "@/lib/auth";
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/molecules/layout/page-header";
+import { InventoryTransactionsTable } from "@/components/organisms/inventory/inventory-transactions-table";
 import {
   Table,
   TableBody,
@@ -25,17 +26,6 @@ import {
 import { getPendingAgentTasks } from "@/data/agents";
 
 export const dynamic = "force-dynamic";
-
-const TRANSACTION_TYPE_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
-  purchase_in: { label: "Purchase In", variant: "default" },
-  sale_out: { label: "Sale Out", variant: "destructive" },
-  sale_reserve: { label: "Reserved", variant: "outline" },
-  sale_cancel: { label: "Released", variant: "secondary" },
-  return_restock: { label: "Restocked", variant: "default" },
-  return_discard: { label: "Discarded", variant: "secondary" },
-  adjustment: { label: "Adjustment", variant: "secondary" },
-  return: { label: "Return", variant: "outline" },
-};
 
 export default async function InventoryPage() {
   await getAuthenticatedUserId();
@@ -189,76 +179,10 @@ export default async function InventoryPage() {
           <CardTitle className="text-lg">Recent Transactions</CardTitle>
         </CardHeader>
         <CardContent>
-          {recentTransactions.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">
-              No inventory transactions yet. Adjust stock on a product to create your first entry.
-            </p>
-          ) : (
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Product</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead className="text-right">Quantity</TableHead>
-                    <TableHead>Source</TableHead>
-                    <TableHead>Notes</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {recentTransactions.map((txn) => {
-                    const typeConfig = TRANSACTION_TYPE_LABELS[txn.type] ?? { label: txn.type, variant: "outline" as const };
-                    return (
-                      <TableRow key={txn.id}>
-                        <TableCell className="text-sm">
-                          {txn.createdAt
-                            ? new Date(txn.createdAt).toLocaleDateString("en-IN", {
-                              day: "numeric",
-                              month: "short",
-                              year: "numeric",
-                            })
-                            : "—"}
-                        </TableCell>
-                        <TableCell>
-                          <Link
-                            href={`/products/${txn.productId}`}
-                            className="font-medium hover:underline"
-                          >
-                            {txn.productName}
-                          </Link>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={typeConfig.variant}>{typeConfig.label}</Badge>
-                        </TableCell>
-                        <TableCell className={`text-right font-mono ${txn.quantity > 0 ? "text-green-600" : "text-red-600"}`}>
-                          {txn.quantity > 0 ? `+${txn.quantity}` : txn.quantity}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {txn.referenceType ?? "—"}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {txn.referenceType === "sales_order" && txn.referenceId ? (
-                            <span>
-                              {txn.notes?.replace(/order #\d+/, "").trim()}{" "}
-                              <Link
-                                href={`/orders/${txn.referenceId}`}
-                                className="text-primary hover:underline"
-                              >
-                                order #{txn.referenceId}
-                              </Link>
-                            </span>
-                          ) : (
-                            txn.notes ?? "—"
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          )}
+          <InventoryTransactionsTable
+            transactions={recentTransactions}
+            showProduct
+          />
         </CardContent>
       </Card>
     </div>

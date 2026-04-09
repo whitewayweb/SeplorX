@@ -121,32 +121,24 @@ async function reserveStock(orderId: number, userId: number): Promise<void> {
   const items = await getOrderItemsWithProducts(orderId);
   if (items.length === 0) return;
 
+  let didReserve = false;
+
   await db.transaction(async (tx) => {
     for (const item of items) {
       if (!item.productId || item.quantity <= 0) continue;
 
-      // Check if reservation already exists (idempotency)
-      const [existing] = await tx
-        .select({ id: stockReservations.id })
-        .from(stockReservations)
-        .where(
-          and(
-            eq(stockReservations.orderItemId, item.id),
-            eq(stockReservations.productId, item.productId),
-          ),
-        )
-        .limit(1);
-
-      if (existing) continue;
-
-      // Create reservation
-      await tx.insert(stockReservations).values({
+      // Upsert reservation — the unique index on (order_item_id, product_id)
+      // prevents duplicates even under concurrent calls
+      const inserted = await tx.insert(stockReservations).values({
         orderId,
         orderItemId: item.id,
         productId: item.productId,
         quantity: item.quantity,
         status: "active",
-      });
+      }).onConflictDoNothing().returning({ id: stockReservations.id });
+
+      // If insert was a no-op (duplicate), skip incrementing
+      if (inserted.length === 0) continue;
 
       // Increment reserved quantity atomically
       await tx
@@ -167,13 +159,18 @@ async function reserveStock(orderId: number, userId: number): Promise<void> {
         createdBy: userId,
         notes: `Stock reserved for order #${orderId}`,
       });
+
+      didReserve = true;
     }
 
-    // Mark order as stock-processed
-    await tx
-      .update(salesOrders)
-      .set({ stockProcessed: true })
-      .where(eq(salesOrders.id, orderId));
+    // Only mark as stock-processed if at least one reservation was created
+    // This ensures retroactive mapping can still process unmapped items later
+    if (didReserve) {
+      await tx
+        .update(salesOrders)
+        .set({ stockProcessed: true })
+        .where(eq(salesOrders.id, orderId));
+    }
   });
 }
 
@@ -373,6 +370,11 @@ export async function processReturnItem(
   userId: number,
   notes?: string,
 ): Promise<void> {
+  // Strict server-side quantity validation
+  if (!Number.isFinite(quantity) || !Number.isInteger(quantity) || quantity <= 0) {
+    throw new Error(`Invalid return quantity: ${quantity}. Must be a positive integer.`);
+  }
+
   await db.transaction(async (tx) => {
     const [item] = await tx
       .select({

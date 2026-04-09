@@ -96,6 +96,12 @@ export async function processReturnAction(data: {
   const userId = await getAuthenticatedUserId();
   if (!userId) throw new Error("Unauthorized");
 
+  // Defense-in-depth: validate quantity before calling stock service
+  const qty = Number(data.quantity);
+  if (!Number.isFinite(qty) || !Number.isInteger(qty) || qty <= 0) {
+    return { success: false, error: "Quantity must be a positive integer." };
+  }
+
   const { processReturnItem } = await import("@/lib/stock/service");
 
   try {

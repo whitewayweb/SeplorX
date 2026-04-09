@@ -475,6 +475,7 @@ export const woocommerceHandler: ChannelHandler = {
       externalOrderId: String(order.id),
       status: mapWooCommerceStatus(order.status) as string,
       lineItems: lineItems.map((item) => ({
+        externalItemId: String(item.id),
         externalProductId: String(
           item.variation_id && item.variation_id !== 0
             ? item.variation_id

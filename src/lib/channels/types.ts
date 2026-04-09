@@ -119,6 +119,8 @@ export interface WebhookOrderEvent {
   status: string;
   /** Parsed line items from the webhook payload */
   lineItems: Array<{
+    /** Stable external line-item identifier (e.g. WC line_item.id) */
+    externalItemId: string;
     externalProductId: string;
     variationId?: string;
     sku?: string;

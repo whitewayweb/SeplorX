@@ -4,8 +4,6 @@ import {
   ArrowLeft,
   Package,
   Tag,
-  TrendingUp,
-  TrendingDown,
   AlertTriangle,
   Ban,
   ShoppingCart,
@@ -21,6 +19,7 @@ import { StockAdjustmentDialog } from "@/components/organisms/products/stock-adj
 import { ChannelSyncCard } from "@/components/organisms/products/channel-sync-card";
 import { getAuthenticatedUserId } from "@/lib/auth";
 import { getConnectedChannels } from "@/data/channels";
+import { InventoryTransactionsTable } from "@/components/organisms/inventory/inventory-transactions-table";
 import {
   getProductById,
   getProductMappings,
@@ -35,31 +34,6 @@ export const dynamic = "force-dynamic";
 interface ProductDetailPageProps {
   params: Promise<{ id: string }>;
 }
-
-const TRANSACTION_TYPE_CONFIG: Record<
-  string,
-  {
-    label: string;
-    className: string;
-  }
-> = {
-  purchase_in: {
-    label: "Purchase In",
-    className: "bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/40",
-  },
-  sale_out: {
-    label: "Sale Out",
-    className: "bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 border border-rose-200/60 dark:border-rose-800/40",
-  },
-  adjustment: {
-    label: "Adjustment",
-    className: "bg-violet-50 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300 border border-violet-200/60 dark:border-violet-800/40",
-  },
-  return: {
-    label: "Return",
-    className: "bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/40",
-  },
-};
 
 export default async function ProductDetailPage({ params }: ProductDetailPageProps) {
   const { id } = await params;
@@ -379,78 +353,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
               <p className="text-sm text-muted-foreground">No transactions yet</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border/40 bg-muted/30">
-                    <th className="text-left px-5 py-2.5 text-xs font-semibold text-muted-foreground">Date</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground">Type</th>
-                    <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground">Qty</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground">Source</th>
-                    <th className="text-left px-4 py-2.5 pr-5 text-xs font-semibold text-muted-foreground">Notes</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/30">
-                  {transactions.map((txn) => {
-                    const cfg = TRANSACTION_TYPE_CONFIG[txn.type] ?? {
-                      label: txn.type,
-                      className:
-                        "bg-zinc-100 text-zinc-600 border border-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700",
-                    };
-                    return (
-                      <tr key={txn.id} className="hover:bg-muted/20 transition-colors">
-                        <td className="px-5 py-3 text-muted-foreground whitespace-nowrap">
-                          {txn.createdAt
-                            ? new Date(txn.createdAt).toLocaleDateString("en-IN", {
-                              day: "numeric",
-                              month: "short",
-                              year: "numeric",
-                            })
-                            : "—"}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${cfg.className}`}>
-                            {cfg.label}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <span
-                            className={`inline-flex items-center justify-end gap-1 font-mono font-semibold tabular-nums ${txn.quantity > 0
-                              ? "text-emerald-600 dark:text-emerald-400"
-                              : "text-rose-600 dark:text-rose-400"
-                              }`}
-                          >
-                            {txn.quantity > 0 ? (
-                              <TrendingUp className="h-3 w-3" />
-                            ) : (
-                              <TrendingDown className="h-3 w-3" />
-                            )}
-                            {txn.quantity > 0 ? `+${txn.quantity}` : txn.quantity}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
-                          {txn.referenceType === "purchase_invoice" && txn.companyId && (
-                            <Link href={`/companies/${txn.companyId}`} className="text-blue-600 dark:text-blue-400 hover:underline block text-xs mb-1">
-                              View Vendor
-                            </Link>
-                          )}
-                          {txn.referenceType ?? "—"}
-                        </td>
-                        <td className="px-4 py-3 pr-5 text-muted-foreground max-w-[200px] truncate">
-                          {txn.notes && txn.referenceType === "purchase_invoice" && txn.referenceId ? (
-                            <Link href={`/invoices/${txn.referenceId}`} className="text-blue-600 dark:text-blue-400 hover:underline">
-                              {txn.notes}
-                            </Link>
-                          ) : (
-                            txn.notes ?? "—"
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <InventoryTransactionsTable transactions={transactions} />
           )}
         </div>
 

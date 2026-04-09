@@ -339,12 +339,12 @@ export const amazonHandler: ChannelHandler = {
             savedCount++;
           });
 
-          // Process stock for this newly saved order
+          // Process stock for this newly saved order (date-gated)
           try {
-            const { processOrderStockChange } =
+            const { processOrderStockChange, STOCK_CUTOFF_DATE } =
               await import("@/lib/stock/service");
             const [savedOrder] = await db
-              .select({ id: salesOrders.id, status: salesOrders.status })
+              .select({ id: salesOrders.id, status: salesOrders.status, purchasedAt: salesOrders.purchasedAt })
               .from(salesOrders)
               .where(
                 and(
@@ -354,7 +354,7 @@ export const amazonHandler: ChannelHandler = {
               )
               .limit(1);
 
-            if (savedOrder) {
+            if (savedOrder && savedOrder.purchasedAt && savedOrder.purchasedAt >= STOCK_CUTOFF_DATE) {
               await processOrderStockChange(
                 savedOrder.id,
                 savedOrder.status,
@@ -382,6 +382,7 @@ export const amazonHandler: ChannelHandler = {
       const pendingItems = await db
         .select({
           id: salesOrderItems.id,
+          orderId: salesOrderItems.orderId,
           sku: salesOrderItems.sku,
           rawData: salesOrderItems.rawData,
         })
@@ -440,6 +441,27 @@ export const amazonHandler: ChannelHandler = {
             .update(salesOrderItems)
             .set({ productId: matchedProductId })
             .where(eq(salesOrderItems.id, item.id));
+
+          // Process stock for retroactively mapped orders (date-gated)
+          try {
+            const [order] = await db
+              .select({
+                id: salesOrders.id,
+                status: salesOrders.status,
+                purchasedAt: salesOrders.purchasedAt,
+                stockProcessed: salesOrders.stockProcessed,
+              })
+              .from(salesOrders)
+              .where(eq(salesOrders.id, item.orderId))
+              .limit(1);
+
+            const { STOCK_CUTOFF_DATE, processOrderStockChange } = await import("@/lib/stock/service");
+            if (order && !order.stockProcessed && order.purchasedAt && order.purchasedAt >= STOCK_CUTOFF_DATE) {
+              await processOrderStockChange(order.id, order.status, null, userId);
+            }
+          } catch (stockErr) {
+            console.error(`[Amazon Sync] Retroactive stock failed for item ${item.id}:`, stockErr);
+          }
         }
       }
     } catch (err) {
