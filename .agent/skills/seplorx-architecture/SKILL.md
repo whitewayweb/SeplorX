@@ -64,7 +64,7 @@ Data flows one way: **Server Component → props → Client Component → Server
 
 ## Database Queries
 
-- **Tables:** `users`, `app_installations`, `channels`, `channel_product_mappings`, `channel_product_changelog`, `companies` (type: supplier/customer/both), `products`, `purchase_invoices`, `purchase_invoice_items`, `payments`, `inventory_transactions`, `agent_actions`, `settings`. (All have RLS). Decimal(12,2) for money; integer for stock.
+- **Tables:** `users`, `sessions`, `accounts`, `app_installations`, `channels`, `channel_products`, `channel_product_mappings`, `channel_product_changelog`, `channel_feeds`, `companies` (type: supplier/customer/both), `products`, `purchase_invoices`, `purchase_invoice_items`, `payments`, `inventory_transactions`, `agent_actions`, `settings`, `sales_orders`, `sales_order_items`, `stock_reservations`. (All have RLS). Decimal(12,2) for money; integer for stock.
 - **Data Access Layer (DAL)** (`src/data/*.ts`):
   - Pure TypeScript functions containing raw SQL/Drizzle queries.
   - Extracts reusable Read logic away from UI components (Server Components) and Server Actions.

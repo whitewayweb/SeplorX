@@ -32,21 +32,21 @@ DB instance: `db` from `@/db`. Config: **`max: 10`** concurrent connections to s
 | `users` | id, email, name, created_at |
 | `sessions` | id, userId, token, expiresAt |
 | `app_installations` | id, userId, appId, status, config (JSONB encrypted) |
-| `channels` | id, userId, type, name, credentials (JSONB encrypted), webhookSecret |
-| `channel_products` | id, channelId, externalId, name, sku, stockQuantity, rawData (JSONB) |
-| `channel_product_mappings` | id, channelId, channelProductId, seplorxProductId |
-| `channel_product_changelog` | id, mappingId, field, oldValue, newValue, changedAt |
+| `channels` | id, userId, channelType, name, status, storeUrl, credentials (JSONB encrypted) |
+| `channel_products` | id, channelId, externalId, name, sku, stockQuantity, type, rawData (JSONB) |
+| `channel_product_mappings` | id, channelId, productId, externalProductId, label, syncStatus |
+| `channel_product_changelog` | id, channelId, channelProductId, externalProductId, delta (JSONB), status, errorLine |
 | `companies` | id, userId, name, type (supplier/customer/both), email, phone |
-| `products` | id, userId, name, sku, description, category, attributes (JSONB), reorderLevel, stockQuantity, **reservedQuantity** |
-| `purchase_invoices` | id, userId, supplierId, status, totalAmount (Decimal 12,2) |
+| `products` | id, name, sku, description, category, attributes (JSONB), unit, purchasePrice, sellingPrice, reorderLevel, quantityOnHand, **reservedQuantity**, isActive |
+| `purchase_invoices` | id, companyId, invoiceNumber, status, totalAmount (Decimal 12,2), createdBy |
 | `purchase_invoice_items` | id, invoiceId, productId, quantity, unitPrice (Decimal 12,2) |
-| `payments` | id, userId, invoiceId, amount (Decimal 12,2), paidAt |
-| `inventory_transactions` | id, userId, productId, quantity (±), type, referenceId |
-| `agent_actions` | id, userId, agentType, status, plan (JSONB), rationale, toolCalls (JSONB), resolvedBy |
-| `settings` | id, userId, key, value |
-| `sales_orders` | id, userId, channelId, externalOrderId, status, **previousStatus**, buyerName, totalAmount, **stockProcessed**, **returnDisposition**, **returnNotes** |
-| `sales_order_items` | id, orderId, productId, sku, quantity, unitPrice, **returnQuantity**, **returnDisposition** |
-| **`stock_reservations`** | id, userId, orderId, orderItemId, productId, quantity, status (active/committed/released), createdAt |
+| `payments` | id, invoiceId, amount (Decimal 12,2), paymentDate, paymentMode, createdBy |
+| `inventory_transactions` | id, productId, type, quantity (±), referenceType, referenceId, notes, createdBy |
+| `agent_actions` | id, agentType, status, plan (JSONB), rationale, toolCalls (JSONB), resolvedBy |
+| `settings` | id, key, value (JSONB) — global, no userId |
+| `sales_orders` | id, channelId, externalOrderId, status, **previousStatus**, buyerName, totalAmount, purchasedAt, **stockProcessed**, **returnDisposition**, **returnNotes** |
+| `sales_order_items` | id, orderId, externalItemId, productId, sku, title, quantity, price, **returnQuantity**, **returnDisposition** |
+| **`stock_reservations`** | id, orderId, orderItemId, productId, quantity, status (active/committed/released), createdAt, resolvedAt |
 
 ## Migrations
 

@@ -89,3 +89,5 @@ This section records the exact technical answers provided to Amazon for the audi
 ## 🔗 Official References
 - [Amazon SP-API Data Protection Policy](https://developer-docs.amazon.com/sp-api/docs/data-protection-policy)
 - [Acceptable Use Policy](https://developer-docs.amazon.com/sp-api/docs/acceptable-use-policy)
+
+If denied, additional information about implementing select requirements can be found through our Technical Papers: https://developer-docs.amazon.com/sp-api/docs/technical-papers

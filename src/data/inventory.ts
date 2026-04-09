@@ -44,6 +44,7 @@ export async function getRecentInventoryTransactions() {
       type: inventoryTransactions.type,
       quantity: inventoryTransactions.quantity,
       referenceType: inventoryTransactions.referenceType,
+      referenceId: inventoryTransactions.referenceId,
       notes: inventoryTransactions.notes,
       createdAt: inventoryTransactions.createdAt,
       productName: products.name,

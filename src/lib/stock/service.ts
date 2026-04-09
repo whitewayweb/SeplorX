@@ -10,6 +10,18 @@ import { and, eq } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import type { SalesOrderStatus } from "@/db/schema";
 
+// ─── Stock Cutoff ─────────────────────────────────────────────────────────────
+
+/**
+ * Orders before this date are imported for history but do NOT create stock
+ * reservations or deductions. Stock was manually baselined on 4 Apr 2026,
+ * so only orders from 5 Apr 2026 UTC onwards should affect inventory.
+ *
+ * Used by all channel handlers (WooCommerce, Amazon, etc.) when calling
+ * processOrderStockChange() after fetching orders.
+ */
+export const STOCK_CUTOFF_DATE = new Date("2026-04-05T00:00:00Z");
+
 // ─── Status Groups ────────────────────────────────────────────────────────────
 
 /** Statuses where stock is reserved (order is active but not yet delivered) */

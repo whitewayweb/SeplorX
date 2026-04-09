@@ -29,6 +29,10 @@ export const dynamic = "force-dynamic";
 const TRANSACTION_TYPE_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
   purchase_in: { label: "Purchase In", variant: "default" },
   sale_out: { label: "Sale Out", variant: "destructive" },
+  sale_reserve: { label: "Reserved", variant: "outline" },
+  sale_cancel: { label: "Released", variant: "secondary" },
+  return_restock: { label: "Restocked", variant: "default" },
+  return_discard: { label: "Discarded", variant: "secondary" },
   adjustment: { label: "Adjustment", variant: "secondary" },
   return: { label: "Return", variant: "outline" },
 };
@@ -233,8 +237,20 @@ export default async function InventoryPage() {
                         <TableCell className="text-sm text-muted-foreground">
                           {txn.referenceType ?? "—"}
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground max-w-48 truncate">
-                          {txn.notes ?? "—"}
+                        <TableCell className="text-sm text-muted-foreground">
+                          {txn.referenceType === "sales_order" && txn.referenceId ? (
+                            <span>
+                              {txn.notes?.replace(/order #\d+/, "").trim()}{" "}
+                              <Link
+                                href={`/orders/${txn.referenceId}`}
+                                className="text-primary hover:underline"
+                              >
+                                order #{txn.referenceId}
+                              </Link>
+                            </span>
+                          ) : (
+                            txn.notes ?? "—"
+                          )}
                         </TableCell>
                       </TableRow>
                     );

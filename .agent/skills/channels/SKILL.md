@@ -220,14 +220,18 @@ parseWebhookOrder(body: string, signature: string, secret: string): WebhookOrder
 If the channel supports pulling orders via API, implement `fetchAndSaveOrders(userId, channelId)`.
 1. Fetch recent orders via the channel's REST/GraphQL API. Use `getLastOrderDate(channelId)` from your `queries.ts` to only fetch new orders.
 2. Transform and insert into `salesOrders` and `salesOrderItems`.
-3. **After each new order is saved**, call `processOrderStockChange()` to create stock reservations:
+3. **After each new order is saved**, call `processOrderStockChange()` to create stock reservations — **gated by `STOCK_CUTOFF_DATE`**:
 
 ```typescript
-const { processOrderStockChange } = await import("@/lib/stock/service");
-await processOrderStockChange(savedOrder.id, savedOrder.status, null, userId);
+const { processOrderStockChange, STOCK_CUTOFF_DATE } = await import("@/lib/stock/service");
+if (savedOrder.purchasedAt && savedOrder.purchasedAt >= STOCK_CUTOFF_DATE) {
+  await processOrderStockChange(savedOrder.id, savedOrder.status, null, userId);
+}
 ```
 
 This is non-fatal — wrap in try/catch so order saving succeeds even if stock processing fails.
+
+4. **Retroactive mapping pass**: After all orders are saved, query `salesOrderItems` where `productId IS NULL` for the channel. Re-attempt mapping via `channelProductMappings` and SKU fallback. When a product is successfully matched, also call `processOrderStockChange()` for that order (with the same `STOCK_CUTOFF_DATE` gate and `stockProcessed` guard).
 
 ## Step 10 — Stock Management Integration
 
@@ -241,8 +245,10 @@ cancelled/refunded/failed → release reservation
 returned → mark for inspection → admin restocks or discards
 ```
 
+**Stock cutoff date:** `STOCK_CUTOFF_DATE` (exported from `src/lib/stock/service.ts`) gates all order-driven stock processing. Orders before this date are imported for history but do NOT create reservations or deductions. This protects manually baselined stock and is shared across all channel handlers.
+
 **Key files:**
-- `src/lib/stock/service.ts` — `processOrderStockChange()`, `processReturnItem()`
+- `src/lib/stock/service.ts` — `processOrderStockChange()`, `processReturnItem()`, `STOCK_CUTOFF_DATE`
 - `src/data/stock.ts` — DAL queries (available qty, reservations, returns awaiting action)
 - `src/db/schema.ts` — `stock_reservations` table, `reservedQuantity` on products
 
@@ -282,6 +288,8 @@ if (!channel) notFound();  // 404 for both missing AND unauthorized
 | `src/lib/stock/service.ts` | Stock state machine — `processOrderStockChange()`, `processReturnItem()` |
 | `src/data/stock.ts` | Stock DAL — `getAvailableQuantity()`, `getReservationsForOrder()` |
 | `src/lib/channels/queries.ts` | Shared DAL — `getChannelForUser`, `upsertChannelProducts` |
+| `src/lib/channels/{id}/queries.ts` | Channel-local DAL — `extractSqlField`, `getLastOrderDate`, `getBrands` |
+| `src/data/inventory.ts` | Inventory DAL — `getRecentInventoryTransactions`, stock value, low stock |
 | `public/channels/{id}.svg` | **Add this** — channel icon |
 
 ## Common Mistakes to Avoid

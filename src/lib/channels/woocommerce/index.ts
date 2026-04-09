@@ -658,16 +658,17 @@ export const woocommerceHandler: ChannelHandler = {
           });
 
           // Process stock for this newly saved order
+          // Only process stock for orders from 5 Apr 2026 onwards
+          // (stock was manually set on 4 Apr 2026 as the baseline)
           try {
-            const { processOrderStockChange } = await import("@/lib/stock/service");
-            // Look up the order we just saved to get its ID
+            const { processOrderStockChange, STOCK_CUTOFF_DATE } = await import("@/lib/stock/service");
             const [savedOrder] = await db
-              .select({ id: salesOrders.id, status: salesOrders.status })
+              .select({ id: salesOrders.id, status: salesOrders.status, purchasedAt: salesOrders.purchasedAt })
               .from(salesOrders)
               .where(and(eq(salesOrders.channelId, channelId), eq(salesOrders.externalOrderId, externalOrderId)))
               .limit(1);
 
-            if (savedOrder) {
+            if (savedOrder && savedOrder.purchasedAt && savedOrder.purchasedAt >= STOCK_CUTOFF_DATE) {
               await processOrderStockChange(
                 savedOrder.id,
                 savedOrder.status,
@@ -692,8 +693,9 @@ export const woocommerceHandler: ChannelHandler = {
       const pendingItems = await db
         .select({
           id: salesOrderItems.id,
+          orderId: salesOrderItems.orderId,
           sku: salesOrderItems.sku,
-          rawData: salesOrderItems.rawData
+          rawData: salesOrderItems.rawData,
         })
         .from(salesOrderItems)
         .innerJoin(salesOrders, eq(salesOrderItems.orderId, salesOrders.id))
@@ -745,6 +747,27 @@ export const woocommerceHandler: ChannelHandler = {
             .update(salesOrderItems)
             .set({ productId: matchedProductId })
             .where(eq(salesOrderItems.id, item.id));
+
+          // Process stock for retroactively mapped orders (date-gated)
+          try {
+            const [order] = await db
+              .select({
+                id: salesOrders.id,
+                status: salesOrders.status,
+                purchasedAt: salesOrders.purchasedAt,
+                stockProcessed: salesOrders.stockProcessed,
+              })
+              .from(salesOrders)
+              .where(eq(salesOrders.id, item.orderId))
+              .limit(1);
+
+            const { STOCK_CUTOFF_DATE, processOrderStockChange } = await import("@/lib/stock/service");
+            if (order && !order.stockProcessed && order.purchasedAt && order.purchasedAt >= STOCK_CUTOFF_DATE) {
+              await processOrderStockChange(order.id, order.status, null, userId);
+            }
+          } catch (stockErr) {
+            console.error(`[WooCommerce Sync] Retroactive stock failed for item ${item.id}:`, stockErr);
+          }
         }
       }
     } catch (err) {
