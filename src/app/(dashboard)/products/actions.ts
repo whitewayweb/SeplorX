@@ -34,6 +34,8 @@ export type ChannelProductWithState = ExternalProduct & {
   | { kind: "mapped_other"; productId: number; productName: string };
 };
 import { getAuthenticatedUserId } from "@/lib/auth";
+import { triggerChannelSync } from "@/lib/stock/service";
+
 
 export async function createProduct(_prevState: unknown, formData: FormData) {
   const rawAttrs = formData.get("attributes");
@@ -154,10 +156,7 @@ export async function updateProduct(_prevState: unknown, formData: FormData) {
 
       // Flag all channel mappings for this product as pending_update
       // so the Amazon Uploads dashboard picks them up for template generation.
-      await tx
-        .update(channelProductMappings)
-        .set({ syncStatus: "pending_update" })
-        .where(eq(channelProductMappings.productId, id));
+      await triggerChannelSync(id, tx);
     });
   } catch (err) {
     const message = String(err);

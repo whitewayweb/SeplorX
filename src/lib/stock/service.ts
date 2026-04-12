@@ -1,4 +1,4 @@
-import { db } from "@/db";
+import { db, type QueryClient, type TxClient } from "@/db";
 import {
   products,
   salesOrders,
@@ -7,13 +7,13 @@ import {
   stockReservations,
   channelProductMappings,
 } from "@/db/schema";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, notInArray, sql } from "drizzle-orm";
 
 /**
  * Marks all channel mappings for a product as 'pending_update'.
  * This ensures that the next feed sync will propagate the new stock level.
  */
-export async function triggerChannelSync(productId: number, tx?: any): Promise<void> {
+export async function triggerChannelSync(productId: number, tx?: QueryClient): Promise<void> {
   const runner = tx || db;
   await runner
     .update(channelProductMappings)
@@ -109,7 +109,7 @@ export async function processOrderStockChange(
 
   // Transition: reserved → cancelled/refunded = release reservation
   if (wasReserved && isNowReleased) {
-    await releaseReservation(orderId, userId, "sale_cancel");
+    await releaseReservation(orderId, userId, newStatus === "cancelled" ? "sale_cancel" : "return");
     return;
   }
 
@@ -135,59 +135,58 @@ async function reserveStock(orderId: number, userId: number): Promise<void> {
   if (items.length === 0) return;
 
   await db.transaction(async (tx) => {
-    // 1. First, create reservations for any mapped items that don't have one yet
+    // 1. Process reservations and deltas for mapped items
     for (const item of items) {
       if (!item.productId || item.quantity <= 0) continue;
 
-      const [inserted] = await tx.insert(stockReservations).values({
-        orderId,
-        orderItemId: item.id,
-        productId: item.productId,
-        quantity: item.quantity,
-        status: "active",
-      }).onConflictDoNothing().returning({ id: stockReservations.id });
+      const [existing] = await tx
+        .select()
+        .from(stockReservations)
+        .where(and(eq(stockReservations.orderItemId, item.id), eq(stockReservations.status, "active")))
+        .limit(1);
 
-      // If this was a NEW reservation, we need to update stock and ledger
-      if (inserted) {
-        // Aggregate for this specific transaction batch
-        await tx
-          .update(products)
-          .set({
-            reservedQuantity: sql`${products.reservedQuantity} + ${item.quantity}`,
-            updatedAt: new Date(),
-          })
-          .where(eq(products.id, item.productId));
-
-        await tx.insert(inventoryTransactions).values({
-          productId: item.productId,
-          type: "sale_reserve",
-          quantity: -item.quantity,
-          referenceType: "sales_order",
-          referenceId: orderId,
-          createdBy: userId,
-          notes: `Stock reserved for order #${orderId}`,
-        });
-        
-        await triggerChannelSync(item.productId, tx);
+      if (!existing) {
+        await tx.insert(stockReservations).values({ orderId, orderItemId: item.id, productId: item.productId, quantity: item.quantity, status: "active" });
+        await adjustReservedStock(tx, item.productId, item.quantity, orderId, userId, "sale_reserve", `Stock reserved for order #${orderId}`);
+      } else if (existing.quantity !== item.quantity) {
+        const delta = item.quantity - existing.quantity;
+        await tx.update(stockReservations).set({ quantity: item.quantity }).where(eq(stockReservations.id, existing.id));
+        await adjustReservedStock(tx, item.productId, delta, orderId, userId, "sale_reserve", `Reservation adjusted (delta: ${delta > 0 ? "+" : ""}${delta}) — order #${orderId}`);
       }
     }
 
-    // 2. Check if the order is now FULLY processed
-    // Fetch all items (including unmapped ones) to see if anything is left out
-    const allItems = await tx
-      .select({ productId: salesOrderItems.productId })
-      .from(salesOrderItems)
-      .where(eq(salesOrderItems.orderId, orderId));
+    // 2. Handle ORPHANED reservations (items removed from the order)
+    const orphans = await tx
+      .select()
+      .from(stockReservations)
+      .where(and(eq(stockReservations.orderId, orderId), eq(stockReservations.status, "active"), notInArray(stockReservations.orderItemId, items.map(i => i.id))));
 
-    const isFullyMapped = allItems.every((it) => it.productId !== null);
+    for (const res of orphans) {
+      await tx.update(stockReservations).set({ status: "released", resolvedAt: new Date() }).where(eq(stockReservations.id, res.id));
+      await adjustReservedStock(tx, res.productId, -res.quantity, orderId, userId, "sale_cancel", `Item removed from order #${orderId} — stock released`);
+    }
 
-    if (isFullyMapped) {
-      await tx
-        .update(salesOrders)
-        .set({ stockProcessed: true })
-        .where(eq(salesOrders.id, orderId));
+    // 3. Finalize stockProcessed
+    const allItems = await tx.select({ productId: salesOrderItems.productId }).from(salesOrderItems).where(eq(salesOrderItems.orderId, orderId));
+    if (allItems.every(it => it.productId)) {
+      await tx.update(salesOrders).set({ stockProcessed: true }).where(eq(salesOrders.id, orderId));
     }
   });
+}
+
+/** Internal helper for reserved stock adjustments */
+async function adjustReservedStock(
+  tx: TxClient,
+  productId: number,
+  delta: number,
+  refId: number,
+  userId: number,
+  type: "sale_reserve" | "sale_cancel" | "return",
+  notes: string,
+) {
+  await tx.update(products).set({ reservedQuantity: sql`${products.reservedQuantity} + ${delta}`, updatedAt: new Date() }).where(eq(products.id, productId));
+  await tx.insert(inventoryTransactions).values({ productId, type, quantity: -delta, referenceType: "sales_order", referenceId: refId, createdBy: userId, notes });
+  await triggerChannelSync(productId, tx);
 }
 
 /**

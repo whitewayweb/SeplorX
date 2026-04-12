@@ -194,9 +194,14 @@ export async function createInvoice(_prevState: unknown, formData: FormData) {
   return { success: true };
 }
 
-// ─── Update Invoice (header only, no line item changes) ──────────────────────
-
 export async function updateInvoice(_prevState: unknown, formData: FormData) {
+  let rawItems: unknown;
+  try {
+    rawItems = JSON.parse(formData.get("items") as string);
+  } catch {
+    return { error: "Invalid line items data." };
+  }
+
   const parsed = UpdateInvoiceSchema.safeParse({
     id: formData.get("id"),
     invoiceNumber: formData.get("invoiceNumber"),
@@ -205,6 +210,7 @@ export async function updateInvoice(_prevState: unknown, formData: FormData) {
     status: formData.get("status"),
     discountAmount: formData.get("discountAmount"),
     notes: formData.get("notes"),
+    items: rawItems,
   });
 
   if (!parsed.success) {
@@ -214,50 +220,83 @@ export async function updateInvoice(_prevState: unknown, formData: FormData) {
     };
   }
 
-  const { id, dueDate, notes, discountAmount, ...data } = parsed.data;
+  const { id, items, discountAmount, dueDate, notes, ...invoiceData } = parsed.data;
+  const newTotals = computeInvoiceTotals(items, discountAmount);
 
   try {
-    const existing = await db
-      .select({ id: purchaseInvoices.id, subtotal: purchaseInvoices.subtotal, taxAmount: purchaseInvoices.taxAmount })
-      .from(purchaseInvoices)
-      .where(eq(purchaseInvoices.id, id))
-      .limit(1);
+    const userId = await getAuthenticatedUserId();
+    await db.transaction(async (tx) => {
+      // 1. Get old items for delta calculation
+      const oldItems = await getInvoiceLineItems(id, tx);
+      const oldInvoice = await getInvoiceDetails(id, tx);
+      
+      if (!oldInvoice) throw new Error("INVOICE_NOT_FOUND");
 
-    if (existing.length === 0) {
-      return { error: "Invoice not found." };
-    }
+      // 2. Calculate Delta per Product
+      const productDelta = new Map<number, number>();
+      
+      const applyImpact = (pId: number, qty: number, mult: number) => 
+        productDelta.set(pId, (productDelta.get(pId) || 0) + (qty * mult));
 
-    // Recalculate total with new discount
-    const subtotal = parseFloat(existing[0].subtotal);
-    const taxAmount = parseFloat(existing[0].taxAmount);
-    const newTotal = Math.max(0, subtotal + taxAmount - discountAmount);
+      if (oldInvoice.status !== "draft" && oldInvoice.status !== "cancelled")
+        oldItems.forEach(i => i.productId && applyImpact(i.productId, Math.floor(parseFloat(i.quantity)), -1));
 
-    await db
-      .update(purchaseInvoices)
-      .set({
-        ...data,
-        dueDate: dueDate || null,
-        notes: notes || null,
-        discountAmount: String(discountAmount),
-        totalAmount: newTotal.toFixed(2),
-        updatedAt: new Date(),
-      })
-      .where(eq(purchaseInvoices.id, id));
+      if (invoiceData.status !== "draft" && invoiceData.status !== "cancelled")
+        items.forEach(i => i.productId && applyImpact(i.productId, Math.floor(i.quantity), 1));
+
+      // 3. Apply deltas
+      for (const [productId, delta] of productDelta.entries()) {
+        if (delta === 0) continue;
+        await tx.update(products).set({ quantityOnHand: sql`${products.quantityOnHand} + ${delta}`, updatedAt: new Date() }).where(eq(products.id, productId));
+        await tx.insert(inventoryTransactions).values({ productId, type: "adjustment", quantity: delta, referenceType: "purchase_invoice", referenceId: id, createdBy: userId, notes: `Updated Invoice #${invoiceData.invoiceNumber}` });
+        await triggerChannelSync(productId, tx);
+      }
+
+      // 4. Replace line items
+      await tx.delete(purchaseInvoiceItems).where(eq(purchaseInvoiceItems.invoiceId, id));
+      
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const itemTotals = computeItemTotals(item);
+
+        await tx.insert(purchaseInvoiceItems).values({
+          invoiceId: id,
+          productId: item.productId,
+          description: item.description,
+          quantity: String(item.quantity),
+          unitPrice: String(item.unitPrice),
+          taxPercent: String(item.taxPercent),
+          taxAmount: itemTotals.taxAmount,
+          totalAmount: itemTotals.totalAmount,
+          sortOrder: i,
+        });
+      }
+
+      // 5. Update header
+      await tx
+        .update(purchaseInvoices)
+        .set({
+          ...invoiceData,
+          dueDate: dueDate || null,
+          notes: notes || null,
+          discountAmount: String(discountAmount),
+          subtotal: newTotals.subtotal,
+          taxAmount: newTotals.taxAmount,
+          totalAmount: newTotals.totalAmount,
+          updatedAt: new Date(),
+        })
+        .where(eq(purchaseInvoices.id, id));
+    });
   } catch (err) {
     console.error("[updateInvoice]", { invoiceId: id, error: String(err) });
-    if (
-      err &&
-      typeof err === "object" &&
-      "code" in err &&
-      err.code === "23505"
-    ) {
-      return { error: "An invoice with this number already exists for this company." };
-    }
+    if (err instanceof Error && err.message === "INVOICE_NOT_FOUND") return { error: "Invoice not found." };
     return { error: "Failed to update invoice. Please try again." };
   }
 
   revalidatePath("/invoices");
   revalidatePath(`/invoices/${id}`);
+  revalidatePath("/inventory");
+  revalidatePath("/products");
   return { success: true };
 }
 

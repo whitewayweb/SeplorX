@@ -37,6 +37,7 @@ export const UpdateInvoiceSchema = z.object({
   status: z.enum(invoiceStatuses),
   discountAmount: z.coerce.number().min(0, "Discount must be ≥ 0"),
   notes: z.string().trim().optional().or(z.literal("")),
+  items: z.array(LineItemSchema).min(1, "At least one line item is required"),
 });
 
 export const InvoiceIdSchema = z.object({
