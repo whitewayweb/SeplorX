@@ -6,8 +6,14 @@ import { nextCookies } from "better-auth/next-js";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
+import { env } from "@/lib/env";
 
 export const auth = betterAuth({
+    baseURL: env.BETTER_AUTH_URL,
+    trustedOrigins: [
+        env.BETTER_AUTH_URL,
+        "http://localhost:3000"
+    ],
     database: drizzleAdapter(db, {
         provider: "pg",
         schema: {
