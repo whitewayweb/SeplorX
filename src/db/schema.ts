@@ -505,6 +505,7 @@ export const stockReservations = pgTable("stock_reservations", {
   quantity: integer("quantity").notNull(),
   status: stockReservationStatusEnum("status").default("active").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
   resolvedAt: timestamp("resolved_at"),
 }, (table) => [
   uniqueIndex("stock_reservations_item_product_unique").on(table.orderItemId, table.productId),

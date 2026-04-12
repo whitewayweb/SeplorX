@@ -123,7 +123,7 @@ export async function createInvoice(_prevState: unknown, formData: FormData) {
           invoiceId: invoice.id,
           productId: item.productId,
           description: item.description,
-          quantity: String(item.quantity),
+          quantity: item.quantity,
           unitPrice: String(item.unitPrice),
           taxPercent: String(item.taxPercent),
           taxAmount: itemTotals.taxAmount,
@@ -137,17 +137,15 @@ export async function createInvoice(_prevState: unknown, formData: FormData) {
         const productTotals = new Map<number, number>();
         for (const item of items) {
           if (!item.productId || item.quantity <= 0) continue;
-          const qty = Math.floor(item.quantity);
-          if (qty > 0) {
-            productTotals.set(item.productId, (productTotals.get(item.productId) || 0) + qty);
-          }
+          const qty = item.quantity;
+          productTotals.set(item.productId, (productTotals.get(item.productId) || 0) + qty);
         }
 
         for (const [productId, quantity] of productTotals.entries()) {
           await tx
             .update(products)
             .set({
-              quantityOnHand: sql`${products.quantityOnHand} + ${quantity}`,
+              quantityOnHand: sql`GREATEST(0, ${products.quantityOnHand} + ${quantity})`,
               updatedAt: new Date(),
             })
             .where(eq(products.id, productId));
@@ -239,7 +237,7 @@ export async function updateInvoice(_prevState: unknown, formData: FormData) {
         productDelta.set(pId, (productDelta.get(pId) || 0) + (qty * mult));
 
       if (oldInvoice.status !== "draft" && oldInvoice.status !== "cancelled")
-        oldItems.forEach(i => i.productId && applyImpact(i.productId, parseInt(i.quantity), -1));
+        oldItems.forEach(i => i.productId && applyImpact(i.productId, i.quantity, -1));
 
       if (invoiceData.status !== "draft" && invoiceData.status !== "cancelled")
         items.forEach(i => i.productId && applyImpact(i.productId, i.quantity, 1));
@@ -263,7 +261,7 @@ export async function updateInvoice(_prevState: unknown, formData: FormData) {
           invoiceId: id,
           productId: item.productId,
           description: item.description,
-          quantity: String(item.quantity),
+          quantity: item.quantity,
           unitPrice: String(item.unitPrice),
           taxPercent: String(item.taxPercent),
           taxAmount: itemTotals.taxAmount,
@@ -334,14 +332,14 @@ export async function deleteInvoice(_prevState: unknown, formData: FormData) {
       // 3. If the invoice was Received/Partial/Paid, we must reverse the stock impact
       if (invoice.status !== "draft" && invoice.status !== "cancelled") {
         const userId = await getAuthenticatedUserId();
-        const items = await getInvoiceLineItems(id, tx);
+        const oldItems = await getInvoiceLineItems(id, tx);
         const productTotals = new Map<number, number>();
 
-        for (const item of items) {
-          if (item.productId) {
-            const qty = Math.floor(parseFloat(item.quantity));
+        for (const oldItem of oldItems) {
+          if (oldItem.productId) {
+            const qty = oldItem.quantity;
             if (qty > 0) {
-              productTotals.set(item.productId, (productTotals.get(item.productId) || 0) + qty);
+              productTotals.set(oldItem.productId, (productTotals.get(oldItem.productId) || 0) + qty);
             }
           }
         }
