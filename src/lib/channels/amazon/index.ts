@@ -173,7 +173,7 @@ export const amazonHandler: ChannelHandler = {
     // Determine fetch window: last order in DB minus 1 hour for safety, or fallback 90 days
     const lastOrderDate = await getLastOrderDate(channelId);
     const bufferMs = 60 * 60 * 1000; // 1 hour buffer for safety
-    const createdAfter = (
+    const lastUpdatedAfter = (
       lastOrderDate
         ? new Date(lastOrderDate.getTime() - bufferMs)
         : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
@@ -181,9 +181,9 @@ export const amazonHandler: ChannelHandler = {
 
     // Log the sync range for debugging
     console.log(
-      `[Amazon Sync] Syncing orders for channel ${channelId} from ${createdAfter}`,
+      `[Amazon Sync] Syncing orders updated after for channel ${channelId} from ${lastUpdatedAfter}`,
     );
-    const ordersGenerator = client.getOrdersPagedGenerator(createdAfter);
+    const ordersGenerator = client.getOrdersPagedGenerator(lastUpdatedAfter);
 
     let fetchedCount = 0;
     let savedCount = 0;

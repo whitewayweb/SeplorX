@@ -530,18 +530,18 @@ export const woocommerceHandler: ChannelHandler = {
 
     // Determine fetch window
     const lastOrderDate = await getLastOrderDate(channelId);
-    let afterParam = "";
+    let modifiedAfterParam = "";
     if (lastOrderDate) {
       // 1 hour buffer for safety
       const bufferDate = new Date(lastOrderDate.getTime() - 60 * 60 * 1000);
-      afterParam = `&after=${bufferDate.toISOString()}`;
+      modifiedAfterParam = `&modified_after=${bufferDate.toISOString()}`;
     } else {
       // Fallback 90 days
       const fallbackDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
-      afterParam = `&after=${fallbackDate.toISOString()}`;
+      modifiedAfterParam = `&modified_after=${fallbackDate.toISOString()}`;
     }
 
-    console.log(`[WooCommerce Sync] Syncing orders for channel ${channelId} with ${afterParam}`);
+    console.log(`[WooCommerce Sync] Syncing orders modified after for channel ${channelId} with ${modifiedAfterParam}`);
 
     let fetchedCount = 0;
     let savedCount = 0;
@@ -549,7 +549,7 @@ export const woocommerceHandler: ChannelHandler = {
     let totalPages = 1;
 
     do {
-      const res = await wcFetch(channel.storeUrl, `/orders?per_page=100&page=${page}${afterParam}`, {
+      const res = await wcFetch(channel.storeUrl, `/orders?per_page=100&page=${page}${modifiedAfterParam}`, {
         method: "GET",
         headers: { Authorization: auth },
       });

@@ -1072,14 +1072,14 @@ export class AmazonAPIClient {
    * API: /orders/v0/orders (getOrders)
    */
   public async *getOrdersPagedGenerator(
-    createdAfter?: string,
+    lastUpdatedAfter?: string,
   ): AsyncGenerator<
     NonNullable<OrdersV0Schema["GetOrdersResponse"]["payload"]>["Orders"]
   > {
     const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}/orders/v0/orders`);
     url.searchParams.set("MarketplaceIds", this.marketplaceId);
-    if (createdAfter) url.searchParams.set("CreatedAfter", createdAfter);
+    if (lastUpdatedAfter) url.searchParams.set("LastUpdatedAfter", lastUpdatedAfter);
 
     let nextToken: string | undefined = undefined;
 
@@ -1116,9 +1116,9 @@ export class AmazonAPIClient {
    * Fetch all orders by accumulating pages (legacy wrapper, use getOrdersPagedGenerator when possible).
    */
   public async getOrders(
-    createdAfter?: string,
+    lastUpdatedAfter?: string,
   ): Promise<OrdersV0Schema["GetOrdersResponse"]["payload"]> {
-    const generator = this.getOrdersPagedGenerator(createdAfter);
+    const generator = this.getOrdersPagedGenerator(lastUpdatedAfter);
     let allOrders: NonNullable<
       OrdersV0Schema["GetOrdersResponse"]["payload"]
     >["Orders"] = [];
