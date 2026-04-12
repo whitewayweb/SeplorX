@@ -365,18 +365,12 @@ export async function getCatalogItemService(
     .limit(1);
 
   const sku = existingProduct[0]?.sku || undefined;
-  const rawData = existingProduct[0]?.rawData as
-    | Record<string, unknown>
-    | undefined;
-  const fulfillmentChannel =
-    (rawData?.["fulfillment-channel"] as string) || undefined;
 
   const product = await handler.getCatalogItem(
     channel.storeUrl,
     decryptedCreds,
     asin,
     sku,
-    fulfillmentChannel,
   );
 
   // ── Extract and map child AND parent variations ─────────────────────────

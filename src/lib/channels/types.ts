@@ -284,7 +284,6 @@ export interface ChannelHandler {
     credentials: Record<string, string>,
     externalId: string,
     sku?: string,
-    fulfillmentChannel?: string,
   ): Promise<ExternalProduct>;
 
   /**

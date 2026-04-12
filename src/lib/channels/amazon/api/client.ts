@@ -109,7 +109,6 @@ export class AmazonAPIClient {
   public async getCatalogItem(
     asin: string,
     sku?: string,
-    fulfillmentChannel?: string,
   ): Promise<ExternalProduct> {
     if (!asin || typeof asin !== "string") {
       throw new Error("A valid ASIN is required.");

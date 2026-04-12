@@ -569,20 +569,82 @@ export const woocommerceHandler: ChannelHandler = {
         const externalOrderId = String(wcOrder.id);
 
         try {
-          // Pre-check out of tx
+          // Pre-check for existing order
           const [existing] = await db
-            .select({ id: salesOrders.id })
+            .select({
+              id: salesOrders.id,
+              status: salesOrders.status,
+              purchasedAt: salesOrders.purchasedAt,
+              rawData: salesOrders.rawData,
+            })
             .from(salesOrders)
-            .where(and(eq(salesOrders.channelId, channelId), eq(salesOrders.externalOrderId, externalOrderId)))
+            .where(
+              and(
+                eq(salesOrders.channelId, channelId),
+                eq(salesOrders.externalOrderId, externalOrderId),
+              ),
+            )
             .limit(1);
 
-          if (existing) continue;
+          if (existing) {
+            const newStatus = mapWooCommerceStatus(wcOrder.status);
+
+            // If status changed, update and process stock
+            if (existing.status !== newStatus) {
+              const mergedRawData = {
+                ...(existing.rawData as Record<string, unknown> || {}),
+                lastWcUpdate: wcOrder,
+              };
+
+              await db
+                .update(salesOrders)
+                .set({
+                  status: newStatus,
+                  previousStatus: existing.status,
+                  rawData: mergedRawData,
+                  syncedAt: new Date(),
+                })
+                .where(eq(salesOrders.id, existing.id));
+
+              // Trigger stock transition (date-gated)
+              try {
+                const {
+                  processOrderStockChange,
+                  STOCK_CUTOFF_DATE,
+                } = await import("@/lib/stock/service");
+                if (
+                  existing.purchasedAt &&
+                  existing.purchasedAt >= STOCK_CUTOFF_DATE
+                ) {
+                  await processOrderStockChange(
+                    existing.id,
+                    newStatus,
+                    existing.status,
+                    userId,
+                  );
+                }
+              } catch (stockErr) {
+                console.error(
+                  `[WooCommerce Sync] Stock processing failed for status update on order ${externalOrderId}:`,
+                  stockErr,
+                );
+              }
+              savedCount++;
+            }
+            continue;
+          }
 
           await db.transaction(async (tx) => {
+            // Final safety check inside transaction
             const [insideExisting] = await tx
               .select({ id: salesOrders.id })
               .from(salesOrders)
-              .where(and(eq(salesOrders.channelId, channelId), eq(salesOrders.externalOrderId, externalOrderId)))
+              .where(
+                and(
+                  eq(salesOrders.channelId, channelId),
+                  eq(salesOrders.externalOrderId, externalOrderId),
+                ),
+              )
               .limit(1);
 
             if (insideExisting) return;

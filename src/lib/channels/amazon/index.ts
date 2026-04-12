@@ -47,20 +47,10 @@ export const amazonHandler: ChannelHandler = {
     return await client.fetchProducts(search);
   },
 
-  async getCatalogItem(storeUrl, credentials, asin, sku, fulfillmentChannel) {
-    if (
-      !credentials.marketplaceId ||
-      !credentials.clientId ||
-      !credentials.clientSecret ||
-      !credentials.refreshToken
-    ) {
-      throw new Error(
-        "Missing required Amazon credentials (marketplaceId, clientId, clientSecret, refreshToken)",
-      );
-    }
-
+  async getCatalogItem(storeUrl, credentials, asin, sku) {
+    const { AmazonAPIClient } = await import("./api/client");
     const client = new AmazonAPIClient(credentials, storeUrl);
-    return await client.getCatalogItem(asin, sku, fulfillmentChannel);
+    return await client.getCatalogItem(asin, sku);
   },
 
   async pushStock(
@@ -204,8 +194,14 @@ export const amazonHandler: ChannelHandler = {
       for (const amzOrder of pageOrders) {
         try {
           // 1. Pre-check if order already exists (out of tx to save connection)
+          // 1. Pre-check for existing order
           const [existing] = await db
-            .select({ id: salesOrders.id })
+            .select({
+              id: salesOrders.id,
+              status: salesOrders.status,
+              purchasedAt: salesOrders.purchasedAt,
+              rawData: salesOrders.rawData,
+            })
             .from(salesOrders)
             .where(
               and(
@@ -216,6 +212,50 @@ export const amazonHandler: ChannelHandler = {
             .limit(1);
 
           if (existing) {
+            const newStatus = mapAmazonStatus(amzOrder.OrderStatus);
+
+            // If status changed, update and process stock
+            if (existing.status !== newStatus) {
+              const mergedRawData = {
+                ...(existing.rawData as Record<string, unknown> || {}),
+                lastAmzUpdate: amzOrder,
+              };
+
+              await db
+                .update(salesOrders)
+                .set({
+                  status: newStatus,
+                  previousStatus: existing.status,
+                  rawData: mergedRawData,
+                  syncedAt: new Date(),
+                })
+                .where(eq(salesOrders.id, existing.id));
+
+              // Trigger stock transition (date-gated)
+              try {
+                const {
+                  processOrderStockChange,
+                  STOCK_CUTOFF_DATE,
+                } = await import("@/lib/stock/service");
+                if (
+                  existing.purchasedAt &&
+                  existing.purchasedAt >= STOCK_CUTOFF_DATE
+                ) {
+                  await processOrderStockChange(
+                    existing.id,
+                    newStatus,
+                    existing.status,
+                    userId,
+                  );
+                }
+              } catch (stockErr) {
+                console.error(
+                  `[Amazon Sync] Stock processing failed for status update on order ${amzOrder.AmazonOrderId}:`,
+                  stockErr,
+                );
+              }
+              savedCount++;
+            }
             continue;
           }
 

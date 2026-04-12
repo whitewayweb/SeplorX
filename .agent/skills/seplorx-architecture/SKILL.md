@@ -134,6 +134,16 @@ To provide a responsive search experience without overloading the database:
 | `src/lib/env.ts` | Environment variable validation |
 | `src/lib/crypto.ts` | AES-256-GCM encrypt/decrypt |
 
+## TypeScript & Typing Rules (Mandatory)
+
+To ensure long-term maintainability and prevent CI/CD failures (e.g., exit code 1 in `yarn fix`):
+
+1. **NEVER use `any`**: The use of `any` is strictly forbidden. All code MUST use proper types or `unknown` with narrowing.
+2. **Type-Safe External Data**: 
+   - For JSONB columns (`rawData`, `credentials`), cast to `Record<string, unknown>` or use a specific interface/Zod schema.
+3. **DAL Purity**: DAL functions in `src/data/*.ts` should have explicit return types.
+4. **Generated Types**: Always prioritize types from `api/types/` for Amazon/WooCommerce payloads over manual interfaces.
+
 ## AI Agent Instructions (Mandatory Reconnaissance)
 
 To prevent hallucinations, redundant files, and ignored typings, **all AI agents MUST follow these reconnaissance steps before writing code:**
@@ -141,3 +151,5 @@ To prevent hallucinations, redundant files, and ignored typings, **all AI agents
 1. **Directory Reconnaissance**: Before creating *any* new file, run `list_dir` on the target directory. If a file serving a similar purpose exists (e.g., `queries.ts`), integrate the new code into the existing file instead of creating a new one.
 2. **Type Discovery (Generated APIs)**: Before writing manual TypeScript interfaces for external API payloads or DB schemas, search the codebase (via `grep_search` or `list_dir`) for existing generated types (e.g., `ordersV0Schema.ts`). Always use official generated types from `api/types/`.
 3. **No Speculative Abstractions**: Do not create wrappers or types just "to make it easier." Use exactly what's provided.
+4. **No 'any' Type**: Absolutely never use the `any` keyword. Use `unknown` or define a proper interface if the type is not yet known.
+
