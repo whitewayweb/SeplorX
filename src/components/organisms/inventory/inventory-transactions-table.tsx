@@ -1,4 +1,8 @@
+"use client";
+
 import Link from "next/link";
+import { useState } from "react";
+import { Search } from "lucide-react";
 
 // ─── Type Config ──────────────────────────────────────────────────────────────
 
@@ -82,6 +86,20 @@ export function InventoryTransactionsTable({
   transactions,
   showProduct = false,
 }: InventoryTransactionsTableProps) {
+  const [search, setSearch] = useState("");
+
+  const filtered = transactions.filter((txn) => {
+    if (!search) return true;
+    const query = search.toLowerCase();
+    return (
+      txn.notes?.toLowerCase().includes(query) ||
+      txn.productName?.toLowerCase().includes(query) ||
+      txn.referenceType?.toLowerCase().includes(query) ||
+      txn.referenceId?.toString().includes(query) ||
+      txn.type.toLowerCase().includes(query)
+    );
+  });
+
   if (transactions.length === 0) {
     return (
       <p className="text-sm text-muted-foreground text-center py-6">
@@ -91,8 +109,21 @@ export function InventoryTransactionsTable({
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+    <div className="space-y-4">
+      {/* ── Search Bar ── */}
+      <div className="relative group max-w-sm">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+        <input
+          type="text"
+          placeholder="Filter ledger (e.g. order #, invoice, product)..."
+          className="w-full pl-9 pr-4 py-2 text-sm bg-muted/30 border border-border/40 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border border-border/40">
+        <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border/40 bg-muted/30">
             <th className="text-left px-5 py-2.5 text-xs font-semibold text-muted-foreground">
@@ -118,7 +149,7 @@ export function InventoryTransactionsTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-border/30">
-          {transactions.map((txn) => {
+          {filtered.map((txn) => {
             const cfg = TRANSACTION_TYPE_CONFIG[txn.type] ?? {
               label: txn.type,
               className:
@@ -188,6 +219,7 @@ export function InventoryTransactionsTable({
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

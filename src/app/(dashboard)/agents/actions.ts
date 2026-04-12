@@ -95,7 +95,7 @@ export async function approveReorderPlan(_prevState: unknown, formData: FormData
           invoiceId: invoice.id,
           productId: item.productId,
           description: item.productName,
-          quantity: String(item.quantity),
+          quantity: item.quantity,
           unitPrice: item.unitPrice,
           taxPercent: "0",
           taxAmount: "0",
@@ -128,7 +128,7 @@ export async function approveReorderPlan(_prevState: unknown, formData: FormData
 const OcrApprovalItemSchema = z.object({
   productId: z.coerce.number().int().positive("All items must be linked to a product"),
   description: z.string().trim().min(1),
-  quantity: z.coerce.number().positive(),
+  quantity: z.coerce.number().int().positive("All items must have a whole number quantity"),
   unitPrice: z.coerce.number().min(0),
   taxPercent: z.coerce.number().min(0).max(100),
 });
@@ -280,17 +280,11 @@ export async function approveOcrInvoice(_prevState: unknown, formData: FormData)
 
           for (const oldItem of oldItems) {
             if (oldItem.productId) {
-              const qty = parseFloat(oldItem.quantity);
+              const qty = oldItem.quantity;
               if (qty > 0) {
-                if (!Number.isInteger(qty)) {
-                  throw Object.assign(
-                    new Error(`Cannot reverse stock for product ID ${oldItem.productId} due to fractional quantity (${qty}).`),
-                    { userError: true },
-                  );
-                }
                 await tx
                   .update(products)
-                  .set({ quantityOnHand: sql`${products.quantityOnHand} - ${qty}`, updatedAt: new Date() })
+                  .set({ quantityOnHand: sql`GREATEST(0, ${products.quantityOnHand} - ${qty})`, updatedAt: new Date() })
                   .where(eq(products.id, oldItem.productId));
               }
             }
@@ -386,7 +380,7 @@ export async function approveOcrInvoice(_prevState: unknown, formData: FormData)
           invoiceId,
           productId: item.productId, // always non-null — validated by schema
           description: item.description,
-          quantity: String(item.quantity),
+          quantity: item.quantity,
           unitPrice: String(item.unitPrice),
           taxPercent: String(item.taxPercent),
           taxAmount: itemTotals.taxAmount,
@@ -405,7 +399,7 @@ export async function approveOcrInvoice(_prevState: unknown, formData: FormData)
 
           await tx
             .update(products)
-            .set({ quantityOnHand: sql`${products.quantityOnHand} + ${qty}`, updatedAt: new Date() })
+            .set({ quantityOnHand: sql`GREATEST(0, ${products.quantityOnHand} + ${qty})`, updatedAt: new Date() })
             .where(eq(products.id, item.productId));
 
           await tx.insert(inventoryTransactions).values({

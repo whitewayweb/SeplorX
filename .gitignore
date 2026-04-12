@@ -50,3 +50,4 @@ next-env.d.ts
 /src/lib/channels/amazon/category_product_upload_templates
 /src/db
 /.agent/skills/amazon-dpp-compliance/
+.agent/env.sh

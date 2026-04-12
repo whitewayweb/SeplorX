@@ -1,152 +1,18 @@
----
-name: seplorx-database
-description: >
-  SeplorX database schema, Drizzle ORM query patterns, and safe mutation conventions.
-  Use when writing database queries, adding migrations, working with JSONB columns,
-  defining new tables, or needing to understand the data model for products, orders,
-  channels, inventory, agents, or any other module.
-metadata:
-  author: SeplorX
-  version: "1.1"
----
+### 4. Inventory Ledger & Aggregation (MANDATORY)
+To prevent database bloat and ensure high-performance stock tracking:
+- **Write-side Aggregation**: Always aggregate quantities by `productId` before performing bulk database writes/updates.
+- **Atomic Updates**: Always use SQL expressions (e.g., `sql`${products.quantityOnHand} + delta``) rather than calculating values in Javascript to prevent race conditions.
+- **Delta-Logic**: When editing existing transactions (Invoices/Orders), calculate the "Delta" (New - Old) and only update the difference. Never reverse and re-add, as it creates ledger noise.
+- **Auto-Sync Trigger**: Every stock mutation MUST call `triggerChannelSync(productId)` to ensure external sales channels (Amazon/WooCommerce) stay updated.
+- **Audit Consistency**: Never delete inventory transactions for reversed events (like deleted invoices). Instead, append an "Adjustment" row to maintain a perfect audit trail.
 
-# SeplorX Database
-
-## Connection
-
-| Purpose | URL env var | Port |
-|---------|-------------|------|
-| App queries (pooled) | `POSTGRES_URL` | **6543** (PgBouncer transaction pooler) |
-| Migrations (direct) | `POSTGRES_URL_NON_POOLING` | **5432** (direct connection) |
-
-DB instance: `db` from `@/db`. Config: **`max: 10`** concurrent connections to support parallel dashboard queries.
-
-**Session Caching:** `getAuthenticatedSession` in `src/lib/auth/index.ts` is wrapped in React's `cache()`. This is critical because `max: 10` is still limited; memoizing the auth session prevents exhausting the pool with redundant auth checks on the same page.
-
-**Never point migrations at port 6543 — migrations need a direct connection.**
-
-## All Tables
-
-| Table | Key Columns |
-|-------|-------------|
-| `users` | id, email, name, created_at |
-| `sessions` | id, userId, token, expiresAt |
-| `app_installations` | id, userId, appId, status, config (JSONB encrypted) |
-| `channels` | id, userId, channelType, name, status, storeUrl, credentials (JSONB encrypted) |
-| `channel_products` | id, channelId, externalId, name, sku, stockQuantity, type, rawData (JSONB) |
-| `channel_product_mappings` | id, channelId, productId, externalProductId, label, syncStatus |
-| `channel_product_changelog` | id, channelId, channelProductId, externalProductId, delta (JSONB), status, errorLine |
-| `companies` | id, userId, name, type (supplier/customer/both), email, phone |
-| `products` | id, name, sku, description, category, attributes (JSONB), unit, purchasePrice, sellingPrice, reorderLevel, quantityOnHand, **reservedQuantity**, isActive |
-| `purchase_invoices` | id, companyId, invoiceNumber, status, totalAmount (Decimal 12,2), createdBy |
-| `purchase_invoice_items` | id, invoiceId, productId, quantity, unitPrice (Decimal 12,2) |
-| `payments` | id, invoiceId, amount (Decimal 12,2), paymentDate, paymentMode, createdBy |
-| `inventory_transactions` | id, productId, type, quantity (±), referenceType, referenceId, notes, createdBy |
-| `agent_actions` | id, agentType, status, plan (JSONB), rationale, toolCalls (JSONB), resolvedBy |
-| `settings` | id, key, value (JSONB) — global, no userId |
-| `sales_orders` | id, channelId, externalOrderId, status, **previousStatus**, buyerName, totalAmount, purchasedAt, **stockProcessed**, **returnDisposition**, **returnNotes** |
-| `sales_order_items` | id, orderId, externalItemId, productId, sku, title, quantity, price, **returnQuantity**, **returnDisposition** |
-| **`stock_reservations`** | id, orderId, orderItemId, productId, quantity, status (active/committed/released), createdAt, resolvedAt |
-
-## Migrations
-
-```bash
-yarn db:generate   # Generate new migration from schema changes
-yarn db:migrate    # Apply migrations (uses POSTGRES_URL_NON_POOLING port 5432)
-yarn db            # Generate + migrate in one step
-yarn db:studio     # Open Drizzle Studio GUI to inspect data
-```
-
-Migrations run automatically via GitHub Actions on every push to `main`. Vercel auto-deploys in parallel — schema is up to date by the time deployment goes live.
-
-## Rules for New Tables
-
-1. **RLS enabled on every table** — always chain `.enableRLS()`:
-   ```typescript
-   export const myTable = pgTable("my_table", { ... }).enableRLS();
-   ```
-2. **Money columns:** `decimal("amount", { precision: 12, scale: 2 })` — never `float` or `integer`
-3. **Quantities (stock):** `integer` columns
-4. **Timestamps:** `timestamp("created_at").defaultNow().notNull()`
-
-## Safe Query Patterns
-
-### Always use the Data Access Layer (DAL)
-All `db.select()` queries for reading data MUST be extracted into `src/data/<domain>.ts`. 
-- **Page Components**: Call DAL functions to fetch data.
-- **Why**: Reusability, cleaner pages, and easier testing.
-- **Stock Calculations**: Never calculate stock availability (onHand - reserved) or reservations directly inside a page. Always use functions from `src/data/stock.ts` (e.g., `getProductStockSummary`, `getAvailableQuantity`, `getReservationsForOrder`).
-
-### Always select explicit columns
-```typescript
-// ✅ Good
-db.select({ id: products.id, name: products.name }).from(products)
-
-// ❌ Bad
-db.select().from(products)  // fetches all columns incl. large JSONB blobs
-```
-
-### JSONB column access — extract only what you need
-```typescript
-// ✅ Good — extract single field
-db.select({
-  apiKey: sql<string>`${appInstallations.config}->>'apiKey'`,
-}).from(appInstallations)
-
-// ❌ Bad — fetches entire blob
-db.select({ config: appInstallations.config }).from(appInstallations)
-```
-
-### Scalable JSONB filtering for channel products
-Standard fields (`name`, `sku`, `stockQuantity`) are native top-level columns — query directly:
-```typescript
-where(eq(channelProducts.sku, "ABC123"))
-```
-
-For channel-specific JSONB fields (brand, category, price), delegate to `handler.extractSqlField(fieldName)` — the logic lives in `src/lib/channels/{channel_id}/queries.ts`.
-
-### Atomic updates (avoid read-then-write)
-```typescript
-// ✅ Good — atomic increment
-db.update(products).set({
-  stockQuantity: sql`${products.stockQuantity} + ${delta}`,
-})
-
-// ❌ Bad — race condition
-const current = await db.select(...);
-await db.update(...).set({ stockQuantity: current.stockQuantity + delta });
-```
-
-### Aggregating Inventory Transactions
-To prevent database bloat and keep order ledgers clean, inventory transactions for the same product within the same order MUST be aggregated during write.
-- **Process**: Group line items by `productId` before inserting into `inventory_transactions`.
-- **Implementation**: Handled centrally in `src/lib/stock/service.ts`.
-- **UI**: Display the consolidated quantity (`-3`) instead of individual rows (`-1`, `-1`, `-1`).
-
-### Safe upserts (prevent overwriting with empty strings)
-```typescript
-db.insert(channelProducts).values(data).onConflictDoUpdate({
-  target: channelProducts.externalId,
-  set: {
-    name: sql`COALESCE(NULLIF(EXCLUDED.name, ''), ${channelProducts.name})`,
-    sku: sql`COALESCE(NULLIF(EXCLUDED.sku, ''), ${channelProducts.sku})`,
-  },
-});
-```
-
-### Multi-step mutations — always use transactions
-```typescript
-await db.transaction(async (tx) => {
-  await tx.insert(purchaseInvoices).values(invoice);
-  await tx.insert(purchaseInvoiceItems).values(items);
-  // If either fails, both are rolled back
-});
-```
-
-### Data Integrity & Optimization
-1. **Aggregating Ledger Entries**: To prevent database bloat and keep order reports clean, inventory transactions for the same product within the same order MUST be aggregated during write (e.g., one `-3` row instead of three `-1` rows).
-2. **Deletions**: When deleting a record that has side effects (e.g., a Purchase Invoice), you MUST reverse those impacts (decrement stock, delete transactions) in the same transaction.
-3. **Atomic deletion**: Wrap the reversal and final deletion in a `db.transaction`.
+### 5. Agent Autonomy & Pilot Protocol (MANDATORY)
+To minimize "Pilot Load" for the user, all agents MUST:
+- **Environment Setup**: Immediately run `source .agent/env.sh` at the start of every session to ensure `yarn` and `node` are in the PATH.
+- **Lead, Don't Follow**: Proactively identify and fix architecture gaps (e.g., missing syncs, race conditions) instead of waiting for a bug report.
+- **Verify, Don't Assume**: Always perform a manual syntax and type audit of modified code. Always run `yarn lint --fix && yarn build` before declaring a task finished.
+- **Explain 'Why', Not 'What'**: Focus summaries on the business value and architectural hardening, not a line-by-line code log.
+- **Decisiveness**: Proceed through the roadmap autonomously. Only stop for definitive permission on destructive data migrations or major branding changes.
 
 ### Always scope queries by userId (IDOR prevention)
 ```typescript
@@ -155,34 +21,4 @@ where(and(eq(products.id, productId), eq(products.userId, userId)))
 
 // ❌ Bad — anyone could mutate another user's data
 where(eq(products.id, productId))
-```
-
-### DB error codes → user-friendly messages
-```typescript
-catch (err) {
-  if (err instanceof Error && "code" in err) {
-    if (err.code === "23505") return { error: "This item already exists." };
-    if (err.code === "23503") return { error: "Referenced record not found." };
-  }
-  throw err;
-}
-```
-
-## Batched Processing
-
-For large external API results (e.g. Amazon reports, bulk channel product syncs):
-```typescript
-const BATCH_SIZE = 100;
-for (let i = 0; i < items.length; i += BATCH_SIZE) {
-  const batch = items.slice(i, i + BATCH_SIZE);
-  await db.insert(channelProducts).values(batch).onConflictDoUpdate(...);
-}
-```
-
-## agent_actions Status Flow
-
-```
-pending_approval → approved → executed
-                → dismissed
-                → failed (set on agent error)
 ```

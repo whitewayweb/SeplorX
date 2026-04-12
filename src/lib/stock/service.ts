@@ -1,13 +1,26 @@
-import { db } from "@/db";
+import { db, type QueryClient, type TxClient } from "@/db";
 import {
   products,
   salesOrders,
   salesOrderItems,
   inventoryTransactions,
   stockReservations,
+  channelProductMappings,
 } from "@/db/schema";
-import { and, eq } from "drizzle-orm";
-import { sql } from "drizzle-orm";
+import { and, eq, notInArray, sql } from "drizzle-orm";
+
+/**
+ * Marks all channel mappings for a product as 'pending_update'.
+ * This ensures that the next feed sync will propagate the new stock level.
+ */
+export async function triggerChannelSync(productId: number, tx?: QueryClient): Promise<void> {
+  const runner = tx || db;
+  await runner
+    .update(channelProductMappings)
+    .set({ syncStatus: "pending_update" })
+    .where(eq(channelProductMappings.productId, productId));
+}
+
 import type { SalesOrderStatus } from "@/db/schema";
 
 // ─── Stock Cutoff ─────────────────────────────────────────────────────────────
@@ -96,7 +109,7 @@ export async function processOrderStockChange(
 
   // Transition: reserved → cancelled/refunded = release reservation
   if (wasReserved && isNowReleased) {
-    await releaseReservation(orderId, userId, "sale_cancel");
+    await releaseReservation(orderId, userId, newStatus === "cancelled" ? "sale_cancel" : "return");
     return;
   }
 
@@ -121,62 +134,70 @@ async function reserveStock(orderId: number, userId: number): Promise<void> {
   const items = await getOrderItemsWithProducts(orderId);
   if (items.length === 0) return;
 
-  let didAnyReservationSucceed = false;
-
   await db.transaction(async (tx) => {
-    // 1. First, create reservations for any mapped items that don't have one yet
+    // 1. Process reservations and deltas for mapped items
     for (const item of items) {
       if (!item.productId || item.quantity <= 0) continue;
 
-      const [inserted] = await tx.insert(stockReservations).values({
-        orderId,
-        orderItemId: item.id,
-        productId: item.productId,
-        quantity: item.quantity,
-        status: "active",
-      }).onConflictDoNothing().returning({ id: stockReservations.id });
+      // Atomic Upsert: create or update reservation and calculate delta in one go
+      const [existing] = await tx
+        .select({ quantity: stockReservations.quantity })
+        .from(stockReservations)
+        .where(and(eq(stockReservations.orderItemId, item.id), eq(stockReservations.status, "active")))
+        .limit(1);
 
-      // If this was a NEW reservation, we need to update stock and ledger
-      if (inserted) {
-        // Aggregate for this specific transaction batch
-        await tx
-          .update(products)
-          .set({
-            reservedQuantity: sql`${products.reservedQuantity} + ${item.quantity}`,
-            updatedAt: new Date(),
-          })
-          .where(eq(products.id, item.productId));
-
-        await tx.insert(inventoryTransactions).values({
-          productId: item.productId,
-          type: "sale_reserve",
-          quantity: -item.quantity,
-          referenceType: "sales_order",
-          referenceId: orderId,
-          createdBy: userId,
-          notes: `Stock reserved for order #${orderId}`,
+      await tx
+        .insert(stockReservations)
+        .values({ orderId, orderItemId: item.id, productId: item.productId, quantity: item.quantity, status: "active" })
+        .onConflictDoUpdate({
+          target: [stockReservations.orderItemId, stockReservations.productId],
+          set: { quantity: item.quantity, updatedAt: new Date() },
         });
-        
-        didAnyReservationSucceed = true;
+
+      if (!existing) {
+        await adjustReservedStock(tx, item.productId, item.quantity, orderId, userId, `Stock reserved for order #${orderId}`);
+      } else if (existing.quantity !== item.quantity) {
+        const delta = item.quantity - existing.quantity;
+        await adjustReservedStock(tx, item.productId, delta, orderId, userId, `Reservation adjusted (delta: ${delta > 0 ? "+" : ""}${delta}) — order #${orderId}`);
       }
     }
 
-    // 2. Check if the order is now FULLY processed
-    // Fetch all items (including unmapped ones) to see if anything is left out
-    const allItems = await tx
-      .select({ productId: salesOrderItems.productId })
-      .from(salesOrderItems)
-      .where(eq(salesOrderItems.orderId, orderId));
+    // 2. Handle ORPHANED reservations (items removed from the order)
+    const orphans = await tx
+      .select()
+      .from(stockReservations)
+      .where(and(eq(stockReservations.orderId, orderId), eq(stockReservations.status, "active"), notInArray(stockReservations.orderItemId, items.map(i => i.id))));
 
-    const isFullyMapped = allItems.every((it) => it.productId !== null);
+    for (const res of orphans) {
+      await tx.update(stockReservations).set({ status: "released", resolvedAt: new Date() }).where(eq(stockReservations.id, res.id));
+      await adjustReservedStock(tx, res.productId, -res.quantity, orderId, userId, `Item removed from order #${orderId} — stock released`);
+    }
 
-    if (isFullyMapped) {
-      await tx
-        .update(salesOrders)
-        .set({ stockProcessed: true })
-        .where(eq(salesOrders.id, orderId));
+    // 3. Finalize stockProcessed
+    const allItems = await tx.select({ productId: salesOrderItems.productId }).from(salesOrderItems).where(eq(salesOrderItems.orderId, orderId));
+    if (allItems.every(it => it.productId)) {
+      await tx.update(salesOrders).set({ stockProcessed: true }).where(eq(salesOrders.id, orderId));
     }
   });
+}
+
+/** Internal helper for reserved stock adjustments */
+async function adjustReservedStock(
+  tx: TxClient,
+  productId: number,
+  delta: number,
+  refId: number,
+  userId: number,
+  notes: string,
+) {
+  if (delta === 0) return;
+
+  const type = delta > 0 ? "sale_reserve" : "sale_cancel";
+  const qtySign = delta > 0 ? -delta : Math.abs(delta);
+
+  await tx.update(products).set({ reservedQuantity: sql`GREATEST(0, ${products.reservedQuantity} + ${delta})`, updatedAt: new Date() }).where(eq(products.id, productId));
+  await tx.insert(inventoryTransactions).values({ productId, type, quantity: qtySign, referenceType: "sales_order", referenceId: refId, createdBy: userId, notes });
+  await triggerChannelSync(productId, tx);
 }
 
 /**
@@ -229,6 +250,9 @@ async function commitStock(orderId: number, userId: number): Promise<void> {
         createdBy: userId,
         notes: `Stock committed — order #${orderId} delivered`,
       });
+
+      // Trigger sync
+      await triggerChannelSync(productId, tx);
     }
 
     // Mark individual reservations as committed for history
@@ -284,6 +308,9 @@ async function commitStockDirect(orderId: number, userId: number): Promise<void>
           createdBy: userId,
           notes: `Stock committed directly — order #${orderId} fetched as delivered`,
         });
+
+        // Trigger sync
+        await triggerChannelSync(item.productId, tx);
       }
     }
 
@@ -355,6 +382,9 @@ async function releaseReservation(
         createdBy: userId,
         notes: `Reservation released — order #${orderId} ${txType === "sale_cancel" ? "cancelled" : "returned"}`,
       });
+
+      // Trigger sync
+      await triggerChannelSync(productId, tx);
     }
 
     // Mark individual reservations as released
