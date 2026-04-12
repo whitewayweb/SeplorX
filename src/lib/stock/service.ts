@@ -121,15 +121,14 @@ async function reserveStock(orderId: number, userId: number): Promise<void> {
   const items = await getOrderItemsWithProducts(orderId);
   if (items.length === 0) return;
 
-  let didReserve = false;
+  let didAnyReservationSucceed = false;
 
   await db.transaction(async (tx) => {
+    // 1. First, create reservations for any mapped items that don't have one yet
     for (const item of items) {
       if (!item.productId || item.quantity <= 0) continue;
 
-      // Upsert reservation — the unique index on (order_item_id, product_id)
-      // prevents duplicates even under concurrent calls
-      const inserted = await tx.insert(stockReservations).values({
+      const [inserted] = await tx.insert(stockReservations).values({
         orderId,
         orderItemId: item.id,
         productId: item.productId,
@@ -137,35 +136,41 @@ async function reserveStock(orderId: number, userId: number): Promise<void> {
         status: "active",
       }).onConflictDoNothing().returning({ id: stockReservations.id });
 
-      // If insert was a no-op (duplicate), skip incrementing
-      if (inserted.length === 0) continue;
+      // If this was a NEW reservation, we need to update stock and ledger
+      if (inserted) {
+        // Aggregate for this specific transaction batch
+        await tx
+          .update(products)
+          .set({
+            reservedQuantity: sql`${products.reservedQuantity} + ${item.quantity}`,
+            updatedAt: new Date(),
+          })
+          .where(eq(products.id, item.productId));
 
-      // Increment reserved quantity atomically
-      await tx
-        .update(products)
-        .set({
-          reservedQuantity: sql`${products.reservedQuantity} + ${item.quantity}`,
-          updatedAt: new Date(),
-        })
-        .where(eq(products.id, item.productId));
-
-      // Log the transaction
-      await tx.insert(inventoryTransactions).values({
-        productId: item.productId,
-        type: "sale_reserve",
-        quantity: -item.quantity, // Negative = reducing available
-        referenceType: "sales_order",
-        referenceId: orderId,
-        createdBy: userId,
-        notes: `Stock reserved for order #${orderId}`,
-      });
-
-      didReserve = true;
+        await tx.insert(inventoryTransactions).values({
+          productId: item.productId,
+          type: "sale_reserve",
+          quantity: -item.quantity,
+          referenceType: "sales_order",
+          referenceId: orderId,
+          createdBy: userId,
+          notes: `Stock reserved for order #${orderId}`,
+        });
+        
+        didAnyReservationSucceed = true;
+      }
     }
 
-    // Only mark as stock-processed if at least one reservation was created
-    // This ensures retroactive mapping can still process unmapped items later
-    if (didReserve) {
+    // 2. Check if the order is now FULLY processed
+    // Fetch all items (including unmapped ones) to see if anything is left out
+    const allItems = await tx
+      .select({ productId: salesOrderItems.productId })
+      .from(salesOrderItems)
+      .where(eq(salesOrderItems.orderId, orderId));
+
+    const isFullyMapped = allItems.every((it) => it.productId !== null);
+
+    if (isFullyMapped) {
       await tx
         .update(salesOrders)
         .set({ stockProcessed: true })
@@ -196,33 +201,42 @@ async function commitStock(orderId: number, userId: number): Promise<void> {
         ),
       );
 
+    // Aggregate reservations by product
+    const totals = new Map<number, number>();
     for (const res of reservations) {
+      totals.set(res.productId, (totals.get(res.productId) || 0) + res.quantity);
+    }
+
+    // Process aggregated stock updates and ledger entries
+    for (const [productId, quantity] of totals.entries()) {
       // Deduct from on-hand stock
       await tx
         .update(products)
         .set({
-          quantityOnHand: sql`GREATEST(0, ${products.quantityOnHand} - ${res.quantity})`,
-          reservedQuantity: sql`GREATEST(0, ${products.reservedQuantity} - ${res.quantity})`,
+          quantityOnHand: sql`GREATEST(0, ${products.quantityOnHand} - ${quantity})`,
+          reservedQuantity: sql`GREATEST(0, ${products.reservedQuantity} - ${quantity})`,
           updatedAt: new Date(),
         })
-        .where(eq(products.id, res.productId));
+        .where(eq(products.id, productId));
 
-      // Mark reservation as committed
-      await tx
-        .update(stockReservations)
-        .set({ status: "committed", resolvedAt: new Date() })
-        .where(eq(stockReservations.id, res.id));
-
-      // Log the transaction
+      // Log the transaction (consolidated)
       await tx.insert(inventoryTransactions).values({
-        productId: res.productId,
+        productId,
         type: "sale_out",
-        quantity: -res.quantity,
+        quantity: -quantity,
         referenceType: "sales_order",
         referenceId: orderId,
         createdBy: userId,
         notes: `Stock committed — order #${orderId} delivered`,
       });
+    }
+
+    // Mark individual reservations as committed for history
+    for (const res of reservations) {
+      await tx
+        .update(stockReservations)
+        .set({ status: "committed", resolvedAt: new Date() })
+        .where(eq(stockReservations.id, res.id));
     }
   });
 }
@@ -236,44 +250,57 @@ async function commitStockDirect(orderId: number, userId: number): Promise<void>
   if (items.length === 0) return;
 
   await db.transaction(async (tx) => {
+    // 1. Create individual reservations for audit trail
+    // and deduct stock for newly discovered items
     for (const item of items) {
       if (!item.productId || item.quantity <= 0) continue;
 
-      // Deduct from on-hand
-      await tx
-        .update(products)
-        .set({
-          quantityOnHand: sql`GREATEST(0, ${products.quantityOnHand} - ${item.quantity})`,
-          updatedAt: new Date(),
-        })
-        .where(eq(products.id, item.productId));
-
-      // Create a committed reservation for audit trail
-      await tx.insert(stockReservations).values({
+      const [inserted] = await tx.insert(stockReservations).values({
         orderId,
         orderItemId: item.id,
         productId: item.productId,
         quantity: item.quantity,
         status: "committed",
         resolvedAt: new Date(),
-      });
+      }).onConflictDoNothing().returning({ id: stockReservations.id });
 
-      // Log the transaction
-      await tx.insert(inventoryTransactions).values({
-        productId: item.productId,
-        type: "sale_out",
-        quantity: -item.quantity,
-        referenceType: "sales_order",
-        referenceId: orderId,
-        createdBy: userId,
-        notes: `Stock committed directly — order #${orderId} fetched as delivered`,
-      });
+      // If this was a NEW commit, update stock and ledger
+      if (inserted) {
+        await tx
+          .update(products)
+          .set({
+            quantityOnHand: sql`GREATEST(0, ${products.quantityOnHand} - ${item.quantity})`,
+            updatedAt: new Date(),
+          })
+          .where(eq(products.id, item.productId));
+
+        // Log the transaction
+        await tx.insert(inventoryTransactions).values({
+          productId: item.productId,
+          type: "sale_out",
+          quantity: -item.quantity,
+          referenceType: "sales_order",
+          referenceId: orderId,
+          createdBy: userId,
+          notes: `Stock committed directly — order #${orderId} fetched as delivered`,
+        });
+      }
     }
 
-    await tx
-      .update(salesOrders)
-      .set({ stockProcessed: true })
-      .where(eq(salesOrders.id, orderId));
+    // 2. Check if the order is now FULLY processed
+    const allItems = await tx
+      .select({ productId: salesOrderItems.productId })
+      .from(salesOrderItems)
+      .where(eq(salesOrderItems.orderId, orderId));
+
+    const isFullyMapped = allItems.every((it) => it.productId !== null);
+
+    if (isFullyMapped) {
+      await tx
+        .update(salesOrders)
+        .set({ stockProcessed: true })
+        .where(eq(salesOrders.id, orderId));
+    }
   });
 }
 
@@ -301,32 +328,41 @@ async function releaseReservation(
         ),
       );
 
+    // Aggregate reservations by product
+    const totals = new Map<number, number>();
     for (const res of reservations) {
+      totals.set(res.productId, (totals.get(res.productId) || 0) + res.quantity);
+    }
+
+    // Process aggregated stock updates and ledger entries
+    for (const [productId, quantity] of totals.entries()) {
       // Release reserved quantity
       await tx
         .update(products)
         .set({
-          reservedQuantity: sql`GREATEST(0, ${products.reservedQuantity} - ${res.quantity})`,
+          reservedQuantity: sql`GREATEST(0, ${products.reservedQuantity} - ${quantity})`,
           updatedAt: new Date(),
         })
-        .where(eq(products.id, res.productId));
+        .where(eq(products.id, productId));
 
-      // Mark reservation as released
-      await tx
-        .update(stockReservations)
-        .set({ status: "released", resolvedAt: new Date() })
-        .where(eq(stockReservations.id, res.id));
-
-      // Log the transaction
+      // Log the transaction (consolidated)
       await tx.insert(inventoryTransactions).values({
-        productId: res.productId,
+        productId,
         type: txType,
-        quantity: res.quantity, // Positive = stock freed
+        quantity: quantity, // Positive = stock freed
         referenceType: "sales_order",
         referenceId: orderId,
         createdBy: userId,
         notes: `Reservation released — order #${orderId} ${txType === "sale_cancel" ? "cancelled" : "returned"}`,
       });
+    }
+
+    // Mark individual reservations as released
+    for (const res of reservations) {
+      await tx
+        .update(stockReservations)
+        .set({ status: "released", resolvedAt: new Date() })
+        .where(eq(stockReservations.id, res.id));
     }
   });
 }

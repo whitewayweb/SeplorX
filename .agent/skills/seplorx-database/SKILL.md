@@ -117,6 +117,12 @@ const current = await db.select(...);
 await db.update(...).set({ stockQuantity: current.stockQuantity + delta });
 ```
 
+### Aggregating Inventory Transactions
+To prevent database bloat and keep order ledgers clean, inventory transactions for the same product within the same order MUST be aggregated during write.
+- **Process**: Group line items by `productId` before inserting into `inventory_transactions`.
+- **Implementation**: Handled centrally in `src/lib/stock/service.ts`.
+- **UI**: Display the consolidated quantity (`-3`) instead of individual rows (`-1`, `-1`, `-1`).
+
 ### Safe upserts (prevent overwriting with empty strings)
 ```typescript
 db.insert(channelProducts).values(data).onConflictDoUpdate({
@@ -137,10 +143,9 @@ await db.transaction(async (tx) => {
 });
 ```
 
-### Data Integrity for Deletions
-When deleting a record that has side effects or downstream impacts (e.g., a Purchase Invoice that increased stock), you MUST reverse those impacts in the same transaction:
-1. **Fetch impacts**: Get all related items (e.g., `purchaseInvoiceItems`) before deleting the parent.
-2. **Reverse logic**: Decrement stock (`quantity_on_hand`) and delete metadata/logs (e.g., `inventory_transactions`).
+### Data Integrity & Optimization
+1. **Aggregating Ledger Entries**: To prevent database bloat and keep order reports clean, inventory transactions for the same product within the same order MUST be aggregated during write (e.g., one `-3` row instead of three `-1` rows).
+2. **Deletions**: When deleting a record that has side effects (e.g., a Purchase Invoice), you MUST reverse those impacts (decrement stock, delete transactions) in the same transaction.
 3. **Atomic deletion**: Wrap the reversal and final deletion in a `db.transaction`.
 
 ### Always scope queries by userId (IDOR prevention)

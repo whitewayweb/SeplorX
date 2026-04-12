@@ -128,29 +128,37 @@ export async function createInvoice(_prevState: unknown, formData: FormData) {
           totalAmount: itemTotals.totalAmount,
           sortOrder: i,
         });
+      }
 
-        // 3. If line item references a product and invoice is not draft, update stock
-        if (item.productId !== null && invoiceData.status !== "draft") {
-          const qty = Math.floor(item.quantity); // stock is integer
+      // 3. Aggregate by product for stock updates and ledger entries (if not draft)
+      if (invoiceData.status !== "draft") {
+        const productTotals = new Map<number, number>();
+        for (const item of items) {
+          if (!item.productId || item.quantity <= 0) continue;
+          const qty = Math.floor(item.quantity);
           if (qty > 0) {
-            await tx
-              .update(products)
-              .set({
-                quantityOnHand: sql`${products.quantityOnHand} + ${qty}`,
-                updatedAt: new Date(),
-              })
-              .where(eq(products.id, item.productId));
-
-            await tx.insert(inventoryTransactions).values({
-              productId: item.productId,
-              type: "purchase_in",
-              quantity: qty,
-              referenceType: "purchase_invoice",
-              referenceId: invoice.id,
-              notes: `Invoice #${invoiceData.invoiceNumber}`,
-              createdBy: userId,
-            });
+            productTotals.set(item.productId, (productTotals.get(item.productId) || 0) + qty);
           }
+        }
+
+        for (const [productId, quantity] of productTotals.entries()) {
+          await tx
+            .update(products)
+            .set({
+              quantityOnHand: sql`${products.quantityOnHand} + ${quantity}`,
+              updatedAt: new Date(),
+            })
+            .where(eq(products.id, productId));
+
+          await tx.insert(inventoryTransactions).values({
+            productId,
+            type: "purchase_in",
+            quantity,
+            referenceType: "purchase_invoice",
+            referenceId: invoice.id,
+            notes: `Invoice #${invoiceData.invoiceNumber}`,
+            createdBy: userId,
+          });
         }
       }
     });
@@ -281,34 +289,41 @@ export async function deleteInvoice(_prevState: unknown, formData: FormData) {
 
       // 3. If the invoice was Received/Partial/Paid, we must reverse the stock impact
       if (invoice.status !== "draft" && invoice.status !== "cancelled") {
+        const userId = await getAuthenticatedUserId();
         const items = await getInvoiceLineItems(id, tx);
+        const productTotals = new Map<number, number>();
 
         for (const item of items) {
           if (item.productId) {
             const qty = Math.floor(parseFloat(item.quantity));
             if (qty > 0) {
-              // Decrement stock
-              await tx
-                .update(products)
-                .set({
-                  quantityOnHand: sql`${products.quantityOnHand} - ${qty}`,
-                  updatedAt: new Date(),
-                })
-                .where(eq(products.id, item.productId));
-
-              // We could also insert a 'return' transaction, but since we are HARD DELETING
-              // the reason for the original 'purchase_in', we should just delete the original transactions
+              productTotals.set(item.productId, (productTotals.get(item.productId) || 0) + qty);
             }
           }
         }
 
-        // 4. Delete related inventory transactions
-        await tx.delete(inventoryTransactions).where(
-          and(
-            eq(inventoryTransactions.referenceType, "purchase_invoice"),
-            eq(inventoryTransactions.referenceId, id)
-          )
-        );
+        // 4. Reverse stock and log audit trail
+        for (const [productId, quantity] of productTotals.entries()) {
+          // Decrement stock
+          await tx
+            .update(products)
+            .set({
+              quantityOnHand: sql`GREATEST(0, ${products.quantityOnHand} - ${quantity})`,
+              updatedAt: new Date(),
+            })
+            .where(eq(products.id, productId));
+
+          // Insert audit-safe reversal transaction
+          await tx.insert(inventoryTransactions).values({
+            productId,
+            type: "adjustment",
+            quantity: -quantity, // Negative = stock removed
+            referenceType: "purchase_invoice",
+            referenceId: id,
+            notes: `Reversal: Purchase Invoice #${invoice.invoiceNumber} deleted`,
+            createdBy: userId,
+          });
+        }
       }
 
       // 5. Finally delete the invoice (items cascade delete)
