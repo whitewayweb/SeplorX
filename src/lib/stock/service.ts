@@ -5,9 +5,22 @@ import {
   salesOrderItems,
   inventoryTransactions,
   stockReservations,
+  channelProductMappings,
 } from "@/db/schema";
-import { and, eq } from "drizzle-orm";
-import { sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
+
+/**
+ * Marks all channel mappings for a product as 'pending_update'.
+ * This ensures that the next feed sync will propagate the new stock level.
+ */
+export async function triggerChannelSync(productId: number, tx?: any): Promise<void> {
+  const runner = tx || db;
+  await runner
+    .update(channelProductMappings)
+    .set({ syncStatus: "pending_update" })
+    .where(eq(channelProductMappings.productId, productId));
+}
+
 import type { SalesOrderStatus } from "@/db/schema";
 
 // ─── Stock Cutoff ─────────────────────────────────────────────────────────────
@@ -121,8 +134,6 @@ async function reserveStock(orderId: number, userId: number): Promise<void> {
   const items = await getOrderItemsWithProducts(orderId);
   if (items.length === 0) return;
 
-  let didAnyReservationSucceed = false;
-
   await db.transaction(async (tx) => {
     // 1. First, create reservations for any mapped items that don't have one yet
     for (const item of items) {
@@ -157,7 +168,7 @@ async function reserveStock(orderId: number, userId: number): Promise<void> {
           notes: `Stock reserved for order #${orderId}`,
         });
         
-        didAnyReservationSucceed = true;
+        await triggerChannelSync(item.productId, tx);
       }
     }
 
@@ -229,6 +240,9 @@ async function commitStock(orderId: number, userId: number): Promise<void> {
         createdBy: userId,
         notes: `Stock committed — order #${orderId} delivered`,
       });
+
+      // Trigger sync
+      await triggerChannelSync(productId, tx);
     }
 
     // Mark individual reservations as committed for history
@@ -284,6 +298,9 @@ async function commitStockDirect(orderId: number, userId: number): Promise<void>
           createdBy: userId,
           notes: `Stock committed directly — order #${orderId} fetched as delivered`,
         });
+
+        // Trigger sync
+        await triggerChannelSync(item.productId, tx);
       }
     }
 
@@ -355,6 +372,9 @@ async function releaseReservation(
         createdBy: userId,
         notes: `Reservation released — order #${orderId} ${txType === "sale_cancel" ? "cancelled" : "returned"}`,
       });
+
+      // Trigger sync
+      await triggerChannelSync(productId, tx);
     }
 
     // Mark individual reservations as released

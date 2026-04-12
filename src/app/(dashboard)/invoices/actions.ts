@@ -8,7 +8,7 @@ import {
   products,
   inventoryTransactions,
 } from "@/db/schema";
-import { and, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import {
   CreateInvoiceSchema,
@@ -23,6 +23,8 @@ import {
   getInvoiceLineItems,
 } from "@/data/invoices";
 import { getAuthenticatedUserId } from "@/lib/auth";
+import { triggerChannelSync } from "@/lib/stock/service";
+
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -159,6 +161,9 @@ export async function createInvoice(_prevState: unknown, formData: FormData) {
             notes: `Invoice #${invoiceData.invoiceNumber}`,
             createdBy: userId,
           });
+
+          // Trigger sync since stock increased
+          await triggerChannelSync(productId, tx);
         }
       }
     });
@@ -323,6 +328,9 @@ export async function deleteInvoice(_prevState: unknown, formData: FormData) {
             notes: `Reversal: Purchase Invoice #${invoice.invoiceNumber} deleted`,
             createdBy: userId,
           });
+
+          // Trigger sync since stock decreased
+          await triggerChannelSync(productId, tx);
         }
       }
 
