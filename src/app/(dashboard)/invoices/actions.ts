@@ -239,15 +239,15 @@ export async function updateInvoice(_prevState: unknown, formData: FormData) {
         productDelta.set(pId, (productDelta.get(pId) || 0) + (qty * mult));
 
       if (oldInvoice.status !== "draft" && oldInvoice.status !== "cancelled")
-        oldItems.forEach(i => i.productId && applyImpact(i.productId, Math.floor(parseFloat(i.quantity)), -1));
+        oldItems.forEach(i => i.productId && applyImpact(i.productId, parseInt(i.quantity), -1));
 
       if (invoiceData.status !== "draft" && invoiceData.status !== "cancelled")
-        items.forEach(i => i.productId && applyImpact(i.productId, Math.floor(i.quantity), 1));
+        items.forEach(i => i.productId && applyImpact(i.productId, i.quantity, 1));
 
       // 3. Apply deltas
       for (const [productId, delta] of productDelta.entries()) {
         if (delta === 0) continue;
-        await tx.update(products).set({ quantityOnHand: sql`${products.quantityOnHand} + ${delta}`, updatedAt: new Date() }).where(eq(products.id, productId));
+        await tx.update(products).set({ quantityOnHand: sql`GREATEST(0, ${products.quantityOnHand} + ${delta})`, updatedAt: new Date() }).where(eq(products.id, productId));
         await tx.insert(inventoryTransactions).values({ productId, type: "adjustment", quantity: delta, referenceType: "purchase_invoice", referenceId: id, createdBy: userId, notes: `Updated Invoice #${invoiceData.invoiceNumber}` });
         await triggerChannelSync(productId, tx);
       }

@@ -139,19 +139,26 @@ async function reserveStock(orderId: number, userId: number): Promise<void> {
     for (const item of items) {
       if (!item.productId || item.quantity <= 0) continue;
 
+      // Atomic Upsert: create or update reservation and calculate delta in one go
       const [existing] = await tx
-        .select()
+        .select({ quantity: stockReservations.quantity })
         .from(stockReservations)
         .where(and(eq(stockReservations.orderItemId, item.id), eq(stockReservations.status, "active")))
         .limit(1);
 
+      await tx
+        .insert(stockReservations)
+        .values({ orderId, orderItemId: item.id, productId: item.productId, quantity: item.quantity, status: "active" })
+        .onConflictDoUpdate({
+          target: [stockReservations.orderItemId, stockReservations.productId],
+          set: { quantity: item.quantity, updatedAt: new Date() },
+        });
+
       if (!existing) {
-        await tx.insert(stockReservations).values({ orderId, orderItemId: item.id, productId: item.productId, quantity: item.quantity, status: "active" });
-        await adjustReservedStock(tx, item.productId, item.quantity, orderId, userId, "sale_reserve", `Stock reserved for order #${orderId}`);
+        await adjustReservedStock(tx, item.productId, item.quantity, orderId, userId, `Stock reserved for order #${orderId}`);
       } else if (existing.quantity !== item.quantity) {
         const delta = item.quantity - existing.quantity;
-        await tx.update(stockReservations).set({ quantity: item.quantity }).where(eq(stockReservations.id, existing.id));
-        await adjustReservedStock(tx, item.productId, delta, orderId, userId, "sale_reserve", `Reservation adjusted (delta: ${delta > 0 ? "+" : ""}${delta}) — order #${orderId}`);
+        await adjustReservedStock(tx, item.productId, delta, orderId, userId, `Reservation adjusted (delta: ${delta > 0 ? "+" : ""}${delta}) — order #${orderId}`);
       }
     }
 
@@ -163,7 +170,7 @@ async function reserveStock(orderId: number, userId: number): Promise<void> {
 
     for (const res of orphans) {
       await tx.update(stockReservations).set({ status: "released", resolvedAt: new Date() }).where(eq(stockReservations.id, res.id));
-      await adjustReservedStock(tx, res.productId, -res.quantity, orderId, userId, "sale_cancel", `Item removed from order #${orderId} — stock released`);
+      await adjustReservedStock(tx, res.productId, -res.quantity, orderId, userId, `Item removed from order #${orderId} — stock released`);
     }
 
     // 3. Finalize stockProcessed
@@ -181,11 +188,15 @@ async function adjustReservedStock(
   delta: number,
   refId: number,
   userId: number,
-  type: "sale_reserve" | "sale_cancel" | "return",
   notes: string,
 ) {
-  await tx.update(products).set({ reservedQuantity: sql`${products.reservedQuantity} + ${delta}`, updatedAt: new Date() }).where(eq(products.id, productId));
-  await tx.insert(inventoryTransactions).values({ productId, type, quantity: -delta, referenceType: "sales_order", referenceId: refId, createdBy: userId, notes });
+  if (delta === 0) return;
+
+  const type = delta > 0 ? "sale_reserve" : "sale_cancel";
+  const qtySign = delta > 0 ? -delta : Math.abs(delta);
+
+  await tx.update(products).set({ reservedQuantity: sql`GREATEST(0, ${products.reservedQuantity} + ${delta})`, updatedAt: new Date() }).where(eq(products.id, productId));
+  await tx.insert(inventoryTransactions).values({ productId, type, quantity: qtySign, referenceType: "sales_order", referenceId: refId, createdBy: userId, notes });
   await triggerChannelSync(productId, tx);
 }
 

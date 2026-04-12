@@ -11,7 +11,7 @@ const LineItemSchema = z.object({
     z.number().int().positive().nullable(),
   ),
   description: z.string().trim().min(1, "Description is required"),
-  quantity: z.coerce.number().positive("Quantity must be > 0"),
+  quantity: z.coerce.number().int().positive("Quantity must be a whole number > 0"),
   unitPrice: z.coerce.number().min(0, "Unit price must be ≥ 0"),
   taxPercent: z.coerce.number().min(0).max(100, "Tax % must be 0-100"),
 });

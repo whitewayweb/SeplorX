@@ -257,7 +257,7 @@ export const purchaseInvoiceItems = pgTable("purchase_invoice_items", {
   invoiceId: integer("invoice_id").notNull().references(() => purchaseInvoices.id, { onDelete: "cascade" }),
   productId: integer("product_id").references(() => products.id, { onDelete: "set null" }),
   description: varchar("description", { length: 500 }).notNull(),
-  quantity: decimal("quantity", { precision: 12, scale: 2 }).notNull(),
+  quantity: integer("quantity").notNull(),
   unitPrice: decimal("unit_price", { precision: 12, scale: 2 }).notNull(),
   taxPercent: decimal("tax_percent", { precision: 5, scale: 2 }).default("0").notNull(),
   taxAmount: decimal("tax_amount", { precision: 12, scale: 2 }).default("0").notNull(),
