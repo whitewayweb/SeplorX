@@ -7,7 +7,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 function createChainMock(resolvedValue: unknown = []) {
   const chain: Record<string, unknown> = {};
-  const methods = ["from", "where", "limit", "set", "values", "returning", "innerJoin", "orderBy"];
+  // Include all Drizzle chain methods used by the service (keep in sync when service evolves)
+  const methods = ["from", "where", "limit", "set", "values", "returning", "innerJoin", "orderBy", "onConflictDoUpdate", "onConflictDoNothing"];
   for (const method of methods) {
     chain[method] = vi.fn().mockReturnValue(chain);
   }
@@ -38,6 +39,8 @@ vi.mock("@/db/schema", () => ({
     id: "sr.id", orderId: "sr.order_id", orderItemId: "sr.order_item_id",
     productId: "sr.product_id", quantity: "sr.quantity", status: "sr.status",
   },
+  // Required by triggerChannelSync() which is called after every stock mutation
+  channelProductMappings: { productId: "cpm.product_id", syncStatus: "cpm.sync_status" },
 }));
 
 import { db } from "@/db";
@@ -108,8 +111,8 @@ describe("Stock Service — processOrderStockChange", () => {
     expect(db.transaction).toHaveBeenCalledOnce();
     // 2 items × (1 insert reservation + 1 insert txn log) + 0 extra = 4 inserts
     expect(txInsertCount).toBe(4);
-    // 2 items × (1 update product reserved) + 1 stockProcessed = 3 updates
-    expect(txUpdateCount).toBe(3);
+    // 2 items × (1 product + 1 channel mapping) + 1 stockProcessed = 5 updates
+    expect(txUpdateCount).toBe(5);
   });
 
   // ─── Test 2: Unmapped products → no stock change ──────────────────────────
@@ -164,8 +167,8 @@ describe("Stock Service — processOrderStockChange", () => {
 
     await processOrderStockChange(1, "delivered", "shipped", 100);
     expect(db.transaction).toHaveBeenCalledOnce();
-    // 1 update product + 1 update reservation status = 2 updates
-    expect(txUpdateCount).toBe(2);
+    // 1 update product + 1 update reservation status + 1 channel mapping = 3 updates
+    expect(txUpdateCount).toBe(3);
     // 1 insert inventory transaction
     expect(txInsertCount).toBe(1);
   });
@@ -185,7 +188,7 @@ describe("Stock Service — processOrderStockChange", () => {
 
     await processOrderStockChange(1, "cancelled", "pending", 100);
     expect(db.transaction).toHaveBeenCalledOnce();
-    expect(txUpdateCount).toBe(2); // product + reservation
+    expect(txUpdateCount).toBe(3); // product + reservation + channel mapping
     expect(txInsertCount).toBe(1); // inventory transaction
   });
 
@@ -280,14 +283,14 @@ describe("Stock Service — processOrderStockChange", () => {
     (db.transaction as ReturnType<typeof vi.fn>).mockImplementation(async (cb) => {
       const tx = createTxMock();
       tx.update = vi.fn().mockImplementation(() => { txUpdateCount++; return createChainMock(); });
-      tx.insert = vi.fn().mockImplementation(() => { txInsertCount++; return createChainMock(); });
+      tx.insert = vi.fn().mockImplementation(() => { txInsertCount++; return createChainMock([{ id: 1 }]); });
       await cb(tx);
     });
 
     await processOrderStockChange(1, "delivered", null, 100);
     expect(db.transaction).toHaveBeenCalledOnce();
-    // 1 update product + 1 update stockProcessed = 2
-    expect(txUpdateCount).toBe(2);
+    // 1 update product + 1 update stockProcessed + 1 channel mapping = 3
+    expect(txUpdateCount).toBe(3);
     // 1 insert reservation + 1 insert txn = 2
     expect(txInsertCount).toBe(2);
   });
@@ -300,15 +303,15 @@ describe("Stock Service — processOrderStockChange", () => {
 
     (db.transaction as ReturnType<typeof vi.fn>).mockImplementation(async (cb) => {
       const tx = createTxMock();
-      tx._pushSelectResult([{ id: 99 }]); // Existing reservation found
+      tx._pushSelectResult([{ quantity: 5 }]); // Existing reservation found with same quantity
       tx.insert = vi.fn().mockImplementation(() => { txInsertCount++; return createChainMock(); });
       tx.update = vi.fn().mockReturnValue(createChainMock());
       await cb(tx);
     });
 
     await processOrderStockChange(1, "pending", null, 100);
-    // 0 inserts because reservation already exists (skipped)
-    expect(txInsertCount).toBe(0);
+    // 1 insert for the upsert, 0 for inventory transaction (delta = 0)
+    expect(txInsertCount).toBe(1);
   });
 
   // ─── Test: Empty order items → no transaction ─────────────────────────────

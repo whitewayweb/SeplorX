@@ -1,0 +1,64 @@
+name: CI Pipeline
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+env:
+  # Global Test-safe env vars
+  ENCRYPTION_KEY: ${{ secrets.TEST_ENCRYPTION_KEY || 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }}
+  BETTER_AUTH_SECRET: ci-test-secret-not-for-production
+  DATABASE_URL: postgresql://unused:unused@localhost/unused
+  NEXT_PUBLIC_APP_URL: https://test.example.com
+  NEXT_PHASE: phase-production-build
+
+jobs:
+  static-analysis:
+    name: Lint & Knip
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      - name: Run ESLint
+        run: yarn lint
+      - name: Run Knip
+        run: yarn knip
+
+  test:
+    name: Unit Tests & Coverage (≥80%)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      - name: Run tests with coverage threshold enforcement
+        run: yarn test:coverage
+      - name: Upload HTML coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 14
+
+  build:
+    name: Next.js Production Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      - name: Verify build
+        run: yarn build
