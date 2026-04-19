@@ -12,7 +12,7 @@ vi.mock("@/db", () => ({
   },
 }));
 
-vi.mock("../handlers", () => ({
+vi.mock("@/lib/channels/handlers", () => ({
   getChannelHandler: vi.fn(),
 }));
 
@@ -47,7 +47,7 @@ import {
   createChannelService,
 } from "../services";
 import { db } from "@/db";
-import { getChannelHandler } from "../handlers";
+import { getChannelHandler } from "@/lib/channels/handlers";
 import { getChannelById } from "@/lib/channels/registry";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

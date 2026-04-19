@@ -111,7 +111,6 @@ describe("Stock Service — processOrderStockChange", () => {
     expect(db.transaction).toHaveBeenCalledOnce();
     // 2 items × (1 insert reservation + 1 insert txn log) + 0 extra = 4 inserts
     expect(txInsertCount).toBe(4);
-    expect(txInsertCount).toBe(4);
     // 2 items × (1 product + 1 channel mapping) + 1 stockProcessed = 5 updates
     expect(txUpdateCount).toBe(5);
   });
