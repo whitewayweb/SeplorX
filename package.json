@@ -10,7 +10,7 @@
     "lint": "eslint",
     "knip": "knip",
     "preinstall": "npx only-allow yarn",
-    "fix": "yarn lint --fix && yarn knip --fix && yarn build",
+    "fix": "yarn lint --fix && yarn knip --fix && yarn test:coverage && yarn build",
     "generate:amazon-types": "node ./scripts/generate-amazon-types.js",
     "generate:woo-types": "node ./scripts/generate-woocommerce-types.js",
     "generate:types": "yarn generate:amazon-types && yarn generate:woo-types",

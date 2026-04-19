@@ -26,5 +26,6 @@ process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/seplorx_test";
 // Public app URL (used in webhook URL construction tests)
 process.env.NEXT_PUBLIC_APP_URL = "https://test.example.com";
 
-// Ensure test environment
+// Ensure test environment (bypassing Next.js readonly type restriction)
+// @ts-expect-error - Next.js types make this readonly, but Vitest needs it set
 process.env.NODE_ENV = "test";

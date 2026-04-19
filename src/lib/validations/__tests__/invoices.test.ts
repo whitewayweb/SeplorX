@@ -173,7 +173,8 @@ describe("UpdateInvoiceSchema", () => {
   });
 
   it("fails when id is missing", () => {
-    const { id: _id, ...withoutId } = validUpdate;
+    const withoutId = { ...validUpdate } as Record<string, unknown>;
+    delete withoutId.id;
     expect(UpdateInvoiceSchema.safeParse(withoutId).success).toBe(false);
   });
 

@@ -94,7 +94,8 @@ describe("UpdateProductSchema", () => {
   });
 
   it("fails when id is missing", () => {
-    const { id: _id, ...withoutId } = validUpdate;
+    const withoutId = { ...validUpdate } as Record<string, unknown>;
+    delete withoutId.id;
     expect(UpdateProductSchema.safeParse(withoutId).success).toBe(false);
   });
 

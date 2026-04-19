@@ -78,10 +78,6 @@ function mockDelete() {
   (db.delete as ReturnType<typeof vi.fn>).mockReturnValue(createChainMock());
 }
 
-/** Set up db.insert() to resolve with provided rows */
-function mockInsert(rows: unknown[] = []) {
-  (db.insert as ReturnType<typeof vi.fn>).mockReturnValue(createChainMock(rows));
-}
 
 // ─── deleteChannelService — Ownership Guard ───────────────────────────────────
 
