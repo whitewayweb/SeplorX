@@ -40,14 +40,19 @@ yarn-error.log*
 # vercel
 .vercel
 
-# claude code
+# agent / ecc
 .claude
+.agent/env.sh
+.agent/ecc-install-state.json
+.agent/ecc-repair-log.json
+.agent/ecc-doctor-log.json
+/.agent/skills/amazon-dpp-compliance/
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# project specific
 /postman
 /src/lib/channels/amazon/category_product_upload_templates
 /src/db
-/.agent/skills/amazon-dpp-compliance/
-.agent/env.sh
