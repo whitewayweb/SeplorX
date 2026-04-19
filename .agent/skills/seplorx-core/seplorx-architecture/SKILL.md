@@ -136,20 +136,25 @@ To provide a responsive search experience without overloading the database:
 
 ## TypeScript & Typing Rules (Mandatory)
 
-To ensure long-term maintainability and prevent CI/CD failures (e.g., exit code 1 in `yarn fix`):
+To ensure long-term maintainability and prevent CI/CD failures:
 
-1. **NEVER use `any`**: The use of `any` is strictly forbidden. All code MUST use proper types or `unknown` with narrowing.
-2. **Type-Safe External Data**: 
-   - For JSONB columns (`rawData`, `credentials`), cast to `Record<string, unknown>` or use a specific interface/Zod schema.
-3. **DAL Purity**: DAL functions in `src/data/*.ts` should have explicit return types.
-4. **Generated Types**: Always prioritize types from `api/types/` for Amazon/WooCommerce payloads over manual interfaces.
+1. **NEVER use `any`**: Strictly forbidden. Use proper types or `unknown` with narrowing.
+2. **Type-Safe External Data**: Cast JSONB columns to explicit interfaces or validate with Zod.
+3. **DAL Purity**: Functions in `src/data/*.ts` MUST have explicit return types.
+4. **Generated Types**: Prioritize types from `api/types/` (Amazon/WooCommerce) over manual interfaces.
+
+## Scalability & Performance (Mandatory)
+
+1. **Parallel Data Fetching**: Always use `Promise.all()` for independent DAL queries in Server Components to prevent waterfalls.
+2. **N+1 Prevention**: Never perform DB queries inside loops. Use `inArray` to fetch related records in batches.
+3. **Atomic Inventory Ops**: Always use `sql` expressions for quantity mutations (e.g., `quantity + delta`) to prevent race conditions.
+4. **Strategic Caching**: Use React `cache()` for auth and high-frequency DAL lookups within the same request.
 
 ## AI Agent Instructions (Mandatory Reconnaissance)
 
-To prevent hallucinations, redundant files, and ignored typings, **all AI agents MUST follow these reconnaissance steps before writing code:**
+To prevent hallucinations and redundant code, ALL agents MUST follow these reconnaissance steps:
 
-1. **Directory Reconnaissance**: Before creating *any* new file, run `list_dir` on the target directory. If a file serving a similar purpose exists (e.g., `queries.ts`), integrate the new code into the existing file instead of creating a new one.
-2. **Type Discovery (Generated APIs)**: Before writing manual TypeScript interfaces for external API payloads or DB schemas, search the codebase (via `grep_search` or `list_dir`) for existing generated types (e.g., `ordersV0Schema.ts`). Always use official generated types from `api/types/`.
-3. **No Speculative Abstractions**: Do not create wrappers or types just "to make it easier." Use exactly what's provided.
-4. **No 'any' Type**: Absolutely never use the `any` keyword. Use `unknown` or define a proper interface if the type is not yet known.
+1. **Directory Reconnaissance**: Run `list_dir` on target folders before creating files. If a similar file exists (e.g., `queries.ts`), integrate instead of duplicating.
+2. **Logic Discovery**: Search `src/data/` for existing queries and `src/lib/validations/` for existing schemas before writing new ones.
+3. **Audit Gate**: Before declaring a task "Finished," you MUST invoke the `code-reviewer` specialist to check for IDOR risks and performance regressions.
 

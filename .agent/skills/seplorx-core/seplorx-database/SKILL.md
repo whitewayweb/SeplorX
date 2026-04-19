@@ -14,11 +14,21 @@ To minimize "Pilot Load" for the user, all agents MUST:
 - **Explain 'Why', Not 'What'**: Focus summaries on the business value and architectural hardening, not a line-by-line code log.
 - **Decisiveness**: Proceed through the roadmap autonomously. Only stop for definitive permission on destructive data migrations or major branding changes.
 
-### Always scope queries by userId (IDOR prevention)
-```typescript
-// ✅ Good
-where(and(eq(products.id, productId), eq(products.userId, userId)))
+### 6. Query Optimization (Mandatory)
+- **Explicit Selection**: Never use `db.select()` without a column mapping. Always use `db.select({ id: table.id, ... })` to reduce data transfer.
+- **Efficient Joins**: Use `leftJoin` and `innerJoin` judiciously. Always ensure joining columns are indexed in `schema.ts`.
+- **JSONB Narrowing**: Only extract the specific JSONB fields you need using `sql<T>` snippets. Never fetch the entire blob if you only need one flag.
 
-// ❌ Bad — anyone could mutate another user's data
-where(eq(products.id, productId))
+### 7. IDOR & Ownership Audit (Critical)
+Every Data Access (DAL) function and Server Action MUST pass the Ownership Audit:
+- **Rule**: Every query that takes a record ID MUST also include a `userId` or `companyId` constraint derived from the current session.
+- **Exception**: Public records (if any) must be explicitly marked with `// Public Access` in the code.
+- **Service Layer Guard**: If a function fetches a record by ID, it must return `null` or throw unauthorized if the owner check fails. Never return a record first and check ownership after.
+
+```typescript
+// ✅ Good: One-step atomic ownership check
+const record = await db.query.products.findFirst({
+  where: (t, { and, eq }) => and(eq(t.id, id), eq(t.userId, currentUserId))
+});
+if (!record) throw new Error("Unauthorized or Not Found");
 ```
