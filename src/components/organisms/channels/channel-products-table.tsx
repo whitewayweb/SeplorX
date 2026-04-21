@@ -23,6 +23,8 @@ import { Button } from "@/components/ui/button";
 import { ProductDetailTabs } from "./product-detail-tabs";
 import { useChannelProductDetail } from "@/lib/channels/hooks/use-channel-product-detail";
 import { SyncProductButton } from "@/components/atoms/sync-product-button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { BulkSyncProductsModal } from "./bulk-sync-products-modal";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Types
@@ -65,6 +67,8 @@ export function ChannelProductsTable({
 }: ChannelProductsTableProps) {
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
+    const [selectedExternalIds, setSelectedExternalIds] = useState<Set<string>>(new Set());
+    const [bulkSyncModalOpen, setBulkSyncModalOpen] = useState(false);
 
     const { selectedProduct, isLoading, openProduct, invalidate } = useChannelProductDetail();
 
@@ -91,9 +95,32 @@ export function ChannelProductsTable({
         [openProduct],
     );
 
+    const handleSelectAll = useCallback((checked: boolean) => {
+        if (checked) {
+            const newSelected = new Set<string>();
+            products.forEach((p) => newSelected.add(p.externalId));
+            variations.forEach((v) => newSelected.add(v.externalId));
+            setSelectedExternalIds(newSelected);
+        } else {
+            setSelectedExternalIds(new Set());
+        }
+    }, [products, variations]);
+
+    const handleSelectRow = useCallback((externalId: string, checked: boolean) => {
+        setSelectedExternalIds((prev) => {
+            const next = new Set(prev);
+            if (checked) next.add(externalId);
+            else next.delete(externalId);
+            return next;
+        });
+    }, []);
+
     // ── Helpers ─────────────────────────────────────────────────────────────
 
-    const colSpan = canRefetchItem ? 6 : 5;
+    const colSpan = canRefetchItem ? 7 : 6;
+    const totalSelectable = products.length + variations.length;
+    const isAllSelected = totalSelectable > 0 && selectedExternalIds.size === totalSelectable;
+    const isSomeSelected = selectedExternalIds.size > 0 && selectedExternalIds.size < totalSelectable;
 
 
 
@@ -101,11 +128,46 @@ export function ChannelProductsTable({
 
     return (
         <>
+            <div className="flex items-center justify-between pb-4 min-h-[40px]">
+                <div>
+                    {selectedExternalIds.size > 0 && (
+                        <div className="flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                            <span className="text-sm font-medium text-muted-foreground mr-2">
+                                {selectedExternalIds.size} selected
+                            </span>
+                            <Button 
+                                onClick={() => setBulkSyncModalOpen(true)}
+                                variant="secondary" 
+                                size="sm" 
+                                className="shadow-sm border h-8"
+                            >
+                                Sync Selected
+                            </Button>
+                            <Button 
+                                onClick={() => setSelectedExternalIds(new Set())}
+                                variant="ghost" 
+                                size="sm" 
+                                className="h-8 text-muted-foreground"
+                            >
+                                Clear Selection
+                            </Button>
+                        </div>
+                    )}
+                </div>
+            </div>
+
             <div className="rounded-md border bg-white shadow-sm overflow-hidden">
                 <div className="overflow-x-auto">
                     <Table>
                         <TableHeader>
                             <TableRow>
+                                <TableHead className="w-[40px] pl-4">
+                                    <Checkbox 
+                                        checked={isAllSelected || (isSomeSelected ? "indeterminate" : false)}
+                                        onCheckedChange={handleSelectAll}
+                                        aria-label="Select all"
+                                    />
+                                </TableHead>
                                 <TableHead>External ID</TableHead>
                                 <TableHead>Product Name</TableHead>
                                 <TableHead>Type</TableHead>
@@ -133,6 +195,13 @@ export function ChannelProductsTable({
                                                 className={`cursor-pointer hover:bg-muted/50 transition-colors ${productVariations.length > 0 && expandedParents.has(product.externalId) ? "border-b-0" : ""}`}
                                                 onClick={() => handleRowClick(product.id)}
                                             >
+                                                <TableCell className="pl-4" onClick={(e) => e.stopPropagation()}>
+                                                    <Checkbox 
+                                                        checked={selectedExternalIds.has(product.externalId)}
+                                                        onCheckedChange={(c) => handleSelectRow(product.externalId, !!c)}
+                                                        aria-label={`Select ${product.externalId}`}
+                                                    />
+                                                </TableCell>
                                                 <TableCell className="whitespace-nowrap">
                                                     <div className="flex items-center gap-2 font-mono text-sm">
                                                         {productVariations.length > 0 ? (
@@ -225,6 +294,13 @@ export function ChannelProductsTable({
                                                     className="bg-muted/30 hover:bg-muted/40 transition-colors cursor-pointer"
                                                     onClick={() => handleRowClick(variation.id)}
                                                 >
+                                                    <TableCell className="pl-4" onClick={(e) => e.stopPropagation()}>
+                                                        <Checkbox 
+                                                            checked={selectedExternalIds.has(variation.externalId)}
+                                                            onCheckedChange={(c) => handleSelectRow(variation.externalId, !!c)}
+                                                            aria-label={`Select ${variation.externalId}`}
+                                                        />
+                                                    </TableCell>
                                                     <TableCell className="whitespace-nowrap pl-6">
                                                         <div className="flex items-center gap-2">
                                                             <CornerDownRight className="h-4 w-4 text-muted-foreground/50" />
@@ -358,6 +434,14 @@ export function ChannelProductsTable({
                     ) : null}
                 </SheetContent>
             </Sheet>
+
+            <BulkSyncProductsModal 
+                open={bulkSyncModalOpen} 
+                onOpenChange={setBulkSyncModalOpen}
+                channelId={channelId}
+                selectedExternalIds={Array.from(selectedExternalIds)}
+                onSuccessComplete={() => setSelectedExternalIds(new Set())}
+            />
         </>
     );
 }

@@ -26,6 +26,8 @@
     "@ai-sdk/google": "^3.0.29",
     "@hookform/resolvers": "^5.2.2",
     "@openrouter/ai-sdk-provider": "^2.3.3",
+    "@radix-ui/react-checkbox": "^1.3.3",
+    "@radix-ui/react-progress": "^1.1.8",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/node": "^25.2.3",
     "@types/react": "^19",
