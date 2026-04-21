@@ -794,7 +794,33 @@ export class AmazonAPIClient {
       });
     }
 
-    this.processProductRelationships(externalProducts);
+    const synthesizedAsins = this.processProductRelationships(externalProducts);
+
+    // If we synthesized parents (likely because children referenced them but they had no SKU/Listing),
+    // we MUST fetch their full metadata individually to discover the REST of the family.
+    if (synthesizedAsins.length > 0) {
+      console.log(`[Amazon SP-API] Synthesized ${synthesizedAsins.length} virtual parents. Discovering family relationships...`);
+      // Process synthesized parents to discover all children. Limit concurrency and respect rate limits.
+      for (const parentId of synthesizedAsins) {
+        try {
+          // Respect SP-API rate limits (Catalog/Pricing APIs are relatively tight)
+          await new Promise(resolve => setTimeout(resolve, 500)); 
+
+          const vp = externalProducts.find(p => p.id === parentId);
+          if (!vp) continue;
+
+          console.log(`[Amazon SP-API] Fetching full family for virtual parent: ${parentId}`);
+          const fullParent = await this.getCatalogItem(parentId);
+          vp.name = fullParent.name;
+          vp.rawPayload = fullParent.rawPayload;
+          vp.type = "variable";
+          
+          this.processProductRelationships(externalProducts);
+        } catch (e) {
+          console.warn(`[Amazon SP-API] Failed to discover relationships for synthesized parent ${parentId}`, e);
+        }
+      }
+    }
 
     return externalProducts;
   }
@@ -960,7 +986,7 @@ export class AmazonAPIClient {
     }
   }
 
-  private processProductRelationships(products: ExternalProduct[]): void {
+  private processProductRelationships(products: ExternalProduct[]): string[] {
     const virtualParents = new Map<string, ExternalProduct>();
 
     for (const product of products) {
@@ -1020,9 +1046,13 @@ export class AmazonAPIClient {
     }
 
     // Append synthesized virtual parents to the sync batch
+    const synthesizedIds: string[] = [];
     for (const vp of virtualParents.values()) {
       products.push(vp);
+      synthesizedIds.push(vp.id);
     }
+
+    return synthesizedIds;
   }
 
   // ── Private helpers ────────────────────────────────────────────────────────

@@ -103,7 +103,20 @@ export async function getChannelProductsWithVariations(channelId: number, option
 
   const baseCondition = and(
     eq(channelProducts.channelId, channelId),
-    or(ne(channelProducts.type, "variation"), isNull(channelProducts.type))
+    or(
+      // Standard: Parent / Standalone products
+      ne(channelProducts.type, "variation"),
+      isNull(channelProducts.type),
+      // Robust: Orphaned Variations (Promote to top-level if parent is actually missing from DB)
+      and(
+        eq(channelProducts.type, "variation"),
+        sql`NOT EXISTS (
+          SELECT 1 FROM ${channelProducts} parent
+          WHERE parent.external_id = COALESCE(${channelProducts.rawData}->>'parentId', CAST(${channelProducts.rawData}->>'parent_id' AS TEXT))
+          AND parent.channel_id = ${channelId}
+        )`
+      )
+    )
   );
 
   const queryCondition = query
@@ -275,23 +288,45 @@ export async function upsertChannelProducts(products: {
 }[]) {
   if (products.length === 0) return;
 
-  return await db
-    .insert(channelProducts)
-    .values(products.map(p => ({
-      ...p,
-      lastSyncedAt: new Date(),
-    })))
-    .onConflictDoUpdate({
-      target: [channelProducts.channelId, channelProducts.externalId],
-      set: {
-        name: sql`COALESCE(NULLIF(EXCLUDED.name, ''), ${channelProducts.name})`,
-        sku: sql`COALESCE(NULLIF(EXCLUDED.sku, ''), ${channelProducts.sku})`,
-        stockQuantity: sql`COALESCE(EXCLUDED.stock_quantity, ${channelProducts.stockQuantity})`,
-        type: sql`COALESCE(NULLIF(EXCLUDED.type, ''), ${channelProducts.type})`,
-        rawData: sql`COALESCE(${channelProducts.rawData}, '{}'::jsonb) || COALESCE(EXCLUDED.raw_data, '{}'::jsonb)`,
-        lastSyncedAt: sql`EXCLUDED.last_synced_at`,
-      },
-    });
+  return await db.transaction(async (tx) => {
+    const result = await tx
+      .insert(channelProducts)
+      .values(products.map(p => ({
+        ...p,
+        lastSyncedAt: new Date(),
+      })))
+      .onConflictDoUpdate({
+        target: [channelProducts.channelId, channelProducts.externalId],
+        set: {
+          name: sql`COALESCE(NULLIF(EXCLUDED.name, ''), ${channelProducts.name})`,
+          sku: sql`COALESCE(NULLIF(EXCLUDED.sku, ''), ${channelProducts.sku})`,
+          stockQuantity: sql`COALESCE(EXCLUDED.stock_quantity, ${channelProducts.stockQuantity})`,
+          type: sql`COALESCE(NULLIF(EXCLUDED.type, ''), ${channelProducts.type})`,
+          rawData: sql`COALESCE(${channelProducts.rawData}, '{}'::jsonb) || COALESCE(EXCLUDED.raw_data, '{}'::jsonb)`,
+          lastSyncedAt: sql`EXCLUDED.last_synced_at`,
+        },
+      });
+
+    // Extract all unique parentIds from the batch to 'touch' their lastSyncedAt
+    // This pulls the whole family to the top of the table.
+    const parentIds = products
+      .map(p => (p.rawData as Record<string, unknown>)?.parentId as string)
+      .filter(Boolean);
+
+    if (parentIds.length > 0) {
+      await tx
+        .update(channelProducts)
+        .set({ lastSyncedAt: new Date() })
+        .where(
+          and(
+            eq(channelProducts.channelId, products[0].channelId),
+            inArray(channelProducts.externalId, Array.from(new Set(parentIds)))
+          )
+        );
+    }
+
+    return result;
+  });
 }
 
 export async function upsertProductWithVariationsTx(
@@ -321,6 +356,20 @@ export async function upsertProductWithVariationsTx(
           lastSyncedAt: sql`EXCLUDED.last_synced_at`,
         },
       });
+
+    // If this is a child, touch the parent's sync date so the family stays together at the top
+    const parentId = (product.rawData as Record<string, unknown>)?.parentId as string;
+    if (parentId) {
+      await tx
+        .update(channelProducts)
+        .set({ lastSyncedAt: new Date() })
+        .where(
+          and(
+            eq(channelProducts.channelId, product.channelId),
+            eq(channelProducts.externalId, parentId)
+          )
+        );
+    }
 
     if (childAsins.length > 0) {
       await tx

@@ -310,3 +310,30 @@ if (!channel) notFound();  // 404 for both missing AND unauthorized
 - ❌ Using `getChannel(id)` in page components for sensitive routes — use `getChannelForUser(userId, id)`
 - ❌ Directly manipulating `quantityOnHand` for order-driven changes — always use `processOrderStockChange()`
 - ❌ Using `order.cancelled` as a WooCommerce webhook topic — it doesn't exist; cancellations come via `order.updated`
+
+## Amazon-Specific Optimization: Recursive Family Discovery
+
+Some Amazon variation families have incomplete relationship data in standard listing reports. Use the **Recursive Discovery** pattern to fix "disconnected" or "standalone" children:
+
+1. **Self-Healing Synthesis**: If a child ASIN mentions a parent not in the current batch, synthesize a "Virtual Parent" shell.
+2. **Throttled Discovery**: Proactively fetch that parent's individual Catalog record using `this.getCatalogItem(parentId)`.
+3. **Link Propagation**: Once the parent is enriched with its full `VARIATION` relationships, re-run relationship processing on the current batch to link all siblings.
+4. **Rate Limiting**: Always include a throttle (e.g., `500ms`) between parent enrichment calls to avoid `429 QuotaExceeded` errors on Amazon's Catalog/Pricing APIs.
+
+```typescript
+// Pattern: Discovery Loop (Implementation in downloadAndParseReport)
+const synthesizedAsins = this.processProductRelationships(externalProducts);
+if (synthesizedAsins.length > 0) {
+  for (const parentId of synthesizedAsins) {
+    await new Promise(resolve => setTimeout(resolve, 500)); // Throttle
+    const vp = externalProducts.find(p => p.id === parentId);
+    if (!vp) continue;
+    
+    // Enrich shell and propagate links
+    const fullParent = await this.getCatalogItem(parentId);
+    vp.name = fullParent.name;
+    vp.rawPayload = fullParent.rawPayload;
+    this.processProductRelationships(externalProducts);
+  }
+}
+```
