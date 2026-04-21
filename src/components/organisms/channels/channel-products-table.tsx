@@ -95,8 +95,9 @@ export function ChannelProductsTable({
         [openProduct],
     );
 
-    const handleSelectAll = useCallback((checked: boolean) => {
-        if (checked) {
+    const handleSelectAll = useCallback((checked: boolean | "indeterminate") => {
+        const isChecked = checked === true;
+        if (isChecked) {
             const newSelected = new Set<string>();
             products.forEach((p) => newSelected.add(p.externalId));
             variations.forEach((v) => newSelected.add(v.externalId));

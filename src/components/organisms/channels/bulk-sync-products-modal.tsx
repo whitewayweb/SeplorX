@@ -25,29 +25,33 @@ export function BulkSyncProductsModal({
     onSuccessComplete,
 }: BulkSyncProductsModalProps) {
     const router = useRouter();
-    const [isSyncing, setIsSyncing] = useState(false);
-    const [progress, setProgress] = useState(0);
-    const [currentExternalId, setCurrentExternalId] = useState<string | null>(null);
-    const [cancelRequested, setCancelRequested] = useState(false);
-    const [completed, setCompleted] = useState(false);
-    const [prevOpen, setPrevOpen] = useState(open);
+    
+    // Consolidate state to avoid "setState in effect" lint errors and improve atomicity
+    const [status, setStatus] = useState({
+        isSyncing: false,
+        progress: 0,
+        currentExternalId: null as string | null,
+        cancelRequested: false,
+        completed: false,
+    });
 
-    // Reset state when opening by deriving state during render (avoids setState in effect)
-    if (open !== prevOpen) {
-        setPrevOpen(open);
+    // Reset state when opening via a single atomic update
+    useEffect(() => {
         if (open) {
-            setIsSyncing(false);
-            setProgress(0);
-            setCancelRequested(false);
-            setCompleted(false);
-            setCurrentExternalId(null);
+            setStatus({
+                isSyncing: false,
+                progress: 0,
+                cancelRequested: false,
+                completed: false,
+                currentExternalId: null,
+            });
         }
-    }
+    }, [open]);
 
     // Protect against browser navigation
     useEffect(() => {
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-            if (isSyncing) {
+            if (status.isSyncing) {
                 e.preventDefault();
                 e.returnValue = "Sync in progress. Are you sure you want to leave?";
             }
@@ -55,11 +59,11 @@ export function BulkSyncProductsModal({
 
         window.addEventListener("beforeunload", handleBeforeUnload);
         return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-    }, [isSyncing]);
+    }, [status.isSyncing]);
 
     // The orchestration queue
     useEffect(() => {
-        if (!open || !isSyncing || completed || cancelRequested) return;
+        if (!open || !status.isSyncing || status.completed || status.cancelRequested) return;
 
         let isCancelled = false;
 
@@ -68,9 +72,9 @@ export function BulkSyncProductsModal({
             let currentIdx = 0;
 
             for (const externalId of selectedExternalIds) {
-                if (isCancelled || cancelRequested) break;
+                if (isCancelled || status.cancelRequested) break;
                 
-                setCurrentExternalId(externalId);
+                setStatus(prev => ({ ...prev, currentExternalId: externalId }));
                 try {
                     // Small delay to be polite to the API rate limits
                     if (currentIdx > 0) {
@@ -93,12 +97,16 @@ export function BulkSyncProductsModal({
                 }
 
                 currentIdx++;
-                setProgress(currentIdx);
+                setStatus(prev => ({ ...prev, progress: currentIdx }));
             }
 
             if (!isCancelled) {
-                setIsSyncing(false);
-                setCompleted(true);
+                setStatus(prev => ({ 
+                    ...prev, 
+                    isSyncing: false, 
+                    completed: true,
+                    currentExternalId: null 
+                }));
                 toast.success(`Completed bulk sync. Successful: ${successCount}/${selectedExternalIds.length}`);
                 router.refresh();
             }
@@ -109,29 +117,28 @@ export function BulkSyncProductsModal({
         return () => {
             isCancelled = true;
         };
-    }, [open, isSyncing, selectedExternalIds, channelId, router, cancelRequested, completed]);
+    }, [open, status.isSyncing, status.completed, status.cancelRequested, selectedExternalIds, channelId, router]);
 
     const total = selectedExternalIds.length;
-    const progressPercent = total > 0 ? (progress / total) * 100 : 0;
+    const progressPercent = total > 0 ? (status.progress / total) * 100 : 0;
 
     const handleCancel = () => {
-        setCancelRequested(true);
-        setIsSyncing(false);
-        setCompleted(true);
+        setStatus(prev => ({ ...prev, cancelRequested: true, isSyncing: false }));
         toast.info("Bulk sync cancelled.");
     };
 
     const handleClose = () => {
-        if (!isSyncing) {
+        if (!status.isSyncing) {
             onOpenChange(false);
-            if (completed) onSuccessComplete();
+            // Only trigger success callback if we actually finished the queue
+            if (status.completed && !status.cancelRequested) onSuccessComplete();
         }
     };
 
     return (
         <Dialog open={open} onOpenChange={handleClose}>
             <DialogContent className="sm:max-w-[425px]" onInteractOutside={(e) => {
-                if (isSyncing) e.preventDefault(); // Prevent closing by clicking outside
+                if (status.isSyncing) e.preventDefault(); // Prevent closing by clicking outside
             }}>
                 <DialogHeader>
                     <DialogTitle>Bulk Sync Products</DialogTitle>
@@ -141,7 +148,7 @@ export function BulkSyncProductsModal({
                 </DialogHeader>
 
                 <div className="py-6 flex flex-col gap-6">
-                    {!isSyncing && !completed && !cancelRequested && progress === 0 ? (
+                    {!status.isSyncing && !status.completed && !status.cancelRequested && status.progress === 0 ? (
                         <div className="text-sm text-muted-foreground">
                             You have selected <strong>{total}</strong> products to sync. This process will fetch the most up-to-date information directly from the channel and may take some time depending on the number of products. Ensure you do not close this window during the sync.
                         </div>
@@ -150,28 +157,28 @@ export function BulkSyncProductsModal({
                             <div className="space-y-2">
                                 <div className="flex justify-between text-sm font-medium">
                                     <span>
-                                        {isSyncing ? "Syncing..." : completed ? "Finished" : "Preparing..."}
+                                        {status.isSyncing ? "Syncing..." : status.completed ? "Finished" : "Preparing..."}
                                     </span>
-                                    <span className="tabular-nums">{progress} / {total}</span>
+                                    <span className="tabular-nums">{status.progress} / {total}</span>
                                 </div>
                                 <Progress value={progressPercent} className="h-2" />
                             </div>
 
-                            {isSyncing && currentExternalId && (
+                            {status.isSyncing && status.currentExternalId && (
                                 <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted p-3 rounded-md border">
                                     <Loader2 className="w-4 h-4 animate-spin shrink-0 text-primary" />
-                                    <span className="truncate flex-1 font-mono">{currentExternalId}</span>
+                                    <span className="truncate flex-1 font-mono">{status.currentExternalId}</span>
                                 </div>
                             )}
 
-                            {completed && !cancelRequested && (
+                            {status.completed && !status.cancelRequested && (
                                 <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 p-3 rounded-md border border-green-200">
                                     <CheckCircle2 className="w-4 h-4 shrink-0" />
                                     <span>Successfully processed queue.</span>
                                 </div>
                             )}
                             
-                            {cancelRequested && (
+                            {status.cancelRequested && (
                                 <div className="flex items-center gap-2 text-sm text-yellow-700 bg-yellow-50 p-3 rounded-md border border-yellow-200">
                                     <AlertCircle className="w-4 h-4 shrink-0" />
                                     <span>Operation was manually cancelled.</span>
@@ -182,12 +189,12 @@ export function BulkSyncProductsModal({
                 </div>
 
                 <div className="flex justify-end gap-2">
-                    {!isSyncing && !completed && !cancelRequested && progress === 0 ? (
+                    {!status.isSyncing && !status.completed && !status.cancelRequested && status.progress === 0 ? (
                         <>
                             <Button variant="ghost" onClick={handleClose}>Cancel</Button>
-                            <Button onClick={() => setIsSyncing(true)}>Start Sync</Button>
+                            <Button onClick={() => setStatus(prev => ({ ...prev, isSyncing: true }))}>Start Sync</Button>
                         </>
-                    ) : isSyncing ? (
+                    ) : status.isSyncing ? (
                         <Button variant="destructive" onClick={handleCancel}>
                             Cancel Remaining
                         </Button>
