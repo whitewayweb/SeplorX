@@ -7,6 +7,7 @@ import { TablePagination } from "@/components/ui/table-pagination";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { DateRangePicker } from "@/components/organisms/orders/date-range-picker";
+import { formatDistanceToNow } from "date-fns";
 
 interface Order {
   id: number;
@@ -22,6 +23,7 @@ interface Order {
 interface Channel {
   id: number;
   name: string;
+  lastSyncAt?: Date | null;
 }
 
 interface OrdersListProps {
@@ -105,16 +107,35 @@ export function OrdersList({
           <DateRangePicker />
         </div>
         
-        <div className="flex flex-wrap gap-2 shrink-0 lg:justify-end">
+        <div className="flex flex-wrap gap-3 shrink-0 lg:justify-end">
           {channels.map((channel) => (
-            <div key={channel.id} className="flex gap-2">
-              <FetchOrdersButton
-                channelId={channel.id}
-                channelName={channel.name}
-              />
-              {showClear && totalCount > 0 && (
-                <ClearOrdersButton channelId={channel.id} />
-              )}
+            <div 
+              key={channel.id} 
+              className="flex items-center gap-3 pl-3 pr-1 py-1 rounded-full bg-slate-50 border border-slate-200"
+            >
+              <div className="flex flex-col">
+                <span className="text-xs font-bold text-slate-700 leading-tight">
+                  {channel.name}
+                </span>
+                {channel.lastSyncAt ? (
+                  <span className="text-[10px] text-slate-400 font-medium">
+                    Synced {formatDistanceToNow(new Date(channel.lastSyncAt), { addSuffix: true })}
+                  </span>
+                ) : (
+                   <span className="text-[10px] text-slate-400 font-medium italic">Never synced</span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-0.5 border-l border-slate-200 pl-2">
+                <FetchOrdersButton
+                  channelId={channel.id}
+                  channelName={channel.name}
+                  variant="ghost"
+                />
+                {showClear && totalCount > 0 && (
+                  <ClearOrdersButton channelId={channel.id} variant="ghost" />
+                )}
+              </div>
             </div>
           ))}
         </div>

@@ -1,6 +1,6 @@
 import { getAuthenticatedUserId } from "@/lib/auth";
 import { getOrdersByChannel, countOrdersByChannel, getOrderStatusCounts } from "@/lib/channels/amazon/queries";
-import { getConnectedChannelsForUser } from "@/lib/channels/queries";
+import { getConnectedChannelsForUser, getLastSyncDate } from "@/lib/channels/queries";
 import { OrdersList } from "@/components/organisms/orders/orders-list";
 import { notFound, redirect } from "next/navigation";
 import { parsePaginationParams } from "@/lib/utils/pagination";
@@ -53,10 +53,15 @@ export default async function ChannelOrdersPage({
     getOrderStatusCounts(userId, channelId, dateFrom, dateTo),
   ]);
 
+  const ordersWithLastSync = {
+    ...channel,
+    lastSyncAt: await getLastSyncDate(channel.id),
+  };
+
   return (
     <OrdersList
       orders={orders}
-      channels={[channel]}
+      channels={[ordersWithLastSync]}
       title={`${channel.name} Orders`}
       currentPage={page}
       totalCount={totalCount}
