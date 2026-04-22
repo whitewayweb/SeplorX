@@ -507,9 +507,8 @@ export const woocommerceHandler: ChannelHandler = {
   async fetchAndSaveOrders(userId: number, channelId: number): Promise<{ fetched: number; saved: number }> {
     const { db } = await import("@/db");
     const { channels, salesOrders, salesOrderItems, channelProductMappings, products } = await import("@/db/schema");
-    const { eq, and, isNull } = await import("drizzle-orm");
+    const { eq, and, isNull, inArray } = await import("drizzle-orm");
     const { decryptChannelCredentials } = await import("@/lib/channels/utils");
-    const { getLastOrderDate } = await import("./queries");
 
     const [channel] = await db
       .select({
@@ -529,11 +528,12 @@ export const woocommerceHandler: ChannelHandler = {
     const auth = basicAuth(creds.consumerKey, creds.consumerSecret);
 
     // Determine fetch window
-    const lastOrderDate = await getLastOrderDate(channelId);
+    const { getLastSyncDate } = await import("./queries");
+    const lastSyncDate = await getLastSyncDate(channelId);
     let modifiedAfterParam = "";
-    if (lastOrderDate) {
+    if (lastSyncDate) {
       // 1 hour buffer for safety
-      const bufferDate = new Date(lastOrderDate.getTime() - 60 * 60 * 1000);
+      const bufferDate = new Date(lastSyncDate.getTime() - 60 * 60 * 1000);
       modifiedAfterParam = `&modified_after=${bufferDate.toISOString()}`;
     } else {
       // Fallback 90 days
@@ -549,7 +549,7 @@ export const woocommerceHandler: ChannelHandler = {
     let totalPages = 1;
 
     do {
-      const res = await wcFetch(channel.storeUrl, `/orders?per_page=100&page=${page}${modifiedAfterParam}`, {
+      const res = await wcFetch(channel.storeUrl, `/orders?per_page=100&page=${page}&orderby=modified&order=asc${modifiedAfterParam}`, {
         method: "GET",
         headers: { Authorization: auth },
       });
@@ -603,6 +603,8 @@ export const woocommerceHandler: ChannelHandler = {
                   previousStatus: existing.status,
                   rawData: mergedRawData,
                   syncedAt: new Date(),
+                  ...(wcOrder.total ? { totalAmount: String(wcOrder.total) } : {}),
+                  ...(wcOrder.currency ? { currency: wcOrder.currency } : {}),
                 })
                 .where(eq(salesOrders.id, existing.id));
 
@@ -751,7 +753,7 @@ export const woocommerceHandler: ChannelHandler = {
       page++;
     } while (page <= totalPages);
 
-    // Retroactive mapping check
+    // Retroactive mapping check: batched
     try {
       const pendingItems = await db
         .select({
@@ -769,67 +771,86 @@ export const woocommerceHandler: ChannelHandler = {
           )
         );
 
-      for (const item of pendingItems) {
-        const payload = item.rawData as Record<string, unknown> | null;
-        if (!payload) continue;
+      if (pendingItems.length > 0) {
+        const externalIds = new Set<string>();
+        const skus = new Set<string>();
 
-        const variationId = payload.variation_id as number;
-        const productId = payload.product_id as number;
-        const searchId = variationId ? String(variationId) : String(productId);
-        const sku = item.sku ?? "";
-
-        let matchedProductId: number | undefined;
-
-        if (searchId && searchId !== "0") {
-          const [mapping] = await db
-            .select({ productId: channelProductMappings.productId })
-            .from(channelProductMappings)
-            .where(
-              and(
-                eq(channelProductMappings.channelId, channelId),
-                eq(channelProductMappings.externalProductId, searchId)
-              )
-            )
-            .limit(1);
-          matchedProductId = mapping?.productId;
+        // Collect external IDs: variation_id preferred, fallback to product_id
+        for (const item of pendingItems) {
+          const payload = item.rawData as Record<string, unknown> | null;
+          if (!payload) continue;
+          const variationId = payload.variation_id as number;
+          const productId = payload.product_id as number;
+          const searchId = variationId ? String(variationId) : String(productId);
+          if (searchId && searchId !== "0") externalIds.add(searchId);
+          if (item.sku) skus.add(item.sku);
         }
 
-        if (!matchedProductId && sku) {
-          const [localProduct] = await db
-            .select({ id: products.id })
-            .from(products)
-            .where(eq(products.sku, sku))
-            .limit(1);
-          if (localProduct) {
-            matchedProductId = localProduct.id;
-          }
-        }
-
-        if (matchedProductId) {
-          await db
-            .update(salesOrderItems)
-            .set({ productId: matchedProductId })
-            .where(eq(salesOrderItems.id, item.id));
-
-          // Process stock for retroactively mapped orders (date-gated)
-          try {
-            const [order] = await db
+        const allMappings = externalIds.size > 0
+          ? await db
               .select({
-                id: salesOrders.id,
-                status: salesOrders.status,
-                purchasedAt: salesOrders.purchasedAt,
-                stockProcessed: salesOrders.stockProcessed,
+                externalProductId: channelProductMappings.externalProductId,
+                productId: channelProductMappings.productId,
               })
-              .from(salesOrders)
-              .where(eq(salesOrders.id, item.orderId))
-              .limit(1);
+              .from(channelProductMappings)
+              .where(
+                and(
+                  eq(channelProductMappings.channelId, channelId),
+                  inArray(channelProductMappings.externalProductId, [...externalIds])
+                )
+              )
+          : [];
 
-            const { STOCK_CUTOFF_DATE, processOrderStockChange } = await import("@/lib/stock/service");
-            if (order && !order.stockProcessed && order.purchasedAt && order.purchasedAt >= STOCK_CUTOFF_DATE) {
-              await processOrderStockChange(order.id, order.status, null, userId);
+        const allLocalProducts = skus.size > 0
+          ? await db
+              .select({ id: products.id, sku: products.sku })
+              .from(products)
+              .where(inArray(products.sku, [...skus]))
+          : [];
+
+        const mappingByExtId = new Map(allMappings.map(m => [m.externalProductId, m.productId]));
+        const productBySku = new Map(allLocalProducts.map(p => [p.sku, p.id]));
+
+        for (const item of pendingItems) {
+          const payload = item.rawData as Record<string, unknown> | null;
+          if (!payload) continue;
+
+          const variationId = payload.variation_id as number;
+          const productId = payload.product_id as number;
+          const searchId = variationId ? String(variationId) : String(productId);
+          const sku = item.sku ?? "";
+
+          let matchedProductId = mappingByExtId.get(searchId);
+          if (!matchedProductId && sku) {
+            matchedProductId = productBySku.get(sku);
+          }
+
+          if (matchedProductId) {
+            await db
+              .update(salesOrderItems)
+              .set({ productId: matchedProductId })
+              .where(eq(salesOrderItems.id, item.id));
+
+            // Process stock for retroactively mapped orders (date-gated)
+            try {
+              const [order] = await db
+                .select({
+                  id: salesOrders.id,
+                  status: salesOrders.status,
+                  purchasedAt: salesOrders.purchasedAt,
+                  stockProcessed: salesOrders.stockProcessed,
+                })
+                .from(salesOrders)
+                .where(eq(salesOrders.id, item.orderId))
+                .limit(1);
+
+              const { STOCK_CUTOFF_DATE, processOrderStockChange } = await import("@/lib/stock/service");
+              if (order && !order.stockProcessed && order.purchasedAt && order.purchasedAt >= STOCK_CUTOFF_DATE) {
+                await processOrderStockChange(order.id, order.status, null, userId);
+              }
+            } catch (stockErr) {
+              console.error(`[WooCommerce Sync] Retroactive stock failed for item ${item.id}:`, stockErr);
             }
-          } catch (stockErr) {
-            console.error(`[WooCommerce Sync] Retroactive stock failed for item ${item.id}:`, stockErr);
           }
         }
       }

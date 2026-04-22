@@ -15,7 +15,7 @@ import {
   extractProductFields,
   extractRelationships,
 } from "./config";
-import { extractSqlField, getBrands, getLastOrderDate } from "./queries";
+import { extractSqlField, getBrands } from "./queries";
 
 export const amazonHandler: ChannelHandler = {
   id: "amazon",
@@ -150,7 +150,7 @@ export const amazonHandler: ChannelHandler = {
       channelProductMappings,
       products,
     } = await import("@/db/schema");
-    const { eq, and, or, isNull } = await import("drizzle-orm");
+    const { eq, and, or, isNull, inArray } = await import("drizzle-orm");
     const { decryptChannelCredentials } = await import("@/lib/channels/utils");
 
     const [channel] = await db
@@ -171,11 +171,12 @@ export const amazonHandler: ChannelHandler = {
     const client = new AmazonAPIClient(creds, channel.storeUrl || "");
 
     // Determine fetch window: last order in DB minus 1 hour for safety, or fallback 90 days
-    const lastOrderDate = await getLastOrderDate(channelId);
+    const { getLastSyncDate } = await import("./queries");
+    const lastSyncDate = await getLastSyncDate(channelId);
     const bufferMs = 60 * 60 * 1000; // 1 hour buffer for safety
     const lastUpdatedAfter = (
-      lastOrderDate
-        ? new Date(lastOrderDate.getTime() - bufferMs)
+      lastSyncDate
+        ? new Date(lastSyncDate.getTime() - bufferMs)
         : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
     ).toISOString();
 
@@ -200,6 +201,7 @@ export const amazonHandler: ChannelHandler = {
               id: salesOrders.id,
               status: salesOrders.status,
               purchasedAt: salesOrders.purchasedAt,
+              buyerName: salesOrders.buyerName,
               rawData: salesOrders.rawData,
             })
             .from(salesOrders)
@@ -221,6 +223,9 @@ export const amazonHandler: ChannelHandler = {
                 lastAmzUpdate: amzOrder,
               };
 
+              const resolvedBuyerName = amzOrder.BuyerInfo?.BuyerName
+                || null;
+
               await db
                 .update(salesOrders)
                 .set({
@@ -228,6 +233,9 @@ export const amazonHandler: ChannelHandler = {
                   previousStatus: existing.status,
                   rawData: mergedRawData,
                   syncedAt: new Date(),
+                  ...(amzOrder.OrderTotal?.Amount ? { totalAmount: amzOrder.OrderTotal.Amount } : {}),
+                  ...(amzOrder.OrderTotal?.CurrencyCode ? { currency: amzOrder.OrderTotal.CurrencyCode } : {}),
+                  ...(resolvedBuyerName && !existing.buyerName ? { buyerName: resolvedBuyerName } : {}),
                 })
                 .where(eq(salesOrders.id, existing.id));
 
@@ -288,7 +296,6 @@ export const amazonHandler: ChannelHandler = {
             const resolvedBuyerName =
               buyerRes?.BuyerName ||
               amzOrder.BuyerInfo?.BuyerName ||
-              amzOrder.DefaultShipFromLocationAddress?.Name ||
               addressRes?.ShippingAddress?.Name ||
               null;
 
@@ -417,7 +424,7 @@ export const amazonHandler: ChannelHandler = {
       }
     }
 
-    // 5. Retroactive mapping check: try to match order items that still have no productId
+    // 5. Retroactive mapping check: try to match order items that still have no productId (batched)
     try {
       const pendingItems = await db
         .select({
@@ -435,72 +442,84 @@ export const amazonHandler: ChannelHandler = {
           ),
         );
 
-      for (const item of pendingItems) {
-        const payload = item.rawData as Record<string, unknown> | null;
-        const asin = (payload?.ASIN as string) ?? "";
-        const sku = item.sku ?? "";
-
-        let matchedProductId: number | undefined;
-
-        const [mapping] =
-          asin || sku
-            ? await db
-                .select({ productId: channelProductMappings.productId })
-                .from(channelProductMappings)
-                .where(
-                  and(
-                    eq(channelProductMappings.channelId, channelId),
-                    or(
-                      asin
-                        ? eq(channelProductMappings.externalProductId, asin)
-                        : undefined,
-                      sku
-                        ? eq(channelProductMappings.externalProductId, sku)
-                        : undefined,
-                    ),
-                  ),
-                )
-                .limit(1)
-            : [];
-
-        matchedProductId = mapping?.productId;
-
-        if (!matchedProductId && sku) {
-          const [localProduct] = await db
-            .select({ id: products.id })
-            .from(products)
-            .where(eq(products.sku, sku))
-            .limit(1);
-          if (localProduct) {
-            matchedProductId = localProduct.id;
+      if (pendingItems.length > 0) {
+        // Collect all external IDs and SKUs to batch-query
+        const externalIds = new Set<string>();
+        const skus = new Set<string>();
+        for (const item of pendingItems) {
+          const payload = item.rawData as Record<string, unknown> | null;
+          const asin = (payload?.ASIN as string) ?? "";
+          if (asin) externalIds.add(asin);
+          if (item.sku) {
+            externalIds.add(item.sku);
+            skus.add(item.sku);
           }
         }
 
-        if (matchedProductId) {
-          await db
-            .update(salesOrderItems)
-            .set({ productId: matchedProductId })
-            .where(eq(salesOrderItems.id, item.id));
-
-          // Process stock for retroactively mapped orders (date-gated)
-          try {
-            const [order] = await db
+        // Batch fetch all mappings for this channel
+        const allMappings = externalIds.size > 0
+          ? await db
               .select({
-                id: salesOrders.id,
-                status: salesOrders.status,
-                purchasedAt: salesOrders.purchasedAt,
-                stockProcessed: salesOrders.stockProcessed,
+                externalProductId: channelProductMappings.externalProductId,
+                productId: channelProductMappings.productId,
               })
-              .from(salesOrders)
-              .where(eq(salesOrders.id, item.orderId))
-              .limit(1);
+              .from(channelProductMappings)
+              .where(
+                and(
+                  eq(channelProductMappings.channelId, channelId),
+                  inArray(channelProductMappings.externalProductId, [...externalIds]),
+                ),
+              )
+          : [];
 
-            const { STOCK_CUTOFF_DATE, processOrderStockChange } = await import("@/lib/stock/service");
-            if (order && !order.stockProcessed && order.purchasedAt && order.purchasedAt >= STOCK_CUTOFF_DATE) {
-              await processOrderStockChange(order.id, order.status, null, userId);
+        // Batch fetch all local products by SKU
+        const allLocalProducts = skus.size > 0
+          ? await db
+              .select({ id: products.id, sku: products.sku })
+              .from(products)
+              .where(inArray(products.sku, [...skus]))
+          : [];
+
+        // Build lookup maps
+        const mappingByExtId = new Map(allMappings.map(m => [m.externalProductId, m.productId]));
+        const productBySku = new Map(allLocalProducts.map(p => [p.sku, p.id]));
+
+        for (const item of pendingItems) {
+          const payload = item.rawData as Record<string, unknown> | null;
+          const asin = (payload?.ASIN as string) ?? "";
+          const sku = item.sku ?? "";
+
+          let matchedProductId = mappingByExtId.get(asin) || mappingByExtId.get(sku);
+          if (!matchedProductId && sku) {
+            matchedProductId = productBySku.get(sku);
+          }
+
+          if (matchedProductId) {
+            await db
+              .update(salesOrderItems)
+              .set({ productId: matchedProductId })
+              .where(eq(salesOrderItems.id, item.id));
+
+            // Process stock for retroactively mapped orders (date-gated)
+            try {
+              const [order] = await db
+                .select({
+                  id: salesOrders.id,
+                  status: salesOrders.status,
+                  purchasedAt: salesOrders.purchasedAt,
+                  stockProcessed: salesOrders.stockProcessed,
+                })
+                .from(salesOrders)
+                .where(eq(salesOrders.id, item.orderId))
+                .limit(1);
+
+              const { STOCK_CUTOFF_DATE, processOrderStockChange } = await import("@/lib/stock/service");
+              if (order && !order.stockProcessed && order.purchasedAt && order.purchasedAt >= STOCK_CUTOFF_DATE) {
+                await processOrderStockChange(order.id, order.status, null, userId);
+              }
+            } catch (stockErr) {
+              console.error(`[Amazon Sync] Retroactive stock failed for item ${item.id}:`, stockErr);
             }
-          } catch (stockErr) {
-            console.error(`[Amazon Sync] Retroactive stock failed for item ${item.id}:`, stockErr);
           }
         }
       }

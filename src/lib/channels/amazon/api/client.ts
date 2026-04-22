@@ -76,11 +76,20 @@ export class AmazonAPIClient {
       });
 
       if (res.status === 429 && i < retries - 1) {
-        // Wait 1s and retry on quota hit
+        // Adaptive delay: read x-amzn-RateLimit-Limit header (requests/sec)
+        // If available, wait 1/rate seconds. Otherwise, exponential backoff.
+        const rateLimitHeader = res.headers.get("x-amzn-RateLimit-Limit");
+        let delayMs = 1000 * Math.pow(2, i); // default exponential: 1s, 2s, 4s
+        if (rateLimitHeader) {
+          const ratePerSec = parseFloat(rateLimitHeader);
+          if (ratePerSec > 0) {
+            delayMs = Math.ceil(1000 / ratePerSec); // 1/rate = seconds between requests
+          }
+        }
         console.warn(
-          `[Amazon SP-API] 429 hit for ${url}. Retrying in 1s... (${i + 1}/${retries})`,
+          `[Amazon SP-API] 429 hit for ${url}. Retrying in ${delayMs}ms... (${i + 1}/${retries})`,
         );
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
         continue;
       }
 
@@ -1119,12 +1128,11 @@ export class AmazonAPIClient {
         currentUrl.searchParams.set("NextToken", nextToken);
       }
 
-      const res = await fetch(currentUrl.toString(), {
+      const res = await this.fetchWithRetry(currentUrl.toString(), {
         headers: {
           Accept: "application/json",
           "x-amz-access-token": accessToken,
         },
-        signal: AbortSignal.timeout(15_000),
       });
 
       if (!res.ok) {
@@ -1168,27 +1176,42 @@ export class AmazonAPIClient {
     orderId: string,
   ): Promise<OrdersV0Schema["GetOrderItemsResponse"]["payload"]> {
     const accessToken = await this.getAccessToken();
-    const url = new URL(
+    const baseUrl = new URL(
       `${this.endpoint}/orders/v0/orders/${encodeURIComponent(orderId)}/orderItems`,
     );
 
-    const res = await this.fetchWithRetry(url.toString(), {
-      headers: {
-        Accept: "application/json",
-        "x-amz-access-token": accessToken,
-      },
-    });
+    let allOrderItems: NonNullable<OrdersV0Schema["GetOrderItemsResponse"]["payload"]>["OrderItems"] = [];
+    let nextToken: string | undefined = undefined;
 
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error("[Amazon SP-API] getOrderItems Error:", errText);
-      throw new Error(
-        `Failed to get order items for ${orderId}: ${res.status}`,
-      );
-    }
+    do {
+      const url = new URL(baseUrl.toString());
+      if (nextToken) {
+        url.searchParams.set("NextToken", nextToken);
+      }
 
-    const data = (await res.json()) as OrdersV0Schema["GetOrderItemsResponse"];
-    return data.payload;
+      const res = await this.fetchWithRetry(url.toString(), {
+        headers: {
+          Accept: "application/json",
+          "x-amz-access-token": accessToken,
+        },
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error("[Amazon SP-API] getOrderItems Error:", errText);
+        throw new Error(
+          `Failed to get order items for ${orderId}: ${res.status}`,
+        );
+      }
+
+      const data = (await res.json()) as OrdersV0Schema["GetOrderItemsResponse"];
+      if (data.payload?.OrderItems) {
+        allOrderItems = allOrderItems.concat(data.payload.OrderItems);
+      }
+      nextToken = data.payload?.NextToken;
+    } while (nextToken);
+
+    return { OrderItems: allOrderItems } as OrdersV0Schema["GetOrderItemsResponse"]["payload"];
   }
 
   /**

@@ -342,8 +342,13 @@ export async function getOrderItems(userId: number, orderId: number): Promise<Or
 
 
 
-/** Get the date of the most recent order for a specific channel. */
-export async function getLastOrderDate(channelId: number): Promise<Date | null> {
+export { getLastSyncDate } from "../queries";
+
+/** 
+ * @deprecated Use getLastSyncDate instead.
+ * Get the date of the most recent order for a specific channel. 
+ */
+async function getLastOrderDate(channelId: number): Promise<Date | null> {
   const [row] = await db
     .select({ purchasedAt: salesOrders.purchasedAt })
     .from(salesOrders)

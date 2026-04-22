@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { channelProducts, channels } from "@/db/schema";
+import { channelProducts, channels, salesOrders } from "@/db/schema";
 import { and, count, desc, eq, ilike, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { getChannelById } from "./registry";
 import { getChannelHandler } from "./handlers";
@@ -470,5 +470,19 @@ export async function getChannelProductByIdForUser(userId: number, id: number) {
     channelType: row.channelType,
     productUrl: sanitizeUrl(definition?.getProductUrl?.(row.externalId, credentials, row.rawData))
   };
+}
+
+/**
+ * Get the most recent successfully synced order date for this channel.
+ * Used as a pagination cursor when fetching new orders.
+ */
+export async function getLastSyncDate(channelId: number): Promise<Date | null> {
+  const [row] = await db
+    .select({ syncedAt: salesOrders.syncedAt })
+    .from(salesOrders)
+    .where(eq(salesOrders.channelId, channelId))
+    .orderBy(desc(salesOrders.syncedAt))
+    .limit(1);
+  return row?.syncedAt ?? null;
 }
 
