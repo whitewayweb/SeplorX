@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   try {
     // 1. Authorization
     const authHeader = request.headers.get("authorization");
-    if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    if (authHeader !== `Bearer ${process.env.CRON_JOB_KEY}`) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
 

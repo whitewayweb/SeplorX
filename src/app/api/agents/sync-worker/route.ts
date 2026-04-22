@@ -9,8 +9,8 @@ export async function POST(request: Request) {
   try {
     // 1. Authorization
     const authHeader = request.headers.get("authorization");
-    if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-      return new NextResponse("Unauthorized", { status: 401 });
+    if (authHeader !== `Bearer ${process.env.CRON_JOB_KEY}`) {
+      return new Response("Unauthorized", { status: 401 });
     }
 
     // 2. Settings check

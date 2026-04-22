@@ -36,6 +36,7 @@ Add to `src/lib/channels/registry.ts`:
   authType: "oauth",                // "oauth" | "apikey"
   popular: true,
   available: true,                  // false = "Coming soon" overlay in UI
+  color: "#FF9900",                 // Brand hex color for UI accents
 }
 ```
 
@@ -215,7 +216,17 @@ parseWebhookOrder(body: string, signature: string, secret: string): WebhookOrder
 
 **Idempotency:** The webhook route checks for existing orders by `channelId + externalOrderId`. For existing orders, only status changes trigger stock processing.
 
-## Step 9 — Order Syncing (optional)
+## Step 9.1 — Sync Status UI (Atomic Design)
+
+Channel sync status should be displayed using the `SyncStatusPill` molecule (`src/components/molecules/orders/sync-status-pill.tsx`). 
+
+**Pattern:**
+- **Pill Context**: Used in `OrdersList` header.
+- **Visuals**: Uses brand `color` for a light background tint and text color.
+- **Data**: Uses `getLastSyncDate(channelId)` from `queries.ts` to display "Synced X ago".
+- **Actions**: Contains ghost-variant `FetchOrdersButton` and `ClearOrdersButton`.
+
+## Step 10 — Order Syncing (optional)
 
 If the channel supports pulling orders via API, implement `fetchAndSaveOrders(userId, channelId)`.
 1. Fetch recent orders via the channel's REST/GraphQL API. Use `getLastOrderDate(channelId)` from your `queries.ts` to only fetch new orders.
