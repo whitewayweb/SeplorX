@@ -5,6 +5,14 @@ import { eq } from "drizzle-orm";
 import { AGENT_REGISTRY } from "@/lib/agents/registry";
 
 export async function GET(request: Request) {
+  return handleRequest(request);
+}
+
+export async function POST(request: Request) {
+  return handleRequest(request);
+}
+
+async function handleRequest(request: Request) {
   try {
     // 1. Authorization
     const authHeader = request.headers.get("authorization");
