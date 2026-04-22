@@ -16,7 +16,9 @@ async function handleRequest(request: Request) {
   try {
     // 1. Authorization
     const authHeader = request.headers.get("authorization");
-    if (authHeader !== `Bearer ${process.env.CRON_JOB_KEY}`) {
+    const isVercelCron = request.headers.get("x-vercel-cron") === "1";
+
+    if (authHeader !== `Bearer ${process.env.CRON_JOB_KEY}` && !isVercelCron) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
 

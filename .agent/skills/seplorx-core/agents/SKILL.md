@@ -33,7 +33,7 @@ Agent (read-only DB tools)
 - Valid to run via **Vercel Cron** (`vercel.json`) dynamically.
 - **Scalability Requirement:** To prevent serverless execution limits, multi-tenant looping (e.g., syncing 50 channels) **MUST use a Fan-Out Architecture**. A Master Cron endpoint fetches active IDs and makes parallel decoupled HTTP trigger calls to a dedicated single-task Worker Route (e.g., `POST /api/agents/sync-worker?channel=1`).
 - **Security Pattern:** Use `process.env.CRON_JOB_KEY` for background auth. Routes must verify the `Authorization: Bearer [KEY]` header.
-- **Reference Implementation:** See `/api/agents/sync-scheduler` (Master) and `/api/agents/sync-worker` (Worker).
+- **Reference Implementation:** See `/api/cron/order-sync` (Master) and `/api/agents/sync-worker` (Worker).
 
 For Advisory Agents, they **never** call `db.insert` on core tables directly. For Autonomous Agents, they use robust domain-level database transactions directly.
 
@@ -256,7 +256,7 @@ Vercel Hobby accounts are limited to 1 cron job per day. To maintain **15-minute
 
 ### 1. The Architecture
 1.  **External Pinger (15m)**: Calls the Master Scheduler URL with a secret key.
-2.  **Master Scheduler (`/api/agents/sync-scheduler`)**: 
+2.  **Master Scheduler (`/api/cron/order-sync`)**: 
     - Verifies auth key.
     - Identifies all connected channels.
     - Dispatches async parallel POST requests (Fan-Out) to the Worker.
