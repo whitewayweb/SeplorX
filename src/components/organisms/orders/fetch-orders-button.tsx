@@ -35,7 +35,7 @@ export function FetchOrdersButton({
       onClick={handleFetch}
       disabled={isPending}
       variant={variant}
-      className={cn("gap-2", variant === "ghost" && "h-8 px-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50")}
+      className={cn("gap-2", variant === "ghost" && "h-8 px-2 text-inherit hover:bg-current/10")}
     >
       <RefreshCw className={cn("h-4 w-4", isPending && "animate-spin")} />
       {isPending ? "Fetching..." : buttonLabel}

@@ -45,7 +45,7 @@ export function ClearOrdersButton({ channelId, variant = "destructive" }: ClearO
       <Button
         variant={variant}
         onClick={() => setOpen(true)}
-        className={cn("gap-2", variant === "ghost" && "h-8 px-2 text-red-600 hover:text-red-700 hover:bg-red-50")}
+        className={cn("gap-2", variant === "ghost" && "h-8 px-2 text-inherit hover:bg-current/10")}
         disabled={pending}
       >
         <Trash2 className="h-4 w-4" />

@@ -1,6 +1,7 @@
 import { getAuthenticatedUserId } from "@/lib/auth";
 import { getAllOrders, countAllOrders, getOrderStatusCounts } from "@/lib/channels/amazon/queries";
 import { getConnectedChannelsForUser, getLastSyncDate } from "@/lib/channels/queries";
+import { getChannelById } from "@/lib/channels/registry";
 import { getOrdersAwaitingReturnAction } from "@/data/stock";
 import { OrdersList } from "@/components/organisms/orders/orders-list";
 import { redirect } from "next/navigation";
@@ -47,10 +48,14 @@ export default async function OrdersPage({
   ]);
 
   const connectedChannels = await Promise.all(
-    baseConnectedChannels.map(async (c) => ({
-      ...c,
-      lastSyncAt: await getLastSyncDate(c.id),
-    }))
+    baseConnectedChannels.map(async (c) => {
+      const definition = getChannelById(c.channelType);
+      return {
+        ...c,
+        lastSyncAt: await getLastSyncDate(c.id),
+        color: definition?.color,
+      };
+    })
   );
 
   return (
