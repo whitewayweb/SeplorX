@@ -33,7 +33,7 @@ Agent (read-only DB tools)
 - Valid to run via **Vercel Cron** (`vercel.json`) dynamically.
 - **Scalability Requirement:** To prevent serverless execution limits, multi-tenant looping (e.g., syncing 50 channels) **MUST use a Fan-Out Architecture**. A Master Cron endpoint fetches active IDs and makes parallel decoupled HTTP trigger calls to a dedicated single-task Worker Route (e.g., `POST /api/agents/sync-worker?channel=1`).
 - **Security Pattern:** Use `process.env.CRON_JOB_KEY` for background auth. Routes must verify the `Authorization: Bearer [KEY]` header.
-- **Reference Implementation:** See `/api/cron/order-sync` (Master) and `/api/agents/sync-worker` (Worker).
+- **Reference Implementation:** See `/api/agents/sync-scheduler` (Master) and `/api/agents/sync-worker` (Worker).
 
 For Advisory Agents, they **never** call `db.insert` on core tables directly. For Autonomous Agents, they use robust domain-level database transactions directly.
 
@@ -249,4 +249,31 @@ agentActions: {
 - ❌ Using `fetch()` inside the agent to call internal routes — call functions directly
 - ❌ Omitting `stopWhen: stepCountIs(N)` — always cap tool call loops
 - ❌ Not scoping DB queries by `userId` in tool implementations — always add ownership filter
-- ❌ Forgetting `enabled` check in the API route — the registry flag is only enforced there
+
+## Autonomous Sync for Hobby Plans (Free Tier)
+
+Vercel Hobby accounts are limited to 1 cron job per day. To maintain **15-minute autonomous syncs** for SeplorX without a Pro plan, we use a Master-Worker "Fan-Out" architecture triggered by an external scheduler.
+
+### 1. The Architecture
+1.  **External Pinger (15m)**: Calls the Master Scheduler URL with a secret key.
+2.  **Master Scheduler (`/api/agents/sync-scheduler`)**: 
+    - Verifies auth key.
+    - Identifies all connected channels.
+    - Dispatches async parallel POST requests (Fan-Out) to the Worker.
+3.  **Sync Worker (`/api/agents/sync-worker`)**: 
+    - Verifies auth key.
+    - Synchronously validates the payload.
+    - Uses `after()` (Next.js 15+) or `waitUntil()` to perform the heavy API sync in the background.
+    - Returns `202 Accepted` immediately so the Master doesn't time out.
+
+### 2. External Setup (e.g., Cron-job.org)
+1.  **URL**: `https://YOUR-APP.vercel.app/api/agents/sync-scheduler`
+2.  **Schedule**: Every 15 minutes.
+3.  **Headers**:
+    - `Authorization`: `Bearer YOUR_CRON_JOB_KEY`
+    - `User-Agent`: (Recommended) `SeplorSync/1.0` to bypass bot filters.
+
+### 3. Security & Rate Limiting
+- **CRON_JOB_KEY**: Must match your Vercel environment variable.
+- **Route Naming**: Avoid `/api/cron/` paths for external pingers, as Vercel Edge firewalls sometimes apply stricter rate limiting to these paths on Hobby plans. Use `/api/agents/` instead.
+- **Cursor Management**: Successful worker runs advance the `channels.last_order_sync_at` timestamp. Always use this column as the incremental fetch filter in channel handlers.

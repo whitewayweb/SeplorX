@@ -73,7 +73,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json(stats);
   } catch (error) {
-    console.error(`[cron/order-sync] Fatal error:`, error);
+    console.error(`[agent/sync-scheduler] Fatal error:`, error);
     return NextResponse.json({ error: "Scheduler failed" }, { status: 500 });
   }
 }

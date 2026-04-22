@@ -93,8 +93,9 @@ Data flows one way: **Server Component → props → Client Component → Server
 - **Batched processing:** Process large API results (e.g. Amazon reports) in batches of 100 items. 
 - **Safe upserts:** Use `COALESCE(NULLIF(EXCLUDED.col, ''), table.col)` in `onConflictDoUpdate` to prevent overwriting with empty strings during partial syncs.
 - **Module-level caching:** Initialise once at module scope (`let cache: T | null = null`) and guard with `if (!cache)`. Expose a `refresh*()` escape-hatch for dev hot-reload.
-- **Fan-Out Background Processing:** To bypass serverless timeouts (e.g., 10-60s on Vercel), heavy tasks like "Order Sync" use a Fan-Out pattern. A master cron endpoint fetches a list of IDs and initiates parallel non-blocking HTTP requests to a secondary "Worker" endpoint that handles one ID at a time.
-- **Background Auths:** Use a shared `process.env.CRON_JOB_KEY` to authorize incoming requests from external pingers or internal cron schedulers. Verify using the `Authorization: Bearer [KEY]` header.
+- **Fan-Out Background Processing:** To bypass serverless timeouts (e.g., 10-60s on Vercel), heavy tasks like "Order Sync" use a Fan-Out pattern. A master scheduler endpoint (`/api/agents/sync-scheduler`) fetches a list of IDs and initiates parallel non-blocking HTTP requests to a secondary "Worker" endpoint (`/api/agents/sync-worker`) that handles one ID at a time.
+- **Hobby Plan Bypass:** Since Vercel limits native crons on Hobby plans, we use external pingers (like cron-job.org). We avoid `/api/cron/*` paths for these endpoints to bypass Edge-level bot firewalls; use `/api/agents/*` instead.
+- **Background Auths:** Use a shared `process.env.CRON_JOB_KEY` to authorize incoming requests from external pingers. All background endpoints MUST verify the `Authorization: Bearer [KEY]` header.
 
 ## UI & Layout Patterns
 
