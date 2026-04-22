@@ -38,6 +38,12 @@ export async function fetchChannelOrdersAction(rawChannelId: unknown) {
 
   try {
     const result = await handler.fetchAndSaveOrders(userId, channelId);
+
+    // Update the last_order_sync_at cursor on success (ensures manual syncs advance the cursor)
+    await db.update(channels)
+      .set({ lastOrderSyncAt: new Date() })
+      .where(and(eq(channels.id, channelId), eq(channels.userId, userId)));
+
     revalidatePath("/orders");
     revalidatePath(`/orders/channels/${channelId}`);
     return { success: true, ...result };
