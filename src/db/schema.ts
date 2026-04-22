@@ -334,6 +334,7 @@ export const channels = pgTable("channels", {
   storeUrl: varchar("store_url", { length: 500 }),
   defaultPickupLocation: varchar("default_pickup_location", { length: 255 }),
   credentials: jsonb("credentials").$type<Record<string, string>>().default({}).notNull(),
+  lastOrderSyncAt: timestamp("last_order_sync_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [

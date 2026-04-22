@@ -3,7 +3,7 @@
 import { formatDistanceToNow } from "date-fns";
 import { FetchOrdersButton } from "@/components/organisms/orders/fetch-orders-button";
 import { ClearOrdersButton } from "@/components/organisms/orders/clear-orders-button";
-import { cn } from "@/lib/utils";
+
 
 interface SyncStatusPillProps {
   channelId: number;

@@ -1,4 +1,4 @@
--- ALTER TYPE "public"."return_disposition" ADD VALUE 'completed';--> statement-breakpoint
+ALTER TYPE "public"."return_disposition" ADD VALUE 'completed';--> statement-breakpoint
 ALTER TABLE "purchase_invoice_items" ALTER COLUMN "quantity" SET DATA TYPE integer;--> statement-breakpoint
 ALTER TABLE "stock_reservations" ADD COLUMN "updated_at" timestamp DEFAULT now() NOT NULL;--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "channel_product_mappings_channel_idx" ON "channel_product_mappings" USING btree ("channel_id");--> statement-breakpoint

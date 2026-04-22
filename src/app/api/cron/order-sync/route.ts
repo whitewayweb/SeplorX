@@ -35,33 +35,43 @@ export async function GET(request: Request) {
     }
 
     // 4. Dispatch Workers (Fan-Out)
-    // In production on Vercel, relative fetch isn't supported inside route handlers, so we construct absolute URL.
     const url = new URL(request.url);
     const workerUrl = `${url.protocol}//${url.host}/api/agents/sync-worker`;
 
-    // We do NOT await the array array of promises fully, or we await Promise.allSettled if we expect them to be fast.
-    // However, invoking them via fetch without awaiting allows Next.js to fire the requests off in the background,
-    // though on Vercel this requires `waitUntil` or sending requests out prior to ending the socket.
-    // Instead, we await them to ensure edge function doesn't abort requests, but since each worker gets its own 15-60s limit,
-    // firing the HTTP requests natively offloads the work to the respective lambda nodes.
-    
-    // We will await them so the lambda doesn't close sockets prematurely.
     const results = await Promise.allSettled(
       activeChannels.map((channel) =>
         fetch(workerUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${process.env.CRON_SECRET}`,
+            "Authorization": `Bearer ${process.env.CRON_JOB_KEY}`,
           },
           body: JSON.stringify({ channelId: channel.id }),
         })
       )
     );
 
-    const successCount = results.filter((r) => r.status === "fulfilled").length;
+    const stats = {
+      triggered: activeChannels.length,
+      ok: 0,
+      failed: 0,
+      failedStatuses: [] as { channelId: number; status: number }[],
+    };
 
-    return NextResponse.json({ triggered: activeChannels.length, successfulDispatches: successCount });
+    results.forEach((result, idx) => {
+      const channelId = activeChannels[idx].id;
+      if (result.status === "fulfilled" && result.value.ok) {
+        stats.ok++;
+      } else {
+        stats.failed++;
+        stats.failedStatuses.push({
+          channelId,
+          status: result.status === "fulfilled" ? result.value.status : 500,
+        });
+      }
+    });
+
+    return NextResponse.json(stats);
   } catch (error) {
     console.error(`[cron/order-sync] Fatal error:`, error);
     return NextResponse.json({ error: "Scheduler failed" }, { status: 500 });
