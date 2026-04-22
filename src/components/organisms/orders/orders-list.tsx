@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FetchOrdersButton } from "./fetch-orders-button";
-import { ClearOrdersButton } from "./clear-orders-button";
+import { SyncStatusPill } from "@/components/molecules/orders/sync-status-pill";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -22,6 +21,8 @@ interface Order {
 interface Channel {
   id: number;
   name: string;
+  lastSyncAt?: Date | null;
+  color?: string;
 }
 
 interface OrdersListProps {
@@ -105,17 +106,16 @@ export function OrdersList({
           <DateRangePicker />
         </div>
         
-        <div className="flex flex-wrap gap-2 shrink-0 lg:justify-end">
+        <div className="flex flex-wrap gap-3 shrink-0 lg:justify-end">
           {channels.map((channel) => (
-            <div key={channel.id} className="flex gap-2">
-              <FetchOrdersButton
-                channelId={channel.id}
-                channelName={channel.name}
-              />
-              {showClear && totalCount > 0 && (
-                <ClearOrdersButton channelId={channel.id} />
-              )}
-            </div>
+            <SyncStatusPill
+              key={channel.id}
+              channelId={channel.id}
+              channelName={channel.name}
+              lastSyncAt={channel.lastSyncAt}
+              color={channel.color}
+              showClear={showClear && totalCount > 0}
+            />
           ))}
         </div>
       </div>

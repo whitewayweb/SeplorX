@@ -11,6 +11,7 @@ export const channelRegistry: ChannelDefinition[] = [
     authType: "oauth",
     popular: true,
     available: true,
+    color: "#96588A",
     ...woocommerceConfig,
   },
   {
@@ -21,6 +22,7 @@ export const channelRegistry: ChannelDefinition[] = [
     authType: "oauth",
     popular: true,
     available: false,
+    color: "#96bf48",
   },
   {
     id: "amazon",
@@ -30,6 +32,7 @@ export const channelRegistry: ChannelDefinition[] = [
     authType: "apikey",
     popular: true,
     available: true,
+    color: "#FF9900",
     ...amazonConfig,
   },
   {

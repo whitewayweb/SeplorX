@@ -39,6 +39,8 @@ export interface ChannelDefinition {
   popular: boolean;
   /** If true, channel is implemented and can be connected */
   available: boolean;
+  /** Channel color hex code for UI elements */
+  color?: string;
 
   // The following fields mirror ChannelHandler but belong to the definition
   // to be safely accessible in Client Components without pulling in server modules.
@@ -63,7 +65,7 @@ export interface ChannelDefinition {
    * Extract standardized fields from channel-specific rawData payload to be displayed
    * in the product details UI.
    */
-   
+
   extractProductFields?: (
     rawData: Record<string, unknown>,
   ) => StandardizedProductRecord;
@@ -351,7 +353,7 @@ export interface ChannelHandler {
    * Extract standardized fields from channel-specific rawData payload to be displayed
    * in the product details UI.
    */
-   
+
   extractProductFields?: (
     rawData: Record<string, unknown>,
   ) => StandardizedProductRecord;

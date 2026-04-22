@@ -56,21 +56,4 @@ export async function getBrands(channelId: number): Promise<string[]> {
   return expr ? getDistinctChannelProductField(channelId, expr) : [];
 }
 
-/**
- * Get the most recent successfully synced order date for this channel.
- * Used as a pagination cursor when fetching new orders from WooCommerce.
- */
-export async function getLastOrderDate(channelId: number): Promise<Date | null> {
-  const { db } = await import("@/db");
-  const { salesOrders } = await import("@/db/schema");
-  const { eq, desc } = await import("drizzle-orm");
-
-  const [latestOrder] = await db
-    .select({ purchasedAt: salesOrders.purchasedAt })
-    .from(salesOrders)
-    .where(eq(salesOrders.channelId, channelId))
-    .orderBy(desc(salesOrders.purchasedAt))
-    .limit(1);
-
-  return latestOrder?.purchasedAt ?? null;
-}
+export { getLastSyncDate } from "../queries";

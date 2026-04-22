@@ -93,6 +93,8 @@ Data flows one way: **Server Component → props → Client Component → Server
 - **Batched processing:** Process large API results (e.g. Amazon reports) in batches of 100 items. 
 - **Safe upserts:** Use `COALESCE(NULLIF(EXCLUDED.col, ''), table.col)` in `onConflictDoUpdate` to prevent overwriting with empty strings during partial syncs.
 - **Module-level caching:** Initialise once at module scope (`let cache: T | null = null`) and guard with `if (!cache)`. Expose a `refresh*()` escape-hatch for dev hot-reload.
+- **Fan-Out Background Processing:** To bypass serverless timeouts (e.g., 10-60s on Vercel), heavy tasks like "Order Sync" use a Fan-Out pattern. A master cron endpoint fetches a list of IDs and initiates parallel non-blocking HTTP requests to a secondary "Worker" endpoint that handles one ID at a time.
+- **Background Auths:** Use a shared `process.env.CRON_JOB_KEY` to authorize incoming requests from external pingers or internal cron schedulers. Verify using the `Authorization: Bearer [KEY]` header.
 
 ## UI & Layout Patterns
 
@@ -101,6 +103,7 @@ Data flows one way: **Server Component → props → Client Component → Server
 - **PageHeader Molecule**: Use `<PageHeader title="..." description="..." />` from `@/components/molecules/layout/page-header` for all dashboard pages. This component handles the 48px left-margin (`ml-12`) needed to clear the floating sidebar trigger.
 - **No `container mx-auto`**: Dashboard pages should use `p-6 space-y-6` on the root div. Avoid `container` or `mx-auto` as they conflict with the layout's sidebar-aware margin selectors.
 - **Header Actions**: Pass buttons or triggers (like `Add Button`) as children to `PageHeader` to have them appear on the top-right.
+- **Atomic Sync Indicators**: Use the `SyncStatusPill` molecule (`src/components/molecules/orders/sync-status-pill.tsx`) for channel-linked status displays. It integrates brand colors and recent sync timestamps into a unified component.
 
 ## Design Principles
 

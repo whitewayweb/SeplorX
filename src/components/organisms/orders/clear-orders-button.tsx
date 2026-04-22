@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,9 +19,10 @@ import { clearChannelOrdersAction } from "@/app/(dashboard)/orders/actions";
 
 interface ClearOrdersButtonProps {
   channelId: number;
+  variant?: "destructive" | "outline" | "ghost" | "secondary";
 }
 
-export function ClearOrdersButton({ channelId }: ClearOrdersButtonProps) {
+export function ClearOrdersButton({ channelId, variant = "destructive" }: ClearOrdersButtonProps) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
@@ -41,13 +43,13 @@ export function ClearOrdersButton({ channelId }: ClearOrdersButtonProps) {
   return (
     <>
       <Button
-        variant="destructive"
+        variant={variant}
         onClick={() => setOpen(true)}
-        className="gap-2"
+        className={cn("gap-2", variant === "ghost" && "h-8 px-2 text-inherit hover:bg-current/10")}
         disabled={pending}
       >
         <Trash2 className="h-4 w-4" />
-        {pending ? "Clearing..." : "Clear Orders"}
+        {pending ? "Clearing..." : (variant === "ghost" ? "Clear" : "Clear Orders")}
       </Button>
 
       <AlertDialog open={open} onOpenChange={setOpen}>

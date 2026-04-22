@@ -12,11 +12,14 @@ metadata:
 
 # Adding a New Agent to SeplorX
 
-## Core Principle
+## Core Principles
 
-**Agents are reasoning engines, not execution engines.**
+SeplorX implements two classes of Agents: **Advisory Agents** and **Autonomous Background Agents**.
 
-```
+### 1. Advisory Agents (Human-in-the-Loop)
+**These agents are reasoning engines, not execution engines.**
+
+```text
 Agent (read-only DB tools)
   → produces a Plan (JSON)
   → stored in agent_actions with status: pending_approval
@@ -24,9 +27,17 @@ Agent (read-only DB tools)
   → existing Server Action executes the write
 ```
 
-Agents **never** call `db.insert`, `db.update`, or `db.delete` on core tables. They only read via typed tools and write to the `agent_actions` audit table.
+### 2. Autonomous Background Agents
+**These agents are direct-execution pipelines.** (e.g., Channel Sync)
+- Valid to call `db.update`/`insert` on core tables.
+- Valid to run via **Vercel Cron** (`vercel.json`) dynamically.
+- **Scalability Requirement:** To prevent serverless execution limits, multi-tenant looping (e.g., syncing 50 channels) **MUST use a Fan-Out Architecture**. A Master Cron endpoint fetches active IDs and makes parallel decoupled HTTP trigger calls to a dedicated single-task Worker Route (e.g., `POST /api/agents/sync-worker?channel=1`).
+- **Security Pattern:** Use `process.env.CRON_JOB_KEY` for background auth. Routes must verify the `Authorization: Bearer [KEY]` header.
+- **Reference Implementation:** See `/api/cron/order-sync` (Master) and `/api/agents/sync-worker` (Worker).
 
-## The Two-Phase Pattern (Serverless-Safe)
+For Advisory Agents, they **never** call `db.insert` on core tables directly. For Autonomous Agents, they use robust domain-level database transactions directly.
+
+## The Two-Phase Pattern (For Advisory Agents)
 
 Vercel functions terminate after each response — you cannot pause an agent to wait for human input. The two-phase pattern solves this:
 

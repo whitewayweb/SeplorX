@@ -472,3 +472,12 @@ export async function getChannelProductByIdForUser(userId: number, id: number) {
   };
 }
 
+export async function getLastSyncDate(channelId: number): Promise<Date | null> {
+  const [row] = await db
+    .select({ syncedAt: channels.lastOrderSyncAt })
+    .from(channels)
+    .where(eq(channels.id, channelId))
+    .limit(1);
+  return row?.syncedAt ?? null;
+}
+

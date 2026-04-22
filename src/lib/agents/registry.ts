@@ -31,4 +31,12 @@ export const AGENT_REGISTRY = {
     route: "/api/agents/channel-mapping",
     triggerPage: "/channels",
   },
+  orderSync: {
+    id: "orderSync",
+    name: "Order Sync Assistant",
+    description: "Autonomous background agent that checks all connected e-commerce channels for new orders at regular intervals.",
+    enabled: true,
+    route: "/api/cron/order-sync",
+    triggerPage: null,
+  },
 } as const;
