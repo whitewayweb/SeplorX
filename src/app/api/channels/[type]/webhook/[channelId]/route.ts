@@ -63,7 +63,7 @@ export async function POST(
   const sig = request.nextUrl.searchParams.get("sig");
   if (sig) {
     try {
-      const decryptedId = decrypt(decodeURIComponent(sig));
+      const decryptedId = await decrypt(decodeURIComponent(sig));
       if (decryptedId !== String(channelId)) {
         return new NextResponse("Forbidden", { status: 403 });
       }
@@ -80,7 +80,7 @@ export async function POST(
 
   let secret: string;
   try {
-    secret = decrypt(encryptedSecret);
+    secret = await decrypt(encryptedSecret);
   } catch (err) {
     logger.error("[channels/webhook] failed to decrypt webhookSecret", { type, channelId, error: String(err) });
     return new NextResponse("Internal Server Error", { status: 500 });

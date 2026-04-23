@@ -41,7 +41,7 @@ export async function POST(
   // Encrypt all credential values before storing
   const encryptedCredentials: Record<string, string> = {};
   for (const [key, value] of Object.entries(credentials)) {
-    encryptedCredentials[key] = encrypt(value);
+    encryptedCredentials[key] = await encrypt(value);
   }
 
   try {

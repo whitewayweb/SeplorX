@@ -45,7 +45,7 @@ export async function createChannelService(
     status = "connected";
     for (const [key, val] of Object.entries(rawConfig)) {
       if (key !== "storeUrl") {
-        credentials[key] = encrypt(val);
+        credentials[key] = await encrypt(val);
       }
     }
   }
@@ -94,7 +94,7 @@ export async function updateChannelService(
     if (channelDef.validateConfig) {
       // Merge current decrypted credentials with new non-empty values for validation
       const currentConfig: Record<string, string> = {
-        ...decryptChannelCredentials(existingChannel.credentials || {}),
+        ...(await decryptChannelCredentials(existingChannel.credentials as Record<string, unknown> || {})),
         storeUrl: existingChannel.storeUrl || "",
       };
       
@@ -115,7 +115,7 @@ export async function updateChannelService(
         if (field.key === "storeUrl") {
           storeUrl = val.trim();
         } else {
-          newCredentials[field.key] = encrypt(val.trim());
+          newCredentials[field.key] = await encrypt(val.trim());
         }
       }
     }
@@ -212,13 +212,13 @@ export async function registerChannelWebhooksService(
     throw new Error("This channel type does not use webhooks.");
   }
 
-  const creds = channel.credentials ?? {};
-  const decryptedCreds = decryptChannelCredentials(creds);
+  const creds = (channel.credentials as Record<string, unknown>) ?? {};
+  const decryptedCreds = await decryptChannelCredentials(creds);
   if (Object.keys(decryptedCreds).length === 0)
     throw new Error("Channel credentials are missing.");
 
   const appUrl = (env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
-  const webhookSig = encrypt(String(channelId));
+  const webhookSig = await encrypt(String(channelId));
   const webhookBaseUrl = `${appUrl}/api/channels/${channel.channelType}/webhook/${channelId}?sig=${encodeURIComponent(webhookSig)}`;
 
   const { secret } = await handler.registerWebhooks(
@@ -232,7 +232,7 @@ export async function registerChannelWebhooksService(
     .set({
       credentials: {
         ...creds,
-        webhookSecret: encrypt(secret),
+        webhookSecret: await encrypt(secret),
       },
       updatedAt: new Date(),
     })
@@ -271,7 +271,7 @@ export async function syncChannelProductsService(
     throw new Error("This channel type does not support fetching products.");
   }
 
-  const decryptedCreds = decryptChannelCredentials(channel.credentials);
+  const decryptedCreds = await decryptChannelCredentials(channel.credentials as Record<string, unknown>);
   if (Object.keys(decryptedCreds).length === 0)
     throw new Error("Channel credentials missing.");
 
@@ -347,7 +347,7 @@ export async function getCatalogItemService(
     );
   }
 
-  const decryptedCreds = decryptChannelCredentials(channel.credentials);
+  const decryptedCreds = await decryptChannelCredentials(channel.credentials as Record<string, unknown>);
   if (Object.keys(decryptedCreds).length === 0)
     throw new Error("Channel credentials missing.");
 

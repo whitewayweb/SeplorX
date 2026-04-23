@@ -107,7 +107,7 @@ export async function getChannelConfig(channelId: number) {
     if (existing.length === 0) return { error: "Not found" };
 
     const channelDef = getChannelById(existing[0].channelType as ChannelType);
-    const decryptedCreds = decryptChannelCredentials(existing[0].credentials || {});
+    const decryptedCreds = await decryptChannelCredentials(existing[0].credentials || {});
 
     const config: Record<string, string> = {};
     if (existing[0].storeUrl) {

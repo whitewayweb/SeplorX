@@ -1,9 +1,27 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
 import { env } from "@/lib/env";
+import { KMSClient, EncryptCommand, DecryptCommand } from "@aws-sdk/client-kms";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 16;
 const AUTH_TAG_LENGTH = 16;
+
+// Initialize KMS client lazily if credentials are provided
+let kmsClient: KMSClient | null = null;
+function getKmsClient() {
+  if (kmsClient) return kmsClient;
+  if (env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY && env.AWS_REGION) {
+    kmsClient = new KMSClient({
+      region: env.AWS_REGION,
+      credentials: {
+        accessKeyId: env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
+      },
+    });
+    return kmsClient;
+  }
+  return null;
+}
 
 /**
  * Get the encryption key as a Buffer from the hex-encoded env var.
@@ -14,10 +32,10 @@ function getKey(): Buffer {
 }
 
 /**
- * Encrypt a plaintext string using AES-256-GCM.
+ * Encrypt a plaintext string using AES-256-GCM (Local).
  * Returns a colon-delimited string: `iv:authTag:ciphertext` (all hex-encoded).
  */
-export function encrypt(plaintext: string): string {
+export function encryptSync(plaintext: string): string {
   const iv = randomBytes(IV_LENGTH);
   const cipher = createCipheriv(ALGORITHM, getKey(), iv);
 
@@ -30,10 +48,35 @@ export function encrypt(plaintext: string): string {
 }
 
 /**
- * Decrypt an encrypted string produced by `encrypt()`.
+ * Encrypt a plaintext string using AWS KMS (if configured) or Local AES-256-GCM.
+ */
+export async function encrypt(plaintext: string): Promise<string> {
+  const client = getKmsClient();
+  const keyId = env.AWS_KMS_KEY_ID;
+
+  if (client && keyId) {
+    try {
+      const command = new EncryptCommand({
+        KeyId: keyId,
+        Plaintext: Buffer.from(plaintext, "utf8"),
+      });
+      const response = await client.send(command);
+      if (response.CiphertextBlob) {
+        return `kms:${Buffer.from(response.CiphertextBlob).toString("base64")}`;
+      }
+    } catch (err) {
+      console.error("[KMS] Encryption failed, falling back to local:", err);
+    }
+  }
+
+  return encryptSync(plaintext);
+}
+
+/**
+ * Decrypt an encrypted string (Local AES-256-GCM).
  * Expects the format: `iv:authTag:ciphertext` (all hex-encoded).
  */
-export function decrypt(encryptedValue: string): string {
+export function decryptSync(encryptedValue: string): string {
   const [ivHex, authTagHex, ciphertext] = encryptedValue.split(":");
   if (!ivHex || !authTagHex || !ciphertext) {
     throw new Error("Invalid encrypted value format");
@@ -51,9 +94,35 @@ export function decrypt(encryptedValue: string): string {
 }
 
 /**
- * Check if a string looks like an encrypted value (iv:authTag:ciphertext format).
+ * Decrypt an encrypted string (Supports both KMS and Local).
  */
-export function isEncrypted(value: string): boolean {
+export async function decrypt(encryptedValue: string): Promise<string> {
+  if (encryptedValue.startsWith("kms:")) {
+    const client = getKmsClient();
+    if (!client) throw new Error("AWS KMS is not configured, but value is kms-encrypted");
+
+    const ciphertextBlob = Buffer.from(encryptedValue.slice(4), "base64");
+    const command = new DecryptCommand({
+      CiphertextBlob: ciphertextBlob,
+    });
+
+    const response = await client.send(command);
+    if (response.Plaintext) {
+      return Buffer.from(response.Plaintext).toString("utf8");
+    }
+    throw new Error("KMS Decryption failed to return plaintext");
+  }
+
+  return decryptSync(encryptedValue);
+}
+
+/**
+ * Check if a string looks like an encrypted value (Local or KMS).
+ */
+export function isEncrypted(value: string | null | undefined): boolean {
+  if (!value) return false;
+  if (value.startsWith("kms:")) return true;
+
   const parts = value.split(":");
   if (parts.length !== 3) return false;
   // IV = 32 hex chars (16 bytes), authTag = 32 hex chars (16 bytes)

@@ -51,6 +51,12 @@ function getEnv() {
     }
   }
 
+  // AWS KMS Configuration (Optional - Falls back to local encryption if missing)
+  const awsRegion = process.env.AWS_REGION;
+  const awsAccessKeyId = process.env.AWS_ACCESS_KEY_ID;
+  const awsSecretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+  const awsKmsKeyId = process.env.AWS_KMS_KEY_ID;
+
   return {
     DATABASE_URL: databaseUrl as string,
     ENCRYPTION_KEY: encryptionKey as string,
@@ -58,6 +64,10 @@ function getEnv() {
     BETTER_AUTH_URL: betterAuthUrl,
     GOOGLE_GENERATIVE_AI_API_KEY: googleAiKey,
     NEXT_PUBLIC_APP_URL: appUrl,
+    AWS_REGION: awsRegion,
+    AWS_ACCESS_KEY_ID: awsAccessKeyId,
+    AWS_SECRET_ACCESS_KEY: awsSecretAccessKey,
+    AWS_KMS_KEY_ID: awsKmsKeyId,
     ...optionalEnvVars,
     isDevelopment: process.env.NODE_ENV === 'development',
     isProduction: process.env.NODE_ENV === 'production',
