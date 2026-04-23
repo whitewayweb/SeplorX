@@ -6,6 +6,7 @@ import { decrypt } from "@/lib/crypto";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { processOrderStockChange, STOCK_CUTOFF_DATE } from "@/lib/stock/service";
 import type { SalesOrderStatus } from "@/db/schema";
+import { logger } from "@/lib/logger";
 
 /**
  * Generic webhook receiver for channel order events.
@@ -73,7 +74,7 @@ export async function POST(
 
   const encryptedSecret = credentials?.webhookSecret;
   if (!encryptedSecret) {
-    console.error("[channels/webhook] webhookSecret not set", { type, channelId });
+    logger.error("[channels/webhook] webhookSecret not set", { type, channelId });
     return new NextResponse("Webhook not configured", { status: 422 });
   }
 
@@ -81,7 +82,7 @@ export async function POST(
   try {
     secret = decrypt(encryptedSecret);
   } catch (err) {
-    console.error("[channels/webhook] failed to decrypt webhookSecret", { type, channelId, error: String(err) });
+    logger.error("[channels/webhook] failed to decrypt webhookSecret", { type, channelId, error: String(err) });
     return new NextResponse("Internal Server Error", { status: 500 });
   }
 
@@ -101,7 +102,7 @@ export async function POST(
       orderEvent = handler.parseWebhookOrder(body, signature, secret);
     } catch (parseErr) {
       const msg = String(parseErr);
-      console.error("[channels/webhook] parse/signature error", {
+      logger.error("[channels/webhook] parse/signature error", {
         type, channelId, topic, error: msg,
       });
       // Signature mismatch = 401, other parse errors = 400
@@ -232,7 +233,7 @@ export async function POST(
 
       return new NextResponse(null, { status: 200 });
     } catch (err) {
-      console.error("[channels/webhook] order processing error (retryable)", {
+      logger.error("[channels/webhook] order processing error (retryable)", {
         type, channelId, topic, error: String(err),
       });
       // Return 500 to allow the channel to retry transient failures
@@ -249,7 +250,7 @@ export async function POST(
   try {
     changes = handler.processWebhook(body, signature, topic, secret);
   } catch (err) {
-    console.error("[channels/webhook] processWebhook error", { type, channelId, topic, error: String(err) });
+    logger.error("[channels/webhook] processWebhook error", { type, channelId, topic, error: String(err) });
     return new NextResponse("Bad Request", { status: 400 });
   }
 
@@ -274,7 +275,7 @@ export async function POST(
       .limit(1);
 
     if (mapping.length === 0) {
-      console.warn("[channels/webhook] unmapped product skipped", {
+      logger.warn("[channels/webhook] unmapped product skipped", {
         type, channelId, externalProductId: change.externalProductId,
       });
       continue;
@@ -320,7 +321,7 @@ export async function POST(
         });
       });
     } catch (err) {
-      console.error("[channels/webhook] stock update error", {
+      logger.error("[channels/webhook] stock update error", {
         type, channelId, productId, error: String(err),
       });
     }

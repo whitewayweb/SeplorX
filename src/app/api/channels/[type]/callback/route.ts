@@ -4,6 +4,7 @@ import { channels } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { encrypt } from "@/lib/crypto";
 import { getChannelHandler } from "@/lib/channels/handlers";
+import { logger } from "@/lib/logger";
 
 /**
  * Generic OAuth callback — WooCommerce (and future channels) POST credentials here.
@@ -25,13 +26,13 @@ export async function POST(
   try {
     rawBody = await request.text();
   } catch (err) {
-    console.error("[channels/callback] body read error", { type, error: String(err) });
+    logger.error("[channels/callback] body read error", { type, error: String(err) });
     return new NextResponse("Bad Request", { status: 400 });
   }
 
   const parsed = handler.parseCallback(rawBody);
   if (!parsed) {
-    console.error("[channels/callback] invalid callback body", { type });
+    logger.error("[channels/callback] invalid callback body", { type });
     return new NextResponse("Bad Request", { status: 400 });
   }
 
@@ -63,9 +64,9 @@ export async function POST(
         .limit(1);
 
       if (existing.length === 0) {
-        console.error("[channels/callback] channel not found in DB", { type, channelId });
+        logger.error("[channels/callback] channel not found in DB", { type, channelId });
       } else {
-        console.error("[channels/callback] channel exists but wrong status", {
+        logger.error("[channels/callback] channel exists but wrong status", {
           type,
           channelId,
           currentStatus: existing[0].status,
@@ -74,7 +75,7 @@ export async function POST(
       return new NextResponse("Not Found", { status: 404 });
     }
   } catch (err) {
-    console.error("[channels/callback] db/encrypt error", { type, channelId, error: String(err) });
+    logger.error("[channels/callback] db/encrypt error", { type, channelId, error: String(err) });
     return new NextResponse("Internal Server Error", { status: 500 });
   }
 

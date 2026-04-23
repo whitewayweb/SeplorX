@@ -11,6 +11,8 @@ Before ANY commit:
 - [ ] Authentication/authorization verified
 - [ ] Rate limiting on all endpoints
 - [ ] Error messages don't leak sensitive data
+- [ ] PII Redaction: All logging uses `logger` from `@/lib/logger` (no direct `console` logs for PII)
+- [ ] Password Complexity: 12+ characters with mixed types for all password inputs
 
 ## Secret Management
 
@@ -18,6 +20,18 @@ Before ANY commit:
 - ALWAYS use environment variables or a secret manager
 - Validate that required secrets are present at startup
 - Rotate any secrets that may have been exposed
+
+## PII and Logging (Amazon SP-API Compliance)
+
+- NEVER use `console.log`, `console.error`, or `console.warn` for objects containing customer data (PII).
+- ALWAYS use the secure `logger` from `@/lib/logger` which automatically redacts PII.
+- Keep the `SENSITIVE_KEYS` list in `src/lib/logger.ts` updated with any new PII fields.
+
+## Credential Management
+
+- Passwords MUST be at least 12 characters.
+- Passwords MUST include uppercase, lowercase, numbers, and special characters.
+- Use the standard `ChangePasswordSchema` for all password-related validations.
 
 ## Security Response Protocol
 

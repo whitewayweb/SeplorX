@@ -2,6 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import type { ChannelHandler, WebhookStockChange, WebhookOrderEvent, ExternalProduct, ChannelPushSyncResult } from "../types";
 import { extractSqlField, getBrands } from "./queries";
 import { PORTAL_NAME } from "@/utils/constants";
+import { logger } from "@/lib/logger";
 
 // ─── WooCommerce REST API helpers ─────────────────────────────────────────────
 // credentials JSONB keys: consumerKey, consumerSecret (encrypted),
@@ -219,7 +220,7 @@ export const woocommerceHandler: ChannelHandler = {
         }
       }
     } catch (err) {
-      console.warn("[woocommerce] failed to cleanup existing webhooks, proceeding with creation", err);
+      logger.warn("[woocommerce] failed to cleanup existing webhooks, proceeding with creation", err);
     }
 
     const webhookIds: string[] = [];
@@ -541,7 +542,7 @@ export const woocommerceHandler: ChannelHandler = {
       modifiedAfterParam = `&modified_after=${fallbackDate.toISOString()}`;
     }
 
-    console.log(`[WooCommerce Sync] Syncing orders modified after for channel ${channelId} with ${modifiedAfterParam}`);
+    logger.info(`[WooCommerce Sync] Syncing orders modified after for channel ${channelId} with ${modifiedAfterParam}`);
 
     let fetchedCount = 0;
     let savedCount = 0;
@@ -626,7 +627,7 @@ export const woocommerceHandler: ChannelHandler = {
                   );
                 }
               } catch (stockErr) {
-                console.error(
+                logger.error(
                   `[WooCommerce Sync] Stock processing failed for status update on order ${externalOrderId}:`,
                   stockErr,
                 );
@@ -742,11 +743,11 @@ export const woocommerceHandler: ChannelHandler = {
               );
             }
           } catch (stockErr) {
-            console.error(`[WooCommerce Sync] Stock processing failed for order ${externalOrderId}:`, stockErr);
+            logger.error(`[WooCommerce Sync] Stock processing failed for order ${externalOrderId}:`, stockErr);
             // Non-fatal: order is saved, stock processing can be retried
           }
         } catch (err) {
-          console.error(`[WooCommerce Sync] Failed to save order ${externalOrderId}:`, err);
+          logger.error(`[WooCommerce Sync] Failed to save order ${externalOrderId}:`, err);
         }
       }
 
@@ -849,7 +850,7 @@ export const woocommerceHandler: ChannelHandler = {
                 await processOrderStockChange(order.id, order.status, null, userId);
               }
             } catch (stockErr) {
-              console.error(`[WooCommerce Sync] Retroactive stock failed for item ${item.id}:`, stockErr);
+              logger.error(`[WooCommerce Sync] Retroactive stock failed for item ${item.id}:`, stockErr);
             }
           }
         }

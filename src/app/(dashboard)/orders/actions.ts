@@ -3,6 +3,7 @@
 import { getAuthenticatedUserId } from "@/lib/auth";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { revalidatePath } from "next/cache";
+import { logger } from "@/lib/logger";
 
 import { db } from "@/db";
 import { channels, salesOrders } from "@/db/schema";
@@ -15,7 +16,7 @@ import { ChannelIdSchema } from "@/lib/validations/channels";
 export async function fetchChannelOrdersAction(rawChannelId: unknown) {
   const parsed = ChannelIdSchema.safeParse({ id: rawChannelId });
   if (!parsed.success) {
-    console.error("[fetchChannelOrdersAction]", { channelId: rawChannelId, userId: "unknown", error: "Validation failed" });
+    logger.error("[fetchChannelOrdersAction]", { channelId: rawChannelId, userId: "unknown", error: "Validation failed" });
     return { success: false, error: "Invalid channelId" };
   }
   const channelId = parsed.data.id;
@@ -48,7 +49,7 @@ export async function fetchChannelOrdersAction(rawChannelId: unknown) {
     revalidatePath(`/orders/channels/${channelId}`);
     return { success: true, ...result };
   } catch (err) {
-    console.error("[fetchChannelOrdersAction]", { channelId, userId, error: String(err) });
+    logger.error("[fetchChannelOrdersAction]", { channelId, userId, error: String(err) });
     return { success: false, error: String(err) };
   }
 }
@@ -59,14 +60,14 @@ export async function fetchChannelOrdersAction(rawChannelId: unknown) {
 export async function clearChannelOrdersAction(rawChannelId: unknown) {
   const parsed = ChannelIdSchema.safeParse({ id: rawChannelId });
   if (!parsed.success) {
-    console.error("[clearChannelOrdersAction]", { channelId: rawChannelId, userId: "unknown", error: "Validation failed" });
+    logger.error("[clearChannelOrdersAction]", { channelId: rawChannelId, userId: "unknown", error: "Validation failed" });
     return { error: "Invalid channelId" };
   }
   const channelId = parsed.data.id;
 
   const userId = await getAuthenticatedUserId();
   if (!userId) {
-    console.error("[clearChannelOrdersAction]", { channelId, userId: null, error: "Unauthorized" });
+    logger.error("[clearChannelOrdersAction]", { channelId, userId: null, error: "Unauthorized" });
     throw new Error("Unauthorized");
   }
 
@@ -85,7 +86,7 @@ export async function clearChannelOrdersAction(rawChannelId: unknown) {
     revalidatePath(`/orders/channels/${channelId}`);
     return { success: true };
   } catch (err) {
-    console.error("[clearChannelOrdersAction]", { channelId, userId, error: String(err) });
+    logger.error("[clearChannelOrdersAction]", { channelId, userId, error: String(err) });
     return { error: String(err) };
   }
 }
@@ -124,7 +125,7 @@ export async function processReturnAction(data: {
     revalidatePath("/products");
     return { success: true };
   } catch (err) {
-    console.error("[processReturnAction]", { ...data, userId, error: String(err) });
+    logger.error("[processReturnAction]", { ...data, userId, error: String(err) });
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
