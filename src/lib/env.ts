@@ -7,6 +7,8 @@
  * - POSTGRES_URL (Vercel + Supabase integration)
  */
 
+import { logger } from "@/lib/logger";
+
 function getEnv() {
   // Resolve database URL: prefer POSTGRES_URL (Vercel/Supabase pooler), fallback to DATABASE_URL
   const databaseUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
@@ -44,7 +46,7 @@ function getEnv() {
         `Please check your .env.local file or Vercel environment configuration.`;
 
       if (process.env.NODE_ENV === 'development') {
-        console.warn('\u26a0\ufe0f', errorMessage);
+        logger.warn(errorMessage);
       } else {
         throw new Error(errorMessage);
       }

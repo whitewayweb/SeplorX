@@ -330,7 +330,7 @@ export const woocommerceHandler: ChannelHandler = {
     if (!channel) throw new Error("Channel not found.");
     if (!channel.storeUrl) throw new Error("Channel has no store URL.");
 
-    const creds = decryptChannelCredentials(channel.credentials);
+    const creds = await decryptChannelCredentials(channel.credentials);
     if (!creds.consumerKey || !creds.consumerSecret) {
       throw new Error("WooCommerce credentials are missing. Please reconnect the channel.");
     }
@@ -525,7 +525,7 @@ export const woocommerceHandler: ChannelHandler = {
     if (channel.channelType !== "woocommerce") throw new Error("Channel is not a WooCommerce channel");
     if (!channel.storeUrl) throw new Error("Channel has no store URL");
 
-    const creds = decryptChannelCredentials(channel.credentials);
+    const creds = await decryptChannelCredentials(channel.credentials);
     const auth = basicAuth(creds.consumerKey, creds.consumerSecret);
 
     // Determine fetch window
@@ -856,7 +856,7 @@ export const woocommerceHandler: ChannelHandler = {
         }
       }
     } catch (err) {
-      console.error("[WooCommerce Sync] Failed to map past items:", err);
+      logger.error("[WooCommerce Sync] Failed to map past items", err);
     }
 
     return { fetched: fetchedCount, saved: savedCount };

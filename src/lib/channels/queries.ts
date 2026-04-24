@@ -209,7 +209,7 @@ export async function getChannelProductsWithVariations(channelId: number, option
   const definition = getChannelById(channel.channelType as ChannelType);
   const getProductUrl = definition?.getProductUrl;
   const credentials = {
-    ...decryptChannelCredentials(channel.credentials),
+    ...(await decryptChannelCredentials(channel.credentials)),
     storeUrl: channel.storeUrl ?? ""
   };
 
@@ -453,7 +453,7 @@ export async function getChannelProductByIdForUser(userId: number, id: number) {
 
   const definition = getChannelById(row.channelType as ChannelType);
   const credentials = {
-    ...decryptChannelCredentials(row.credentials),
+    ...(await decryptChannelCredentials(row.credentials)),
     storeUrl: row.storeUrl ?? ""
   };
 

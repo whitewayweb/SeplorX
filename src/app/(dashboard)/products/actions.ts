@@ -431,7 +431,7 @@ export async function pushProductStockToChannels(productId: number) {
         continue;
       }
 
-      const decryptedCreds = decryptChannelCredentials(m.credentials);
+      const decryptedCreds = await decryptChannelCredentials(m.credentials);
       if (Object.keys(decryptedCreds).length === 0) {
         results.push({ channelName: m.channelName, externalProductId: m.externalProductId, label: m.label, ok: false, error: "Missing credentials." });
         continue;

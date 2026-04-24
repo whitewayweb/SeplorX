@@ -3,6 +3,7 @@ import { channelProductMappings, channelFeeds, channels, products, channelProduc
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { AmazonAPIClient } from "../api/client";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
+import { logger } from "@/lib/logger";
 import { generateCategoryTemplate, type TemplateProductRow } from "./generator";
 import { getTemplateForProductType, type CategoryTemplateEntry } from "./template-registry";
 
@@ -56,7 +57,7 @@ export async function submitPendingUpdates(
   if (channel.status !== "connected") throw new Error("Channel is not connected.");
   if (!channel.storeUrl) throw new Error("Channel has no store URL.");
 
-  const decryptedCreds = decryptChannelCredentials(channel.credentials);
+  const decryptedCreds = await decryptChannelCredentials(channel.credentials);
   if (Object.keys(decryptedCreds).length === 0) throw new Error("Channel credentials missing.");
 
   // ── Fetch all pending_update mappings with product data ─────────────────────────
@@ -205,7 +206,7 @@ export async function submitPendingUpdates(
       });
     } catch (err) {
       const errorMsg = String(err).replace(/^Error:\s*/, "").substring(0, 500);
-      console.error("[Amazon Feeds] Failed to submit feed", { action: "submitFeed", category, error: String(err) });
+      logger.error("[Amazon Feeds] Failed to submit feed", { action: "submitFeed", category, error: String(err) });
 
       // Mark these mappings as failed
       await db
@@ -267,7 +268,7 @@ export async function pollFeedStatus(userId: number, feedRowId: number): Promise
     return { status: feedRow.status };
   }
 
-  const decryptedCreds = decryptChannelCredentials(feedRow.credentials);
+  const decryptedCreds = await decryptChannelCredentials(feedRow.credentials);
   const client = new AmazonAPIClient(decryptedCreds, feedRow.storeUrl || "");
 
   const feedStatus = await client.getFeed(feedRow.feedId);
@@ -281,7 +282,7 @@ export async function pollFeedStatus(userId: number, feedRowId: number): Promise
         const resultDoc = await client.getFeedDocument(feedStatus.resultFeedDocumentId);
         resultDocumentUrl = resultDoc.url;
       } catch (err) {
-        console.warn("[Amazon Feeds] Failed to get result document", err);
+        logger.warn("[Amazon Feeds] Failed to get result document", err);
       }
     }
 

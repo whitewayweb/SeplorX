@@ -168,7 +168,7 @@ export const amazonHandler: ChannelHandler = {
     if (channel.channelType !== "amazon")
       throw new Error("Channel is not an Amazon channel");
 
-    const creds = decryptChannelCredentials(channel.credentials);
+    const creds = await decryptChannelCredentials(channel.credentials);
     const client = new AmazonAPIClient(creds, channel.storeUrl || "");
 
     // Determine fetch window: last order in DB minus 1 hour for safety, or fallback 90 days

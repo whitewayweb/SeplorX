@@ -23,8 +23,8 @@ Before ANY commit:
 
 ## PII and Logging (Amazon SP-API Compliance)
 
-- NEVER use `console.log`, `console.error`, or `console.warn` for objects containing customer data (PII).
-- ALWAYS use the secure `logger` from `@/lib/logger` which automatically redacts PII.
+- NEVER use `console.log`, `console.error`, or `console.warn` in security, compliance, or PII-sensitive code paths.
+- ALWAYS use the secure `logger` from `@/lib/logger` which automatically redacts PII and handles Error objects safely.
 - Keep the `SENSITIVE_KEYS` list in `src/lib/logger.ts` updated with any new PII fields.
 
 ## Credential Management

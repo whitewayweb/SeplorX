@@ -1,4 +1,5 @@
 import { decrypt, isEncrypted } from "@/lib/crypto";
+import { logger } from "@/lib/logger";
 
 /**
  * Decrypt all stored credential fields for a channel.
@@ -31,7 +32,7 @@ export async function decryptChannelCredentials(
       try {
         result[key] = await decrypt(value);
       } catch (err) {
-        console.warn(
+        logger.warn(
           `[decryptChannelCredentials] Failed to decrypt credential key "${key}". ` +
             "Possible key mismatch or data corruption — key omitted from result.",
           err instanceof Error ? err.message : String(err),

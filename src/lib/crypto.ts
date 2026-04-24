@@ -1,23 +1,25 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
 import { env } from "@/lib/env";
-import { KMSClient, EncryptCommand, DecryptCommand } from "@aws-sdk/client-kms";
+import { KMSClient, EncryptCommand, DecryptCommand, type KMSClientConfig } from "@aws-sdk/client-kms";
+import { logger } from "@/lib/logger";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 16;
 const AUTH_TAG_LENGTH = 16;
 
-// Initialize KMS client lazily if credentials are provided
+// Initialize KMS client lazily if region is provided
 let kmsClient: KMSClient | null = null;
 function getKmsClient() {
   if (kmsClient) return kmsClient;
-  if (env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY && env.AWS_REGION) {
-    kmsClient = new KMSClient({
-      region: env.AWS_REGION,
-      credentials: {
+  if (env.AWS_REGION) {
+    const config: KMSClientConfig = { region: env.AWS_REGION };
+    if (env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY) {
+      config.credentials = {
         accessKeyId: env.AWS_ACCESS_KEY_ID,
         secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
-      },
-    });
+      };
+    }
+    kmsClient = new KMSClient(config);
     return kmsClient;
   }
   return null;
@@ -64,8 +66,10 @@ export async function encrypt(plaintext: string): Promise<string> {
       if (response.CiphertextBlob) {
         return `kms:${Buffer.from(response.CiphertextBlob).toString("base64")}`;
       }
+      throw new Error("KMS Encryption failed to return ciphertext");
     } catch (err) {
-      console.error("[KMS] Encryption failed, falling back to local:", err);
+      logger.error("[KMS] Encryption failed", err);
+      throw err;
     }
   }
 

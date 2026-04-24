@@ -16,6 +16,7 @@ import {
 } from "@/lib/channels/queries";
 import type { ChannelType, ChannelPushSyncResult } from "@/lib/channels/types";
 import { env } from "@/lib/env";
+import { logger } from "@/lib/logger";
 
 export async function createChannelService(
   userId: number,
@@ -393,7 +394,7 @@ export async function getCatalogItemService(
         product.parentId = parentAsin;
       }
     } catch (err) {
-      console.warn("[getCatalogItemService] Failed to map variations", {
+      logger.warn("[getCatalogItemService] Failed to map variations", {
         action: "mapVariations",
         error: String(err),
       });

@@ -2,6 +2,7 @@ import * as zlib from "node:zlib";
 import { promisify } from "node:util";
 import type { ExternalProduct } from "../../types";
 import { extractRelationships } from "../config";
+import { logger } from "@/lib/logger";
 
 import { type SellersSchema } from "./types/sellersSchema";
 import { type CatalogItemsSchema } from "./types/catalogItemsSchema";
@@ -53,7 +54,7 @@ export class AmazonAPIClient {
 
     if (!tokenRes.ok) {
       const errText = await tokenRes.text();
-      console.error("[Amazon SP-API] Token Error:", errText);
+      logger.error("[Amazon SP-API] Token Error:", errText);
       throw new Error(`Failed to refresh Amazon token: ${tokenRes.status}`);
     }
 
@@ -86,7 +87,7 @@ export class AmazonAPIClient {
             delayMs = Math.ceil(1000 / ratePerSec); // 1/rate = seconds between requests
           }
         }
-        console.warn(
+        logger.warn(
           `[Amazon SP-API] 429 hit for ${url}. Retrying in ${delayMs}ms... (${i + 1}/${retries})`,
         );
         await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -141,7 +142,7 @@ export class AmazonAPIClient {
 
     if (!res.ok) {
       const errText = await res.text();
-      console.error("[Amazon SP-API] getCatalogItem Error:", errText);
+      logger.error("[Amazon SP-API] getCatalogItem Error:", errText);
       throw new Error(
         `Failed to get catalog item for ASIN ${asin}: ${res.status}`,
       );
@@ -153,7 +154,7 @@ export class AmazonAPIClient {
     try {
       pricingData = await this.getProductPricing(accessToken, asin);
     } catch (err) {
-      console.warn(
+      logger.warn(
         `[Amazon SP-API] Failed to fetch pricing for ASIN ${asin}`,
         err,
       );
@@ -226,21 +227,21 @@ export class AmazonAPIClient {
               (data as Record<string, unknown>).fbaInventory = fbaSummary;
             }
           } catch (fbaErr) {
-            console.warn(`[Amazon SP-API] FBA inventory fetch failed/timed out for ${sku}`, fbaErr);
+            logger.warn(`[Amazon SP-API] FBA inventory fetch failed/timed out for ${sku}`, fbaErr);
           }
-          console.log(`[Amazon SP-API] Set FBA code for ${sku}`);
+          logger.info(`[Amazon SP-API] Set FBA code for ${sku}`);
         } else if (mfnSlot) {
           // MFN — quantity is already in the listing response
           if (typeof mfnSlot.quantity === "number") {
             stockQuantity = mfnSlot.quantity;
           }
           (data as Record<string, unknown>).fulfillmentChannelCode = "DEFAULT";
-          console.log(`[Amazon SP-API] Set MFN code for ${sku}. stock:`, stockQuantity);
+          logger.info(`[Amazon SP-API] Set MFN code for ${sku}. stock:`, stockQuantity);
         } else {
-          console.log(`[Amazon SP-API] NO MFN/FBA slot found for ${sku}. Slots were:`, availability);
+          logger.info(`[Amazon SP-API] NO MFN/FBA slot found for ${sku}. Slots were:`, availability);
         }
       } catch (e) {
-        console.warn(`[Amazon SP-API] Failed to fetch listing availability for SKU ${sku}`, e);
+        logger.warn(`[Amazon SP-API] Failed to fetch listing availability for SKU ${sku}`, e);
       }
     }
 
@@ -286,7 +287,7 @@ export class AmazonAPIClient {
 
     if (!res.ok) {
       const errText = await res.text();
-      console.error("[Amazon SP-API] getProductPricing Error:", errText);
+      logger.error("[Amazon SP-API] getProductPricing Error:", errText);
       throw new Error(`Failed to get pricing for ASIN ${asin}: ${res.status}`);
     }
 
@@ -309,7 +310,7 @@ export class AmazonAPIClient {
     });
     if (!res.ok) {
       const errText = await res.text();
-      console.error(
+      logger.error(
         "[Amazon SP-API] getMarketplaceParticipations Error:",
         errText,
       );
@@ -342,7 +343,7 @@ export class AmazonAPIClient {
     });
     if (!res.ok) {
       const errText = await res.text();
-      console.error("[Amazon SP-API] getListingItem Error:", errText);
+      logger.error("[Amazon SP-API] getListingItem Error:", errText);
       throw new Error(
         `Failed to get listing item for SKU ${sku}: ${res.status}`,
       );
@@ -387,7 +388,7 @@ export class AmazonAPIClient {
 
     if (!res.ok) {
       const errText = await res.text();
-      console.error("[Amazon SP-API] patchListingsItem Error:", errText);
+      logger.error("[Amazon SP-API] patchListingsItem Error:", errText);
       let amazonError = "";
       try {
         const parsed = JSON.parse(errText);
@@ -426,7 +427,7 @@ export class AmazonAPIClient {
     });
     if (!res.ok) {
       const errText = await res.text();
-      console.error("[Amazon SP-API] searchProductTypes Error:", errText);
+      logger.error("[Amazon SP-API] searchProductTypes Error:", errText);
       throw new Error(`Failed to search product types: ${res.status}`);
     }
     return res.json();
@@ -450,7 +451,7 @@ export class AmazonAPIClient {
 
     if (!res.ok) {
       const errText = await res.text();
-      console.error("[Amazon SP-API] createFeedDocument Error:", errText);
+      logger.error("[Amazon SP-API] createFeedDocument Error:", errText);
       throw new Error(`Failed to create feed document: ${res.status}`);
     }
 
@@ -476,7 +477,7 @@ export class AmazonAPIClient {
 
     if (!res.ok) {
       const errText = await res.text();
-      console.error("[Amazon SP-API] uploadFeedData Error:", errText);
+      logger.error("[Amazon SP-API] uploadFeedData Error:", errText);
       throw new Error(`Failed to upload feed data: ${res.status}`);
     }
   }
@@ -504,7 +505,7 @@ export class AmazonAPIClient {
 
     if (!res.ok) {
       const errText = await res.text();
-      console.error("[Amazon SP-API] createFeed Error:", errText);
+      logger.error("[Amazon SP-API] createFeed Error:", errText);
       let amazonError = "";
       try {
         const parsed = JSON.parse(errText);
@@ -542,7 +543,7 @@ export class AmazonAPIClient {
 
     if (!res.ok) {
       const errText = await res.text();
-      console.error("[Amazon SP-API] getFeed Error:", errText);
+      logger.error("[Amazon SP-API] getFeed Error:", errText);
       throw new Error(`Failed to get feed ${feedId}: ${res.status}`);
     }
 
@@ -567,7 +568,7 @@ export class AmazonAPIClient {
 
     if (!res.ok) {
       const errText = await res.text();
-      console.error("[Amazon SP-API] getFeedDocument Error:", errText);
+      logger.error("[Amazon SP-API] getFeedDocument Error:", errText);
       throw new Error(
         `Failed to get feed document ${feedDocumentId}: ${res.status}`,
       );
@@ -596,7 +597,7 @@ export class AmazonAPIClient {
 
     if (!createReportRes.ok) {
       const errText = await createReportRes.text();
-      console.error("[Amazon SP-API] Create Report Error:", errText);
+      logger.error("[Amazon SP-API] Create Report Error:", errText);
       throw new Error(
         `Failed to request Amazon report: ${createReportRes.status}`,
       );
@@ -668,7 +669,7 @@ export class AmazonAPIClient {
 
     if (!getDocRes.ok) {
       const errText = await getDocRes.text();
-      console.error("[Amazon SP-API] Get Document Error:", errText);
+      logger.error("[Amazon SP-API] Get Document Error:", errText);
       throw new Error(
         `Failed to get Amazon report document info: ${getDocRes.status}`,
       );
@@ -798,7 +799,7 @@ export class AmazonAPIClient {
         }
       }
     } catch (err) {
-      console.error("[Amazon SP-API] Failed fetch FBA inventory", {
+      logger.error("[Amazon SP-API] Failed fetch FBA inventory", {
         error: String(err),
       });
     }
@@ -808,7 +809,7 @@ export class AmazonAPIClient {
     // If we synthesized parents (likely because children referenced them but they had no SKU/Listing),
     // we MUST fetch their full metadata individually to discover the REST of the family.
     if (synthesizedAsins.length > 0) {
-      console.log(`[Amazon SP-API] Synthesized ${synthesizedAsins.length} virtual parents. Discovering family relationships...`);
+      logger.info(`[Amazon SP-API] Synthesized ${synthesizedAsins.length} virtual parents. Discovering family relationships...`);
       // Process synthesized parents to discover all children. Limit concurrency and respect rate limits.
       for (const parentId of synthesizedAsins) {
         try {
@@ -818,7 +819,7 @@ export class AmazonAPIClient {
           const vp = externalProducts.find(p => p.id === parentId);
           if (!vp) continue;
 
-          console.log(`[Amazon SP-API] Fetching full family for virtual parent: ${parentId}`);
+          logger.info(`[Amazon SP-API] Fetching full family for virtual parent: ${parentId}`);
           const fullParent = await this.getCatalogItem(parentId);
           vp.name = fullParent.name;
           vp.rawPayload = fullParent.rawPayload;
@@ -826,7 +827,7 @@ export class AmazonAPIClient {
           
           this.processProductRelationships(externalProducts);
         } catch (e) {
-          console.warn(`[Amazon SP-API] Failed to discover relationships for synthesized parent ${parentId}`, e);
+          logger.warn(`[Amazon SP-API] Failed to discover relationships for synthesized parent ${parentId}`, e);
         }
       }
     }
@@ -972,7 +973,7 @@ export class AmazonAPIClient {
                   }
                   await new Promise((r) => setTimeout(r, 550));
                 } catch (e) {
-                  console.warn(
+                  logger.warn(
                     `[Amazon SP-API] Failed to fetch full relationships for parent ASIN ${item.asin}`,
                     e,
                   );
@@ -986,7 +987,7 @@ export class AmazonAPIClient {
           }
         }
       } catch (err) {
-        console.error("[Amazon SP-API] Batch catalog enrichment failed", err);
+        logger.error("[Amazon SP-API] Batch catalog enrichment failed", err);
       }
 
       if (i + BATCH_SIZE < products.length) {
@@ -1137,7 +1138,7 @@ export class AmazonAPIClient {
 
       if (!res.ok) {
         const errText = await res.text();
-        console.error("[Amazon SP-API] getOrders Error:", errText);
+        logger.error("[Amazon SP-API] getOrders Error:", errText);
         throw new Error(`Failed to get orders: ${res.status}`);
       }
 
@@ -1198,7 +1199,7 @@ export class AmazonAPIClient {
 
       if (!res.ok) {
         const errText = await res.text();
-        console.error("[Amazon SP-API] getOrderItems Error:", errText);
+        logger.error("[Amazon SP-API] getOrderItems Error:", errText);
         throw new Error(
           `Failed to get order items for ${orderId}: ${res.status}`,
         );
@@ -1235,7 +1236,7 @@ export class AmazonAPIClient {
 
     if (!res.ok) {
       const errText = await res.text();
-      console.error("[Amazon SP-API] getOrderBuyerInfo Error:", errText);
+      logger.error("[Amazon SP-API] getOrderBuyerInfo Error:", errText);
       throw new Error(`Failed to get buyer info for ${orderId}: ${res.status}`);
     }
 
@@ -1265,7 +1266,7 @@ export class AmazonAPIClient {
 
     if (!res.ok) {
       const errText = await res.text();
-      console.error("[Amazon SP-API] getOrderAddress Error:", errText);
+      logger.error("[Amazon SP-API] getOrderAddress Error:", errText);
       throw new Error(`Failed to get address for ${orderId}: ${res.status}`);
     }
 
