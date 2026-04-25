@@ -4,6 +4,7 @@
  */
 
 const SENSITIVE_KEYS = [
+    // PII
     "email",
     "buyerEmail",
     "customer_email",
@@ -16,14 +17,26 @@ const SENSITIVE_KEYS = [
     "shipping_address",
     "notes",
     "return_notes",
+
+    // Auth & Credentials
     "password",
     "currentPassword",
     "newPassword",
     "apiKey",
     "apiPassword",
     "apiToken",
+    "accessToken",
+    "refreshToken",
+    "clientId",
     "clientSecret",
+    "consumerKey",
+    "consumerSecret",
+    "webhookSecret",
     "credentials",
+    "auth",
+    "authorization",
+    "token",
+    "secret",
 ];
 
 /**
