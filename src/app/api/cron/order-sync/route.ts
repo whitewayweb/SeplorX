@@ -45,8 +45,12 @@ async function handleRequest(request: Request) {
     }
 
     // 4. Dispatch Workers (Fan-Out)
-    const url = new URL(request.url);
-    const workerUrl = `${url.protocol}//${url.host}/api/agents/sync-worker`;
+    const host = request.headers.get("host");
+    const protocol = request.headers.get("x-forwarded-proto") || "https";
+    const baseUrl = host ? `${protocol}://${host}` : new URL(request.url).origin;
+    const workerUrl = `${baseUrl}/api/agents/sync-worker`;
+
+    console.log(`[agent/sync-scheduler] Dispatching ${activeChannels.length} workers to ${workerUrl}`);
 
     const results = await Promise.allSettled(
       activeChannels.map((channel) =>
@@ -55,8 +59,10 @@ async function handleRequest(request: Request) {
           headers: {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${process.env.CRON_JOB_KEY}`,
+            "x-vercel-cron": request.headers.get("x-vercel-cron") || "0",
           },
           body: JSON.stringify({ channelId: channel.id }),
+          cache: "no-store",
         })
       )
     );

@@ -9,7 +9,10 @@ export async function POST(request: Request) {
   try {
     // 1. Authorization
     const authHeader = request.headers.get("authorization");
-    if (authHeader !== `Bearer ${process.env.CRON_JOB_KEY}`) {
+    const isVercelCron = request.headers.get("x-vercel-cron") === "1";
+
+    if (authHeader !== `Bearer ${process.env.CRON_JOB_KEY}` && !isVercelCron) {
+      console.warn(`[sync-worker] Unauthorized attempt to trigger worker (Header: ${authHeader?.substring(0, 10)}..., isVercelCron: ${isVercelCron})`);
       return new Response("Unauthorized", { status: 401 });
     }
 
@@ -52,8 +55,9 @@ export async function POST(request: Request) {
 
     // Use after() introduced in Next.js 15+ to run the heavy work after response is sent
     after(async () => {
+      const startTime = Date.now();
       try {
-        console.log(`[sync-worker] Starting background sync for channel ${channelId} (${channel.name})`);
+        console.log(`[sync-worker] [${channelId}] Starting background sync for channel "${channel.name}"`);
         const result = await handler.fetchAndSaveOrders!(channel.userId, channel.id);
         
         // Update the last_order_sync_at cursor on success
@@ -61,9 +65,11 @@ export async function POST(request: Request) {
           .set({ lastOrderSyncAt: new Date() })
           .where(eq(channels.id, channel.id));
           
-        console.log(`[sync-worker] Background sync finished for channel ${channelId}:`, result);
+        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(`[sync-worker] [${channelId}] Success: fetched ${result.fetched}, saved ${result.saved} orders. Duration: ${duration}s`);
       } catch (err) {
-        console.error(`[sync-worker] Background sync failed for channel ${channelId}:`, err);
+        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.error(`[sync-worker] [${channelId}] Background sync failed after ${duration}s:`, err);
       }
     });
 

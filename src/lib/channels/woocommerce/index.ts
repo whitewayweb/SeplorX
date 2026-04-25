@@ -22,8 +22,10 @@ async function wcFetch(
     ...options,
     headers: {
       "Content-Type": "application/json",
+      "User-Agent": `${PORTAL_NAME}/1.0 (Order Sync Agent)`,
       ...(options.headers as Record<string, string>),
     },
+    signal: options.signal || AbortSignal.timeout(20_000),
   });
   return res;
 }
@@ -537,8 +539,8 @@ export const woocommerceHandler: ChannelHandler = {
       const bufferDate = new Date(lastSyncDate.getTime() - 60 * 60 * 1000);
       modifiedAfterParam = `&modified_after=${bufferDate.toISOString()}`;
     } else {
-      // Fallback 90 days
-      const fallbackDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      // Fallback 30 days
+      const fallbackDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       modifiedAfterParam = `&modified_after=${fallbackDate.toISOString()}`;
     }
 

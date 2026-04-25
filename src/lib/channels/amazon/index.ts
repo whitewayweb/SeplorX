@@ -178,7 +178,7 @@ export const amazonHandler: ChannelHandler = {
     const lastUpdatedAfter = (
       lastSyncDate
         ? new Date(lastSyncDate.getTime() - bufferMs)
-        : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+        : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) // Fallback 30 days instead of 90
     ).toISOString();
 
     // Log the sync range for debugging
@@ -190,9 +190,11 @@ export const amazonHandler: ChannelHandler = {
 
     for await (const pageOrders of ordersGenerator) {
       fetchedCount += pageOrders.length;
+      logger.info(`[Amazon Sync] Processing page with ${pageOrders.length} orders (Total fetched: ${fetchedCount})`);
 
       for (const amzOrder of pageOrders) {
         try {
+          logger.info(`[Amazon Sync] Processing order ${amzOrder.AmazonOrderId} (${amzOrder.OrderStatus})`);
           // 1. Pre-check if order already exists (out of tx to save connection)
           // 1. Pre-check for existing order
           const [existing] = await db
