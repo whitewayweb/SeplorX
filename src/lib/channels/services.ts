@@ -6,7 +6,7 @@ import {
   channelProductChangelog,
 } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
-import { encrypt } from "@/lib/crypto";
+import { encrypt, encryptSync } from "@/lib/crypto";
 import { getChannelById } from "@/lib/channels/registry";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
@@ -219,7 +219,7 @@ export async function registerChannelWebhooksService(
     throw new Error("Channel credentials are missing.");
 
   const appUrl = (env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
-  const webhookSig = await encrypt(String(channelId));
+  const webhookSig = encryptSync(String(channelId));
   const webhookBaseUrl = `${appUrl}/api/channels/${channel.channelType}/webhook/${channelId}?sig=${encodeURIComponent(webhookSig)}`;
 
   const { secret } = await handler.registerWebhooks(

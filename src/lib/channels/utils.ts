@@ -24,24 +24,27 @@ export async function decryptChannelCredentials(
   if (!raw) return {};
 
   const result: Record<string, string> = {};
+  const entries = Object.entries(raw);
 
-  for (const [key, value] of Object.entries(raw)) {
-    if (typeof value !== "string" || !value) continue;
+  await Promise.all(
+    entries.map(async ([key, value]) => {
+      if (typeof value !== "string" || !value) return;
 
-    if (isEncrypted(value)) {
-      try {
-        result[key] = await decrypt(value);
-      } catch (err) {
-        logger.warn(
-          `[decryptChannelCredentials] Failed to decrypt credential key "${key}". ` +
-            "Possible key mismatch or data corruption — key omitted from result.",
-          err instanceof Error ? err.message : String(err),
-        );
+      if (isEncrypted(value)) {
+        try {
+          result[key] = await decrypt(value);
+        } catch (err) {
+          logger.warn(
+            `[decryptChannelCredentials] Failed to decrypt credential key "${key}". ` +
+              "Possible key mismatch or data corruption — key omitted from result.",
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      } else {
+        result[key] = value;
       }
-    } else {
-      result[key] = value;
-    }
-  }
+    }),
+  );
 
   return result;
 }
