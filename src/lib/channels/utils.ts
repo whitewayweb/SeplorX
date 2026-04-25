@@ -1,4 +1,5 @@
 import { decrypt, isEncrypted } from "@/lib/crypto";
+import { logger } from "@/lib/logger";
 
 /**
  * Decrypt all stored credential fields for a channel.
@@ -17,37 +18,33 @@ import { decrypt, isEncrypted } from "@/lib/crypto";
  *  - Looks encrypted, decrypt fails → key mismatch / corruption; key omitted + warning logged
  *  - Does not look encrypted       → legacy plaintext; passed through as-is
  */
-export function decryptChannelCredentials(
+export async function decryptChannelCredentials(
   raw: Record<string, unknown> | null | undefined,
-): Record<string, string> {
+): Promise<Record<string, string>> {
   if (!raw) return {};
 
   const result: Record<string, string> = {};
+  const entries = Object.entries(raw);
 
-  for (const [key, value] of Object.entries(raw)) {
-    if (typeof value !== "string" || !value) continue;
+  await Promise.all(
+    entries.map(async ([key, value]) => {
+      if (typeof value !== "string" || !value) return;
 
-    if (isEncrypted(value)) {
-      // Value matches the iv:authTag:ciphertext format — it must decrypt cleanly.
-      // A failure here indicates a key mismatch or data corruption, NOT a legacy
-      // plaintext value. Omit the key so callers see an incomplete credential map
-      // rather than silently receiving corrupt ciphertext as a usable string.
-      try {
-        result[key] = decrypt(value);
-      } catch (err) {
-        console.warn(
-          `[decryptChannelCredentials] Failed to decrypt credential key "${key}". ` +
-            "Possible key mismatch or data corruption — key omitted from result.",
-          err instanceof Error ? err.message : String(err),
-        );
-        // key intentionally omitted
+      if (isEncrypted(value)) {
+        try {
+          result[key] = await decrypt(value);
+        } catch (err) {
+          logger.warn(
+            `[decryptChannelCredentials] Failed to decrypt credential key "${key}". ` +
+              "Possible key mismatch or data corruption — key omitted from result.",
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      } else {
+        result[key] = value;
       }
-    } else {
-      // Value does not match the encrypted format — treat as legacy plaintext
-      // migrated before encryption was introduced.
-      result[key] = value;
-    }
-  }
+    }),
+  );
 
   return result;
 }

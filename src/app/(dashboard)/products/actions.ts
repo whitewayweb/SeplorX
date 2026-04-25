@@ -424,6 +424,9 @@ export async function pushProductStockToChannels(productId: number) {
       error?: string;
     }> = [];
 
+    // Cache decrypted credentials per unique credential object to avoid redundant KMS calls
+    const decryptedCredsCache = new Map<string, Record<string, string>>();
+
     for (const m of mappings) {
       const handler = getChannelHandler(m.channelType);
       if (!handler || !m.storeUrl) {
@@ -431,7 +434,15 @@ export async function pushProductStockToChannels(productId: number) {
         continue;
       }
 
-      const decryptedCreds = decryptChannelCredentials(m.credentials);
+      // Use stringified credentials as cache key
+      const credsKey = JSON.stringify(m.credentials);
+      let decryptedCreds = decryptedCredsCache.get(credsKey);
+
+      if (!decryptedCreds) {
+        decryptedCreds = await decryptChannelCredentials(m.credentials);
+        decryptedCredsCache.set(credsKey, decryptedCreds);
+      }
+
       if (Object.keys(decryptedCreds).length === 0) {
         results.push({ channelName: m.channelName, externalProductId: m.externalProductId, label: m.label, ok: false, error: "Missing credentials." });
         continue;

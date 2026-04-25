@@ -29,6 +29,7 @@ import {
   lookupFitmentSeries,
   findSeplorxProduct,
 } from "./tools/channel-mapping-tools";
+import { logger } from "@/lib/logger";
 
 // ─── Provider Cascade ─────────────────────────────────────────────────────────
 
@@ -65,7 +66,7 @@ function isRateLimitError(err: unknown): boolean {
 function downgrade(): boolean {
   if (currentTier < 3) {
     currentTier = (currentTier + 1) as TierLevel;
-    console.log(`[channel-mapping] Downgraded to tier ${currentTier}`);
+    logger.info(`[channel-mapping] Downgraded to tier ${currentTier}`);
     return true; // retryable
   }
   return false; // all tiers exhausted
@@ -119,7 +120,7 @@ export async function runChannelMappingAgent(
     // proposal to the database, preventing data loss if the server crashes.
     const unmappedBatch = unmapped.slice(0, 50);
 
-    console.log(`[agent/channel-mapping] Found ${unmapped.length} unmapped products. Processing a batch of ${unmappedBatch.length}.`);
+    logger.info(`[agent/channel-mapping] Found ${unmapped.length} unmapped products. Processing a batch of ${unmappedBatch.length}.`);
 
     // 2. Process each product one-by-one (sequential for rate-limit safety)
     const proposals: Array<{
@@ -145,13 +146,13 @@ export async function runChannelMappingAgent(
 
         if (!extraction) {
           // Non-automotive product — fallback to direct LLM matching against SeplorX catalog
-          console.log(`[agent/channel-mapping] 🏷️ Non-automotive fallback for: "${product.name}"`);
+          logger.info(`[agent/channel-mapping] 🏷️ Non-automotive fallback for: "${product.name}"`);
           
           const seplorxId = await findNonAutomotiveMatch(product.name, seplorxProducts);
           if (seplorxId) {
             const seplorx = seplorxProducts.find(p => p.id === seplorxId);
             if (seplorx) {
-              console.log(`[agent/channel-mapping] ✅ Mapped (Direct LLM): "${product.name}" -> "${seplorx.name}"`);
+              logger.info(`[agent/channel-mapping] ✅ Mapped (Direct LLM): "${product.name}" -> "${seplorx.name}"`);
               proposals.push({
                 seplorxProductId: seplorx.id,
                 seplorxProductName: seplorx.name,
@@ -166,7 +167,7 @@ export async function runChannelMappingAgent(
             }
           }
           
-          console.log(`[agent/channel-mapping] ⏭️ Skipped (No Direct Match): "${product.name}"`);
+          logger.info(`[agent/channel-mapping] ⏭️ Skipped (No Direct Match): "${product.name}"`);
           skippedNonAuto++;
           continue;
         }
@@ -179,7 +180,7 @@ export async function runChannelMappingAgent(
         );
 
         if (!fitment) {
-          console.log(`[agent/channel-mapping] ⏭️ Skipped (Local Registry Miss): "${product.name}" → Extracted: ${extraction.make} ${extraction.model}`);
+          logger.info(`[agent/channel-mapping] ⏭️ Skipped (Local Registry Miss): "${product.name}" → Extracted: ${extraction.make} ${extraction.model}`);
           unmatchCount++;
           continue;
         }
@@ -188,12 +189,12 @@ export async function runChannelMappingAgent(
         const seplorx = findSeplorxProduct(fitment.series, extraction.color, seplorxProducts);
 
         if (!seplorx) {
-          console.log(`[agent/channel-mapping] ⚠️ No SeplorX match found for "${product.name}" (Series ${fitment.series}, Color: ${extraction.color || 'none'})`);
+          logger.info(`[agent/channel-mapping] ⚠️ No SeplorX match found for "${product.name}" (Series ${fitment.series}, Color: ${extraction.color || 'none'})`);
           unmatchCount++;
           continue;
         }
 
-        console.log(`[agent/channel-mapping] ✅ Mapped: "${product.name}" -> "${seplorx.name}" (Series ${fitment.series})`);
+        logger.info(`[agent/channel-mapping] ✅ Mapped: "${product.name}" -> "${seplorx.name}" (Series ${fitment.series})`);
         
         proposals.push({
           seplorxProductId: seplorx.id,
@@ -207,7 +208,7 @@ export async function runChannelMappingAgent(
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error(`[agent/channel-mapping] ❌ Error processing "${product.name}": ${msg}`);
+        logger.error(`[agent/channel-mapping] ❌ Error processing "${product.name}": ${msg}`);
         errors.push(`${product.name}: ${msg}`);
         // Continue processing remaining products — don't abort the run
       }
@@ -224,7 +225,7 @@ export async function runChannelMappingAgent(
       `Provider cascade used up to tier ${currentTier}.`,
     ].join(" ");
 
-    console.log(`[agent/channel-mapping] Run complete! Created ${proposals.length} proposals. Saving to agent_actions...`);
+    logger.info(`[agent/channel-mapping] Run complete! Created ${proposals.length} proposals. Saving to agent_actions...`);
 
     const result = await saveChannelMappingProposal({
       channelId,
@@ -235,7 +236,7 @@ export async function runChannelMappingAgent(
 
     return result;
   } catch (error) {
-    console.error("[runChannelMappingAgent]", error);
+    logger.error("[runChannelMappingAgent]", error);
     return { error: error instanceof Error ? error.message : "Internal Agent Error" };
   }
 }
@@ -267,7 +268,7 @@ async function extractFitmentFromTitle(
         if (canRetry) continue; // retry with next tier
       }
       // Non-rate-limit error or all tiers exhausted
-      console.warn(`[channel-mapping] Extraction failed for "${title}":`, err instanceof Error ? err.message : err);
+      logger.warn(`[channel-mapping] Extraction failed for "${title}":`, err instanceof Error ? err.message : err);
       return null;
     }
   }

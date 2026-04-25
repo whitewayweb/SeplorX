@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { logger } from "@/lib/logger";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Amazon Category Template Registry — file-system driven
@@ -66,7 +67,7 @@ function buildRegistry(): Map<string, CategoryTemplateEntry> {
   const registry = new Map<string, CategoryTemplateEntry>();
 
   if (!fs.existsSync(TEMPLATES_DIR)) {
-    console.warn("[Registry] Directory does not exist:", TEMPLATES_DIR);
+    logger.warn("[Registry] Directory does not exist:", TEMPLATES_DIR);
     return registry;
   }
 
@@ -85,7 +86,7 @@ function buildRegistry(): Map<string, CategoryTemplateEntry> {
   }
 
   if (process.env.NODE_ENV !== "production") {
-    console.log("[Registry] Loaded entries:", Array.from(registry.keys()));
+    logger.info("[Registry] Loaded entries:", Array.from(registry.keys()));
   }
 
   return registry;

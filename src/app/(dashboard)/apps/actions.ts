@@ -114,7 +114,7 @@ export async function configureApp(_prevState: unknown, formData: FormData) {
         if (field.type === "password" && config[field.key] === existingConfig[field.key]) {
           encryptedConfig[field.key] = value; // already encrypted, keep as-is
         } else {
-          encryptedConfig[field.key] = encrypt(value);
+          encryptedConfig[field.key] = await encrypt(value);
         }
       } else {
         encryptedConfig[field.key] = value;

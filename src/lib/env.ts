@@ -7,6 +7,8 @@
  * - POSTGRES_URL (Vercel + Supabase integration)
  */
 
+import { logger } from "@/lib/logger";
+
 function getEnv() {
   // Resolve database URL: prefer POSTGRES_URL (Vercel/Supabase pooler), fallback to DATABASE_URL
   const databaseUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
@@ -44,12 +46,18 @@ function getEnv() {
         `Please check your .env.local file or Vercel environment configuration.`;
 
       if (process.env.NODE_ENV === 'development') {
-        console.warn('\u26a0\ufe0f', errorMessage);
+        logger.warn(errorMessage);
       } else {
         throw new Error(errorMessage);
       }
     }
   }
+
+  // AWS KMS Configuration (Optional - Falls back to local encryption if missing)
+  const awsRegion = process.env.AWS_REGION;
+  const awsAccessKeyId = process.env.AWS_ACCESS_KEY_ID;
+  const awsSecretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+  const awsKmsKeyId = process.env.AWS_KMS_KEY_ID;
 
   return {
     DATABASE_URL: databaseUrl as string,
@@ -58,6 +66,10 @@ function getEnv() {
     BETTER_AUTH_URL: betterAuthUrl,
     GOOGLE_GENERATIVE_AI_API_KEY: googleAiKey,
     NEXT_PUBLIC_APP_URL: appUrl,
+    AWS_REGION: awsRegion,
+    AWS_ACCESS_KEY_ID: awsAccessKeyId,
+    AWS_SECRET_ACCESS_KEY: awsSecretAccessKey,
+    AWS_KMS_KEY_ID: awsKmsKeyId,
     ...optionalEnvVars,
     isDevelopment: process.env.NODE_ENV === 'development',
     isProduction: process.env.NODE_ENV === 'production',

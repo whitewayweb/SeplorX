@@ -6,6 +6,7 @@
 
 import type { ChannelHandler } from "../types";
 import { AmazonAPIClient } from "./api/client";
+import { logger } from "@/lib/logger";
 
 import {
   configFields,
@@ -84,7 +85,7 @@ export const amazonHandler: ChannelHandler = {
 
     const fcCode = (rawData?.fulfillmentChannelCode as string) || "DEFAULT";
 
-    console.log(
+    logger.info(
       `[Amazon pushStock] Pushing stock for ${identifier} (Type: ${productType || "PRODUCT"}, Channel: ${fcCode}, Qty: ${quantity})`,
     );
 
@@ -167,7 +168,7 @@ export const amazonHandler: ChannelHandler = {
     if (channel.channelType !== "amazon")
       throw new Error("Channel is not an Amazon channel");
 
-    const creds = decryptChannelCredentials(channel.credentials);
+    const creds = await decryptChannelCredentials(channel.credentials);
     const client = new AmazonAPIClient(creds, channel.storeUrl || "");
 
     // Determine fetch window: last order in DB minus 1 hour for safety, or fallback 90 days
@@ -181,9 +182,7 @@ export const amazonHandler: ChannelHandler = {
     ).toISOString();
 
     // Log the sync range for debugging
-    console.log(
-      `[Amazon Sync] Syncing orders updated after for channel ${channelId} from ${lastUpdatedAfter}`,
-    );
+    logger.info(`[Amazon Sync] Syncing orders updated after for channel ${channelId} from ${lastUpdatedAfter}`);
     const ordersGenerator = client.getOrdersPagedGenerator(lastUpdatedAfter);
 
     let fetchedCount = 0;
@@ -257,7 +256,7 @@ export const amazonHandler: ChannelHandler = {
                   );
                 }
               } catch (stockErr) {
-                console.error(
+                logger.error(
                   `[Amazon Sync] Stock processing failed for status update on order ${amzOrder.AmazonOrderId}:`,
                   stockErr,
                 );
@@ -410,16 +409,10 @@ export const amazonHandler: ChannelHandler = {
               );
             }
           } catch (stockErr) {
-            console.error(
-              `[Amazon Sync] Stock processing failed for order ${amzOrder.AmazonOrderId}:`,
-              stockErr,
-            );
+            logger.error(`[Amazon Sync] Stock processing failed for order ${amzOrder.AmazonOrderId}:`, stockErr);
           }
         } catch (err) {
-          console.error(
-            `[Amazon Sync] Failed to save order ${amzOrder.AmazonOrderId}:`,
-            err,
-          );
+          logger.error(`[Amazon Sync] Failed to save order ${amzOrder.AmazonOrderId}:`, err);
         }
       }
     }
@@ -518,13 +511,13 @@ export const amazonHandler: ChannelHandler = {
                 await processOrderStockChange(order.id, order.status, null, userId);
               }
             } catch (stockErr) {
-              console.error(`[Amazon Sync] Retroactive stock failed for item ${item.id}:`, stockErr);
+              logger.error(`[Amazon Sync] Retroactive stock failed for item ${item.id}:`, stockErr);
             }
           }
         }
       }
     } catch (err) {
-      console.error("[Amazon Sync] Failed to map past items:", err);
+      logger.error("[Amazon Sync] Failed to map past items:", err);
     }
 
     return { fetched: fetchedCount, saved: savedCount };

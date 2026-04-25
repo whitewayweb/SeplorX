@@ -4,6 +4,7 @@ import { z } from "zod";
 import { auth, getAuthenticatedUserId, getAuthenticatedSession } from "@/lib/auth";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
+import { logger } from "@/lib/logger";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -14,7 +15,12 @@ const UpdateNameSchema = z.object({
 
 const ChangePasswordSchema = z.object({
     currentPassword: z.string().min(1, "Current password is required"),
-    newPassword: z.string().min(8, "New password must be at least 8 characters"),
+    newPassword: z.string()
+        .min(12, "New password must be at least 12 characters")
+        .regex(/[A-Z]/, "Password must include at least one uppercase letter")
+        .regex(/[a-z]/, "Password must include at least one lowercase letter")
+        .regex(/[0-9]/, "Password must include at least one number")
+        .regex(/[^a-zA-Z0-9]/, "Password must include at least one special character"),
     confirmPassword: z.string().min(1, "Please confirm your new password"),
 }).refine((data) => data.newPassword === data.confirmPassword, {
     message: "New passwords do not match.",
@@ -40,13 +46,12 @@ export async function updateProfileName(_prevState: unknown, formData: FormData)
 
     try {
         await db.update(users).set({ name: parsed.data.name }).where(eq(users.id, userId));
+        revalidatePath("/profile");
+        return { success: true };
     } catch (err) {
-        console.error("[updateProfileName]", { userId, error: String(err) });
+        logger.error("[updateProfileName]", { userId, error: String(err) });
         return { error: "Failed to update profile name." };
     }
-
-    revalidatePath("/profile");
-    return { success: true };
 }
 
 export async function updateProfilePassword(_prevState: unknown, formData: FormData) {
@@ -81,7 +86,7 @@ export async function updateProfilePassword(_prevState: unknown, formData: FormD
         if (message.includes("INVALID_PASSWORD") || message.includes("incorrect")) {
             return { error: "Current password is incorrect." };
         }
-        console.error("[updateProfilePassword]", { userId: session.user.id, error: message });
+        logger.error("[updateProfilePassword]", { userId: session.user.id, error: message });
         return { error: "Failed to update password." };
     }
 
