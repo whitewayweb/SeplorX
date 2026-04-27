@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { channels, settings } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { AGENT_REGISTRY } from "@/lib/agents/registry";
+import { getBaseUrl } from "@/lib/utils";
 
 export async function GET(request: Request) {
   return handleRequest(request);
@@ -34,20 +35,26 @@ async function handleRequest(request: Request) {
       return NextResponse.json({ error: "Order Sync agent is disabled." }, { status: 503 });
     }
 
-    // 3. Fetch active channels
+    // 3. Fetch active channels (Support optional userId filtering for On-Demand sync)
+    const queryUrl = new URL(request.url);
+    const userIdParam = queryUrl.searchParams.get("userId");
+
     const activeChannels = await db
       .select({ id: channels.id })
       .from(channels)
-      .where(eq(channels.status, "connected"));
+      .where(
+        and(
+          eq(channels.status, "connected"),
+          userIdParam ? eq(channels.userId, Number(userIdParam)) : undefined
+        )
+      );
 
     if (activeChannels.length === 0) {
-      return NextResponse.json({ triggered: 0, reason: "No active channels" });
+      return NextResponse.json({ triggered: 0, reason: "No active channels found" });
     }
 
     // 4. Dispatch Workers (Fan-Out)
-    const host = request.headers.get("host");
-    const protocol = request.headers.get("x-forwarded-proto") || "https";
-    const baseUrl = host ? `${protocol}://${host}` : new URL(request.url).origin;
+    const baseUrl = getBaseUrl(request.headers);
     const workerUrl = `${baseUrl}/api/agents/sync-worker`;
 
     console.log(`[agent/sync-scheduler] Dispatching ${activeChannels.length} workers to ${workerUrl}`);
