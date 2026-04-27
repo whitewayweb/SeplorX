@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { channels } from "@/db/schema";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, or, lte, isNull } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getBaseUrl } from "@/lib/utils";
 
@@ -23,7 +23,10 @@ export async function triggerOnDemandSync(userId: number) {
             and(
                 eq(channels.userId, userId),
                 eq(channels.status, 'connected'),
-                sql`${channels.lastOrderSyncAt} IS NULL OR ${channels.lastOrderSyncAt} <= ${staleTime}`
+                or(
+                    isNull(channels.lastOrderSyncAt),
+                    lte(channels.lastOrderSyncAt, staleTime)
+                )
             )
         )
         .limit(1);
