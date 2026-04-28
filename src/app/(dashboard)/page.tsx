@@ -2,13 +2,13 @@ import { AlertCircle, RotateCcw, Package, AlertTriangle, ArrowRight, ExternalLin
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
-  getOutOfSyncProductCount,
   getOrdersAwaitingReturnAction,
   getTotalActiveReservations,
   getLowStockProductsCount,
   getRecentOrders,
 } from "@/data/stock";
 import { getTotalUnmappedProductsCount, getUnmappedChannelProducts } from "@/data/channels";
+import { getPendingStockSyncProductCount } from "@/data/products";
 import { getAuthenticatedUserId } from "@/lib/auth";
 import Link from "next/link";
 import {
@@ -33,7 +33,7 @@ export default async function Home() {
     unmappedProducts,
     recentOrders,
   ] = await Promise.all([
-    getOutOfSyncProductCount(),
+    getPendingStockSyncProductCount(userId),
     getOrdersAwaitingReturnAction(),
     getTotalActiveReservations(),
     getLowStockProductsCount(),
@@ -60,11 +60,11 @@ export default async function Home() {
           <CardContent>
             <div className="text-2xl font-bold">{outOfSyncCount}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              Products with stock reserved but not pushed
+              Products with channel stock changes to review
             </p>
             {outOfSyncCount > 0 && (
               <div className="mt-4">
-                <Link href="/inventory" className="text-sm text-blue-600 hover:underline">
+                <Link href="/inventory/sync" className="text-sm text-blue-600 hover:underline">
                   Review & Push Stock →
                 </Link>
               </div>

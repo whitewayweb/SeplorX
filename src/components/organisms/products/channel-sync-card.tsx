@@ -163,6 +163,8 @@ export function ChannelSyncCard({
   availableStock,
 }: ChannelSyncCardProps) {
   const [pushing, startPush] = useTransition();
+  const pendingMappingsCount = mappings.filter((m) => m.syncStatus === "pending_update").length;
+  const failedMappingsCount = mappings.filter((m) => m.syncStatus === "failed").length;
 
   if (connectedChannels.length === 0) {
     return (
@@ -202,7 +204,7 @@ export function ChannelSyncCard({
         return;
       }
       const ok = results.filter((r) => r.ok);
-      const failed = results.filter((r) => !r.ok);
+      const failed = results.filter((r) => !r.ok && !r.skipped);
       if (failed.length === 0) {
         toast.success(`Stock pushed to ${ok.length} product${ok.length !== 1 ? "s" : ""}`);
       } else {
@@ -225,6 +227,16 @@ export function ChannelSyncCard({
           <span className="text-xs text-muted-foreground">
             · {mappings.length} mapping{mappings.length !== 1 ? "s" : ""}
           </span>
+          {pendingMappingsCount > 0 && (
+            <span className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium border bg-yellow-50 text-yellow-700 border-yellow-200">
+              Needs stock push
+            </span>
+          )}
+          {failedMappingsCount > 0 && (
+            <span className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium border bg-red-50 text-red-700 border-red-200">
+              {failedMappingsCount} failed
+            </span>
+          )}
         </div>
         <Button
           variant="outline"

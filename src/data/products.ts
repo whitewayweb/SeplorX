@@ -9,7 +9,7 @@ import {
   channels,
   channelProducts,
 } from "@/db/schema";
-import { and, desc, eq, sql, count } from "drizzle-orm";
+import { and, desc, eq, ne, sql, count } from "drizzle-orm";
 
 export async function getProductById(productId: number, tx: QueryClient = db) {
   const result = await tx
@@ -55,6 +55,136 @@ export async function getProductMappings(productId: number, tx: QueryClient = db
       )
     )
     .where(eq(channelProductMappings.productId, productId));
+}
+
+export interface PendingStockSyncMapping {
+  id: number;
+  channelId: number;
+  channelName: string;
+  channelType: string;
+  externalProductId: string;
+  label: string | null;
+  syncStatus: string;
+  lastSyncError: string | null;
+  channelStock: number | null;
+}
+
+export interface PendingStockSyncProduct {
+  id: number;
+  name: string;
+  sku: string | null;
+  quantityOnHand: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+  reorderLevel: number;
+  lastTransactionAt: Date | null;
+  lastTransactionNotes: string | null;
+  mappings: PendingStockSyncMapping[];
+}
+
+export async function getPendingStockSyncProducts(userId: number, tx: QueryClient = db): Promise<PendingStockSyncProduct[]> {
+  const rows = await tx
+    .select({
+      productId: products.id,
+      productName: products.name,
+      sku: products.sku,
+      quantityOnHand: products.quantityOnHand,
+      reservedQuantity: products.reservedQuantity,
+      reorderLevel: products.reorderLevel,
+      mappingId: channelProductMappings.id,
+      channelId: channelProductMappings.channelId,
+      channelName: channels.name,
+      channelType: channels.channelType,
+      externalProductId: channelProductMappings.externalProductId,
+      label: channelProductMappings.label,
+      syncStatus: channelProductMappings.syncStatus,
+      lastSyncError: channelProductMappings.lastSyncError,
+      channelStock: channelProducts.stockQuantity,
+      lastTransactionAt: sql<Date | null>`(
+        SELECT ${inventoryTransactions.createdAt}
+        FROM ${inventoryTransactions}
+        WHERE ${inventoryTransactions.productId} = ${products.id}
+        ORDER BY ${inventoryTransactions.createdAt} DESC
+        LIMIT 1
+      )`,
+      lastTransactionNotes: sql<string | null>`(
+        SELECT ${inventoryTransactions.notes}
+        FROM ${inventoryTransactions}
+        WHERE ${inventoryTransactions.productId} = ${products.id}
+        ORDER BY ${inventoryTransactions.createdAt} DESC
+        LIMIT 1
+      )`,
+    })
+    .from(channelProductMappings)
+    .innerJoin(products, eq(channelProductMappings.productId, products.id))
+    .innerJoin(channels, eq(channelProductMappings.channelId, channels.id))
+    .leftJoin(
+      channelProducts,
+      and(
+        eq(channelProductMappings.channelId, channelProducts.channelId),
+        eq(channelProductMappings.externalProductId, channelProducts.externalId),
+      ),
+    )
+    .where(
+      and(
+        eq(channels.userId, userId),
+        eq(channels.status, "connected"),
+        ne(channelProductMappings.syncStatus, "in_sync"),
+      ),
+    )
+    .orderBy(desc(products.updatedAt), products.name, channels.name);
+
+  const grouped = new Map<number, PendingStockSyncProduct>();
+
+  for (const row of rows) {
+    const availableQuantity = Math.max(0, row.quantityOnHand - row.reservedQuantity);
+    const existing = grouped.get(row.productId);
+
+    if (!existing) {
+      grouped.set(row.productId, {
+        id: row.productId,
+        name: row.productName,
+        sku: row.sku,
+        quantityOnHand: row.quantityOnHand,
+        reservedQuantity: row.reservedQuantity,
+        availableQuantity,
+        reorderLevel: row.reorderLevel,
+        lastTransactionAt: row.lastTransactionAt,
+        lastTransactionNotes: row.lastTransactionNotes,
+        mappings: [],
+      });
+    }
+
+    grouped.get(row.productId)!.mappings.push({
+      id: row.mappingId,
+      channelId: row.channelId,
+      channelName: row.channelName,
+      channelType: row.channelType,
+      externalProductId: row.externalProductId,
+      label: row.label,
+      syncStatus: row.syncStatus,
+      lastSyncError: row.lastSyncError,
+      channelStock: row.channelStock,
+    });
+  }
+
+  return Array.from(grouped.values());
+}
+
+export async function getPendingStockSyncProductCount(userId: number, tx: QueryClient = db): Promise<number> {
+  const [result] = await tx
+    .select({ count: sql<number>`COUNT(DISTINCT ${channelProductMappings.productId})::int` })
+    .from(channelProductMappings)
+    .innerJoin(channels, eq(channelProductMappings.channelId, channels.id))
+    .where(
+      and(
+        eq(channels.userId, userId),
+        eq(channels.status, "connected"),
+        ne(channelProductMappings.syncStatus, "in_sync"),
+      ),
+    );
+
+  return result?.count ?? 0;
 }
 
 export async function getInventoryTransactionsForProduct(productId: number, tx: QueryClient = db) {
