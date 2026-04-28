@@ -56,27 +56,27 @@ export default async function InventorySyncPage() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Products Needing Review</CardTitle>
+            <CardTitle className="text-sm font-medium">Products To Push</CardTitle>
             <PackageCheck className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">{enrichedProducts.length}</p>
-            <p className="text-xs text-muted-foreground mt-1">Grouped SeplorX products</p>
+            <p className="text-xs text-muted-foreground mt-1">SeplorX products needing action</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Pending Mappings</CardTitle>
+            <CardTitle className="text-sm font-medium">Mapped Listings</CardTitle>
             <AlertTriangle className="h-4 w-4 text-yellow-500" />
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold text-yellow-700">{pendingMappings}</p>
-            <p className="text-xs text-muted-foreground mt-1">Waiting for stock push</p>
+            <p className="text-xs text-muted-foreground mt-1">Channel listings waiting for stock push</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Supported Targets</CardTitle>
+            <CardTitle className="text-sm font-medium">Push Targets</CardTitle>
             <CheckCircle2 className="h-4 w-4 text-emerald-500" />
           </CardHeader>
           <CardContent>
