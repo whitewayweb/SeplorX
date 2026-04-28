@@ -4,7 +4,21 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { AlertTriangle, ArrowUpFromLine, CheckCircle2, ExternalLink, Loader2, PackageCheck, Search, type LucideIcon } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowUpFromLine,
+  CheckCircle2,
+  Clock3,
+  ExternalLink,
+  Layers,
+  Loader2,
+  PackageCheck,
+  Search,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
+  type LucideIcon,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +32,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -25,6 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
   SheetContent,
@@ -33,6 +49,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import { getStockSyncProductDetails, pushSelectedProductStock } from "./actions";
 
 interface SyncMapping {
@@ -119,24 +136,28 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
   const filteredProducts = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
 
-    return products.filter((product) => {
-      const matchesSearch =
-        !normalizedQuery ||
-        product.name.toLowerCase().includes(normalizedQuery) ||
-        (product.sku ?? "").toLowerCase().includes(normalizedQuery) ||
-        product.channelNames.some((channelName) => channelName.toLowerCase().includes(normalizedQuery));
+    return products
+      .filter((product) => {
+        const matchesSearch =
+          !normalizedQuery ||
+          product.name.toLowerCase().includes(normalizedQuery) ||
+          (product.sku ?? "").toLowerCase().includes(normalizedQuery) ||
+          product.channelNames.some((channelName) =>
+            channelName.toLowerCase().includes(normalizedQuery),
+          );
 
-      const matchesChannel =
-        channelFilter === "all" || product.channelNames.includes(channelFilter);
+        const matchesChannel =
+          channelFilter === "all" || product.channelNames.includes(channelFilter);
 
-      const matchesStatus =
-        statusFilter === "all" ||
-        (statusFilter === "pending" && product.pendingCount > 0) ||
-        (statusFilter === "failed" && product.failedCount > 0) ||
-        (statusFilter === "mismatch" && product.mismatchCount > 0);
+        const matchesStatus =
+          statusFilter === "all" ||
+          (statusFilter === "pending" && product.pendingCount > 0) ||
+          (statusFilter === "failed" && product.failedCount > 0) ||
+          (statusFilter === "mismatch" && product.mismatchCount > 0);
 
-      return matchesSearch && matchesChannel && matchesStatus;
-    });
+        return matchesSearch && matchesChannel && matchesStatus;
+      })
+      .sort((a, b) => getPriorityScore(b) - getPriorityScore(a));
   }, [channelFilter, products, searchQuery, statusFilter]);
 
   const actionableProductIds = useMemo(
@@ -144,15 +165,28 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
     [filteredProducts],
   );
 
-  const allSelected = actionableProductIds.length > 0 && actionableProductIds.every((id) => selectedProductIds.has(id));
+  const allSelected =
+    actionableProductIds.length > 0 &&
+    actionableProductIds.every((id) => selectedProductIds.has(id));
   const someSelected = selectedProductIds.size > 0 && !allSelected;
-  const filteredMappingCount = filteredProducts.reduce((total, product) => total + product.mappingCount, 0);
   const selectedProduct = reviewProduct;
   const totalPendingMappings = products.reduce((total, product) => total + product.pendingCount, 0);
   const totalFailedMappings = products.reduce((total, product) => total + product.failedCount, 0);
   const totalSupportedMappings = products.reduce((total, product) => total + product.mappingCount, 0);
   const totalMismatchMappings = products.reduce((total, product) => total + product.mismatchCount, 0);
-  const confirmProducts = confirmProductIds ? products.filter((product) => confirmProductIds.includes(product.id)) : [];
+  const selectedProducts = products.filter((product) => selectedProductIds.has(product.id));
+  const selectedMappingCount = selectedProducts.reduce((total, product) => total + product.mappingCount, 0);
+  const selectedChannelNames = Array.from(
+    new Set(selectedProducts.flatMap((product) => product.channelNames)),
+  ).sort();
+  const visibleMappingCount = filteredProducts.reduce((total, product) => total + product.mappingCount, 0);
+  const visibleMismatchMappings = filteredProducts.reduce((total, product) => total + product.mismatchCount, 0);
+  const syncCoverage = totalSupportedMappings === 0
+    ? 0
+    : Math.round(((totalSupportedMappings - totalMismatchMappings) / totalSupportedMappings) * 100);
+  const confirmProducts = confirmProductIds
+    ? products.filter((product) => confirmProductIds.includes(product.id))
+    : [];
   const confirmMappingCount = confirmProducts.reduce((total, product) => total + product.mappingCount, 0);
   const confirmChannelNames = Array.from(new Set(confirmProducts.flatMap((product) => product.channelNames))).sort();
   const reviewMappings = selectedProduct
@@ -268,11 +302,11 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="h-12 w-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-4">
-            <ArrowUpFromLine className="h-5 w-5" />
+          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+            <CheckCircle2 className="h-5 w-5" />
           </div>
           <h2 className="text-lg font-semibold">All channel stock is in sync</h2>
-          <p className="text-sm text-muted-foreground mt-2 max-w-md">
+          <p className="mt-2 max-w-md text-sm text-muted-foreground">
             New order reservations, delivered orders, returns, invoices, and manual stock adjustments will appear here when mapped products need a channel stock push.
           </p>
         </CardContent>
@@ -281,238 +315,325 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <Card className="overflow-hidden">
         <CardContent className="p-0">
-          <div className="flex flex-col gap-4 border-l-4 border-l-blue-500 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-wrap items-center gap-5">
-              <SummaryMetric icon={PackageCheck} label="Products" value={products.length} tone="default" />
-              <SummaryMetric icon={AlertTriangle} label="Listings to update" value={totalPendingMappings} tone="amber" />
-              <SummaryMetric icon={CheckCircle2} label="Push targets" value={totalSupportedMappings} tone="green" />
-              {totalMismatchMappings > 0 && <SummaryMetric icon={AlertTriangle} label="Mismatches" value={totalMismatchMappings} tone="red" />}
-            </div>
-            <div className="flex items-center gap-2">
-              {selectedProductIds.size > 0 && (
+          <div className="grid gap-0 xl:grid-cols-[1fr_360px]">
+            <div className="space-y-4 p-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="gap-1">
+                      <Sparkles className="h-3 w-3" />
+                      Review queue
+                    </Badge>
+                    {totalFailedMappings > 0 && (
+                      <Badge variant="destructive">{totalFailedMappings} failed</Badge>
+                    )}
+                  </div>
+                  <h2 className="mt-3 text-xl font-semibold tracking-tight">Push only what needs attention</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {products.length} product{products.length === 1 ? "" : "s"} need stock review across {totalSupportedMappings} channel listing{totalSupportedMappings === 1 ? "" : "s"}.
+                  </p>
+                </div>
                 <Button
-                  variant="outline"
-                  onClick={() => requestPush(Array.from(selectedProductIds))}
-                  disabled={isPending}
-                  className="gap-2"
+                  onClick={() => requestPush(actionableProductIds)}
+                  disabled={isPending || actionableProductIds.length === 0}
+                  className="gap-2 lg:self-center"
                 >
                   {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="h-4 w-4" />}
-                  Push Selected ({selectedProductIds.size})
+                  Push All Pending
                 </Button>
-              )}
-              <Button
-                onClick={() => requestPush(actionableProductIds)}
-                disabled={isPending || actionableProductIds.length === 0}
-                className="gap-2"
-              >
-                {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="h-4 w-4" />}
-                Push All
-              </Button>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-4">
+                <CommandMetric icon={PackageCheck} label="Products" value={products.length} />
+                <CommandMetric icon={Layers} label="Listings" value={totalPendingMappings} tone="amber" />
+                <CommandMetric icon={ShieldCheck} label="Ready targets" value={totalSupportedMappings} tone="green" />
+                <CommandMetric icon={AlertTriangle} label="Mismatches" value={totalMismatchMappings} tone={totalMismatchMappings > 0 ? "red" : "default"} />
+              </div>
+            </div>
+
+            <div className="border-t bg-muted/20 p-5 xl:border-l xl:border-t-0">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Channel alignment</p>
+                    <p className="text-xs text-muted-foreground">Cached channel stock compared with SeplorX available stock</p>
+                  </div>
+                  <span className="text-2xl font-semibold tabular-nums">{syncCoverage}%</span>
+                </div>
+                <Progress value={syncCoverage} className="h-2" />
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-md border bg-background px-3 py-2">
+                    <p className="text-muted-foreground">Different now</p>
+                    <p className="mt-1 font-semibold tabular-nums">{totalMismatchMappings}</p>
+                  </div>
+                  <div className="rounded-md border bg-background px-3 py-2">
+                    <p className="text-muted-foreground">Waiting push</p>
+                    <p className="mt-1 font-semibold tabular-nums">{totalPendingMappings}</p>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
+
           {totalFailedMappings > 0 && (
-            <div className="border-t bg-red-50 px-5 py-2 text-sm text-red-700">
-              {totalFailedMappings} mapping{totalFailedMappings === 1 ? "" : "s"} failed last push. Review failures before retrying if they repeat.
+            <div className="border-t bg-red-50 px-5 py-3 text-sm text-red-700">
+              {totalFailedMappings} mapping{totalFailedMappings === 1 ? "" : "s"} failed last push. Review the failure details if the same listings fail again.
             </div>
           )}
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <div>
-            <CardTitle className="text-lg">Products Requiring Stock Push</CardTitle>
-            <p className="text-sm text-muted-foreground mt-1">
-              {filteredProducts.length} product{filteredProducts.length === 1 ? "" : "s"} shown · {filteredMappingCount} mapped listing{filteredMappingCount === 1 ? "" : "s"}.
-            </p>
-          </div>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <Tabs value={statusFilter} onValueChange={setStatusFilter}>
-              <TabsList>
-                <TabsTrigger value="all">All</TabsTrigger>
-                <TabsTrigger value="pending">Pending</TabsTrigger>
-                <TabsTrigger value="failed">Failed</TabsTrigger>
-                <TabsTrigger value="mismatch">Stock mismatch</TabsTrigger>
-              </TabsList>
-            </Tabs>
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="space-y-4">
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <Tabs value={statusFilter} onValueChange={setStatusFilter}>
+                  <TabsList>
+                    <TabsTrigger value="all">All</TabsTrigger>
+                    <TabsTrigger value="pending">Pending</TabsTrigger>
+                    <TabsTrigger value="failed">Failed</TabsTrigger>
+                    <TabsTrigger value="mismatch">Mismatch</TabsTrigger>
+                  </TabsList>
+                </Tabs>
 
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <div className="relative min-w-[260px]">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="Search product, SKU, external ID..."
-                  className="pl-9"
-                />
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <div className="relative min-w-[280px]">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      placeholder="Search product, SKU, channel..."
+                      className="pl-9"
+                    />
+                  </div>
+                  <Select value={channelFilter} onValueChange={setChannelFilter}>
+                    <SelectTrigger className="min-w-[180px]">
+                      <SelectValue placeholder="Channel" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All channels</SelectItem>
+                      {channelOptions.map((channelName) => (
+                        <SelectItem key={channelName} value={channelName}>
+                          {channelName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <Select value={channelFilter} onValueChange={setChannelFilter}>
-                <SelectTrigger className="min-w-[180px]">
-                  <SelectValue placeholder="Channel" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All channels</SelectItem>
-                  {channelOptions.map((channelName) => (
-                    <SelectItem key={channelName} value={channelName}>
-                      {channelName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            </CardContent>
+          </Card>
+
+          <div className="rounded-lg border bg-card">
+            <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <Checkbox
+                  checked={allSelected || (someSelected ? "indeterminate" : false)}
+                  onCheckedChange={toggleAll}
+                  aria-label="Select all visible products"
+                />
+                <div>
+                  <p className="text-sm font-semibold">Operations worklist</p>
+                  <p className="text-xs text-muted-foreground">
+                    {filteredProducts.length} product{filteredProducts.length === 1 ? "" : "s"} shown - {visibleMappingCount} listing{visibleMappingCount === 1 ? "" : "s"} affected
+                  </p>
+                </div>
+              </div>
+              <Badge variant={visibleMismatchMappings > 0 ? "secondary" : "outline"}>
+                {visibleMismatchMappings} current mismatch{visibleMismatchMappings === 1 ? "" : "es"}
+              </Badge>
+            </div>
+
+            <div className="divide-y">
+              {filteredProducts.length === 0 && (
+                <div className="px-4 py-14 text-center">
+                  <p className="text-sm font-medium">No products match the current filters</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Clear the search or switch filters to see other stock sync items.</p>
+                </div>
+              )}
+
+              {filteredProducts.map((product) => {
+                const canPushProduct = product.mappingCount > 0;
+                const isPushingProduct = pushingIds.has(product.id);
+                const stockRange = getStockRangeLabel(product.channelStockMin, product.channelStockMax);
+                const priority = getPriority(product);
+                const impactText = getImpactText(product);
+                const channelPreview = product.channelNames.slice(0, 2).join(", ");
+                const hiddenChannelCount = Math.max(0, product.channelNames.length - 2);
+
+                return (
+                  <article
+                    key={product.id}
+                    className={cn(
+                      "grid gap-4 px-4 py-4 transition-colors hover:bg-muted/20 lg:grid-cols-[32px_minmax(0,1fr)_280px]",
+                      selectedProductIds.has(product.id) && "bg-blue-50/40",
+                    )}
+                  >
+                    <div className="pt-1">
+                      <Checkbox
+                        checked={selectedProductIds.has(product.id)}
+                        disabled={!canPushProduct}
+                        onCheckedChange={(checked) => toggleProduct(product.id, checked === true)}
+                        aria-label={`Select ${product.name}`}
+                      />
+                    </div>
+
+                    <div className="min-w-0 space-y-4">
+                      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant="outline" className={cn("border", priority.className)}>
+                              {priority.label}
+                            </Badge>
+                            {product.failedCount > 0 && <Badge variant="destructive">{product.failedCount} failed</Badge>}
+                            {product.pendingCount > 0 && <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">{product.pendingCount} pending</Badge>}
+                          </div>
+                          <div className="mt-2 flex items-center gap-2">
+                            <Link href={`/products/${product.id}`} className="truncate text-base font-semibold text-primary hover:underline">
+                              {product.name}
+                            </Link>
+                            <Link href={`/products/${product.id}`} className="text-muted-foreground hover:text-foreground" title="Open product">
+                              <ExternalLink className="h-3.5 w-3.5" />
+                            </Link>
+                          </div>
+                          <p className="mt-0.5 font-mono text-xs text-muted-foreground">{product.sku ?? "No SKU"}</p>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <Button variant="ghost" size="sm" onClick={() => openReview(product.id)}>
+                            Review
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => requestPush([product.id], false)}
+                            disabled={isPending || !canPushProduct}
+                            className="gap-2"
+                          >
+                            {isPushingProduct ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpFromLine className="h-3.5 w-3.5" />}
+                            Push
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.7fr)]">
+                        <div className="rounded-lg border bg-background p-3">
+                          <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-2">
+                            <StockMetric label="On hand" value={product.quantityOnHand} />
+                            <span className="text-muted-foreground">-</span>
+                            <StockMetric label="Reserved" value={product.reservedQuantity} tone={product.reservedQuantity > 0 ? "amber" : undefined} />
+                            <span className="text-muted-foreground">=</span>
+                            <StockMetric label="Available" value={product.availableQuantity} tone={product.availableQuantity <= 0 ? "red" : "green"} emphasis />
+                          </div>
+                          <p className="mt-3 text-xs text-muted-foreground">
+                            {product.lastTransactionAt ? (
+                              <>
+                                Last stock change {formatDateTime(product.lastTransactionAt)}
+                                {product.lastTransactionNotes ? ` - ${product.lastTransactionNotes}` : ""}
+                              </>
+                            ) : (
+                              "No recent stock transaction found"
+                            )}
+                          </p>
+                        </div>
+
+                        <div className="rounded-lg border border-blue-100 bg-blue-50/70 p-3">
+                          <p className="text-xs font-medium text-blue-700">Stock push outcome</p>
+                          <p className="mt-1 text-2xl font-semibold tabular-nums text-blue-950">
+                            Set channels to {product.availableQuantity}
+                          </p>
+                          <p className="mt-1 text-xs text-blue-700">{impactText}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border bg-muted/20 p-3 lg:self-stretch">
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Channel impact</p>
+                      <div className="mt-3 space-y-3">
+                        <ImpactRow label="Mapped" value={product.mappingCount} />
+                        <ImpactRow label="Mismatch" value={product.mismatchCount} tone={product.mismatchCount > 0 ? "amber" : undefined} />
+                        <ImpactRow label="Current stock" value={stockRange} />
+                        <Separator />
+                        <div>
+                          <p className="text-xs text-muted-foreground">Channels</p>
+                          <p className="mt-1 text-sm font-medium">
+                            {channelPreview || "No channel"}
+                            {hiddenChannelCount > 0 ? ` +${hiddenChannelCount}` : ""}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           </div>
-        </CardContent>
-      </Card>
-
-      <div className="rounded-lg border bg-card overflow-x-auto">
-        <div className="min-w-[1040px]">
-        <div className="grid grid-cols-[44px_minmax(320px,1.2fr)_minmax(240px,0.8fr)_minmax(260px,1fr)_180px] gap-4 px-4 py-3 border-b bg-muted/40 text-xs font-semibold text-muted-foreground">
-          <div>
-            <Checkbox
-              checked={allSelected || (someSelected ? "indeterminate" : false)}
-              onCheckedChange={toggleAll}
-              aria-label="Select all products"
-            />
-          </div>
-          <div>SeplorX Product</div>
-          <div>Stock Action</div>
-          <div>Channel Impact</div>
-          <div className="text-right">Action</div>
         </div>
 
-        <div className="divide-y">
-          {filteredProducts.length === 0 && (
-            <div className="px-4 py-14 text-center">
-              <p className="text-sm font-medium">No products match the current filters</p>
-              <p className="text-sm text-muted-foreground mt-1">Clear the search or switch filters to see other stock sync items.</p>
-            </div>
-          )}
-
-          {filteredProducts.map((product) => {
-            const canPushProduct = product.mappingCount > 0;
-            const isPushingProduct = pushingIds.has(product.id);
-            const pendingCount = product.pendingCount;
-            const failedCount = product.failedCount;
-            const mismatchCount = product.mismatchCount;
-            const channelNames = product.channelNames;
-            const channelPreview = channelNames.slice(0, 2).join(", ");
-            const hiddenChannelCount = Math.max(0, channelNames.length - 2);
-            const stockRange = getStockRangeLabel(product.channelStockMin, product.channelStockMax);
-
-            return (
-              <div key={product.id} className="grid grid-cols-[44px_minmax(320px,1.2fr)_minmax(240px,0.8fr)_minmax(260px,1fr)_180px] gap-4 px-4 py-4 hover:bg-muted/20">
-                <div className="pt-1">
-                  <Checkbox
-                    checked={selectedProductIds.has(product.id)}
-                    disabled={!canPushProduct}
-                    onCheckedChange={(checked) => toggleProduct(product.id, checked === true)}
-                    aria-label={`Select ${product.name}`}
-                  />
+        <aside className="space-y-4 xl:sticky xl:top-6 xl:self-start">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <SlidersHorizontal className="h-4 w-4" />
+                Push plan
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {selectedProductIds.size === 0 ? (
+                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                  Select products to build a push plan, or push all pending items from the command bar.
                 </div>
-
-                <div className="space-y-3">
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Link href={`/products/${product.id}`} className="font-medium text-primary hover:underline">
-                        {product.name}
-                      </Link>
-                      <Link href={`/products/${product.id}`} className="text-muted-foreground hover:text-foreground" title="Open product">
-                        <ExternalLink className="h-3.5 w-3.5" />
-                      </Link>
-                    </div>
-                    <p className="text-xs text-muted-foreground font-mono mt-0.5">{product.sku ?? "No SKU"}</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <PlanMetric label="Products" value={selectedProductIds.size} />
+                    <PlanMetric label="Listings" value={selectedMappingCount} />
                   </div>
-
-                  <div className="grid grid-cols-3 gap-2 max-w-md">
-                    <StockMetric label="On hand" value={product.quantityOnHand} />
-                    <StockMetric label="Reserved" value={product.reservedQuantity} tone={product.reservedQuantity > 0 ? "amber" : undefined} />
-                    <StockMetric label="Available" value={product.availableQuantity} tone={product.availableQuantity <= 0 ? "red" : "green"} />
+                  <div className="rounded-lg border bg-muted/20 p-3">
+                    <p className="text-xs font-medium text-muted-foreground">Channels affected</p>
+                    <p className="mt-1 text-sm">{selectedChannelNames.join(", ") || "No supported channel targets"}</p>
                   </div>
-
-                  <div className="text-xs text-muted-foreground">
-                    {product.lastTransactionAt ? (
-                      <>
-                        Last change: {formatDateTime(product.lastTransactionAt)}
-                        {product.lastTransactionNotes ? ` · ${product.lastTransactionNotes}` : ""}
-                      </>
-                    ) : (
-                      "No recent stock transaction found"
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="rounded-lg border bg-blue-50/70 border-blue-100 px-3 py-3">
-                    <p className="text-xs text-blue-700">Set channel stock to</p>
-                    <p className="text-2xl font-bold tabular-nums text-blue-900">{product.availableQuantity}</p>
-                    <p className="text-xs text-blue-700 mt-1">
-                      for {product.mappingCount} mapped listing{product.mappingCount === 1 ? "" : "s"}
-                    </p>
-                  </div>
-                  {mismatchCount > 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      {mismatchCount} listing{mismatchCount === 1 ? "" : "s"} currently differ from SeplorX.
-                    </p>
-                  )}
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="outline">{product.mappingCount} mapped</Badge>
-                    {pendingCount > 0 && <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">{pendingCount} pending</Badge>}
-                    {failedCount > 0 && <Badge variant="destructive">{failedCount} failed</Badge>}
-                    {mismatchCount > 0 && <Badge variant="secondary">{mismatchCount} mismatch</Badge>}
-                  </div>
-
-                  <div className="rounded-lg border bg-background px-3 py-3 text-xs">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <p className="text-muted-foreground">Channels</p>
-                        <p className="font-medium mt-0.5">
-                          {channelPreview}
-                          {hiddenChannelCount > 0 ? ` +${hiddenChannelCount}` : ""}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">Channel stock</p>
-                        <p className="font-medium tabular-nums mt-0.5">{stockRange}</p>
-                      </div>
-                    </div>
-                    {failedCount > 0 && (
-                      <p className="text-red-600 mt-2">Review failed mappings before retrying if this repeats.</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex justify-end items-start gap-2">
+                  <Button
+                    className="w-full gap-2"
+                    disabled={isPending || selectedMappingCount === 0}
+                    onClick={() => requestPush(Array.from(selectedProductIds))}
+                  >
+                    {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="h-4 w-4" />}
+                    Push Selected
+                  </Button>
                   <Button
                     variant="ghost"
-                    size="sm"
-                    onClick={() => openReview(product.id)}
+                    className="w-full"
+                    onClick={() => setSelectedProductIds(new Set())}
+                    disabled={isPending}
                   >
-                    Review
+                    Clear selection
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => requestPush([product.id], false)}
-                    disabled={isPending || !canPushProduct}
-                    className="gap-2"
-                  >
-                    {isPushingProduct ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpFromLine className="h-3.5 w-3.5" />}
-                    Push
-                  </Button>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="space-y-3 p-4">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 rounded-md bg-emerald-50 p-2 text-emerald-700">
+                  <Clock3 className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium">What happens on push</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    SeplorX available stock is sent to every supported mapped listing. Successful mappings leave this queue; failed mappings stay visible with their error.
+                  </p>
                 </div>
               </div>
-            );
-          })}
-        </div>
-        </div>
+            </CardContent>
+          </Card>
+        </aside>
       </div>
 
       <Sheet
@@ -524,7 +645,7 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
           }
         }}
       >
-        <SheetContent side="right" className="sm:max-w-[720px] w-[680px] max-w-full overflow-y-auto">
+        <SheetContent side="right" className="w-[680px] max-w-full overflow-y-auto sm:max-w-[720px]">
           {reviewLoading && (
             <div className="flex h-full items-center justify-center">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -533,9 +654,9 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
           {selectedProduct && !reviewLoading && (
             <>
               <SheetHeader>
-                <SheetTitle className="text-base leading-snug pr-8">{selectedProduct.name}</SheetTitle>
+                <SheetTitle className="pr-8 text-base leading-snug">{selectedProduct.name}</SheetTitle>
                 <SheetDescription>
-                  {selectedProduct.sku ?? "No SKU"} · Push {selectedProduct.availableQuantity} available stock to {selectedProduct.mappingCount} mapped listing{selectedProduct.mappingCount === 1 ? "" : "s"}.
+                  {selectedProduct.sku ?? "No SKU"} - push {selectedProduct.availableQuantity} available stock to {selectedProduct.mappingCount} mapped listing{selectedProduct.mappingCount === 1 ? "" : "s"}.
                 </SheetDescription>
               </SheetHeader>
 
@@ -543,7 +664,7 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                 <div className="grid grid-cols-3 gap-2">
                   <StockMetric label="On hand" value={selectedProduct.quantityOnHand} />
                   <StockMetric label="Reserved" value={selectedProduct.reservedQuantity} tone={selectedProduct.reservedQuantity > 0 ? "amber" : undefined} />
-                  <StockMetric label="Available" value={selectedProduct.availableQuantity} tone={selectedProduct.availableQuantity <= 0 ? "red" : "green"} />
+                  <StockMetric label="Available" value={selectedProduct.availableQuantity} tone={selectedProduct.availableQuantity <= 0 ? "red" : "green"} emphasis />
                 </div>
 
                 <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-3">
@@ -571,7 +692,7 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                   </TabsList>
                 </Tabs>
 
-                <div className="rounded-lg border overflow-hidden">
+                <div className="overflow-hidden rounded-lg border">
                   <div className="grid grid-cols-[1fr_110px_110px] gap-3 bg-muted/40 px-3 py-2 text-xs font-semibold text-muted-foreground">
                     <div>Channel listing</div>
                     <div className="text-right">SeplorX</div>
@@ -587,16 +708,16 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                       <div key={mapping.id} className="grid grid-cols-[1fr_110px_110px] gap-3 px-3 py-3 text-sm">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="font-medium truncate">{mapping.channelName}</span>
+                            <span className="truncate font-medium">{mapping.channelName}</span>
                             <StatusBadge status={mapping.syncStatus} />
                             {!mapping.canPushStock && <Badge variant="outline">Unsupported</Badge>}
                           </div>
-                          <p className="font-mono text-xs text-muted-foreground mt-1 truncate">{mapping.externalProductId}</p>
-                          <p className="text-xs text-blue-600 mt-0.5 truncate">{mapping.label ?? "View channel item"}</p>
-                          {mapping.lastSyncError && <p className="text-xs text-red-600 mt-1">{mapping.lastSyncError}</p>}
+                          <p className="mt-1 truncate font-mono text-xs text-muted-foreground">{mapping.externalProductId}</p>
+                          <p className="mt-0.5 truncate text-xs text-blue-600">{mapping.label ?? "View channel item"}</p>
+                          {mapping.lastSyncError && <p className="mt-1 text-xs text-red-600">{mapping.lastSyncError}</p>}
                         </div>
                         <div className="text-right font-semibold tabular-nums">{selectedProduct.availableQuantity}</div>
-                        <div className="text-right tabular-nums text-muted-foreground">{mapping.channelStock ?? "—"}</div>
+                        <div className="text-right tabular-nums text-muted-foreground">{mapping.channelStock ?? "-"}</div>
                       </div>
                     ))}
                   </div>
@@ -623,21 +744,23 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
             </div>
             <div className="rounded-lg border bg-muted/30 p-3">
               <p className="text-xs font-medium text-muted-foreground">Channels affected</p>
-              <p className="text-sm mt-1">{confirmChannelNames.join(", ") || "No supported channel targets"}</p>
+              <p className="mt-1 text-sm">{confirmChannelNames.join(", ") || "No supported channel targets"}</p>
             </div>
-            <div className="max-h-52 overflow-y-auto rounded-lg border divide-y">
-              {confirmProducts.map((product) => (
-                <div key={product.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                  <div className="min-w-0">
-                    <p className="font-medium truncate">{product.name}</p>
-                    <p className="text-xs text-muted-foreground font-mono">{product.sku ?? "No SKU"}</p>
+            <div className="max-h-52 overflow-y-auto rounded-lg border">
+              <div className="divide-y">
+                {confirmProducts.map((product) => (
+                  <div key={product.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{product.name}</p>
+                      <p className="font-mono text-xs text-muted-foreground">{product.sku ?? "No SKU"}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold tabular-nums">{product.availableQuantity}</p>
+                      <p className="text-xs text-muted-foreground">available</p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-semibold tabular-nums">{product.availableQuantity}</p>
-                    <p className="text-xs text-muted-foreground">available</p>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
           <DialogFooter>
@@ -659,10 +782,12 @@ function StockMetric({
   label,
   value,
   tone,
+  emphasis = false,
 }: {
   label: string;
   value: number;
   tone?: "green" | "amber" | "red";
+  emphasis?: boolean;
 }) {
   const toneClass =
     tone === "green"
@@ -674,23 +799,23 @@ function StockMetric({
           : "text-foreground";
 
   return (
-    <div className="rounded-md border bg-background px-3 py-2">
-      <p className="text-[11px] text-muted-foreground">{label}</p>
-      <p className={`text-base font-semibold tabular-nums ${toneClass}`}>{value}</p>
+    <div className={cn("min-w-0", emphasis && "rounded-md bg-emerald-50 px-2 py-1")}>
+      <p className="truncate text-[11px] text-muted-foreground">{label}</p>
+      <p className={cn("text-base font-semibold tabular-nums", toneClass)}>{value}</p>
     </div>
   );
 }
 
-function SummaryMetric({
+function CommandMetric({
   icon: Icon,
   label,
   value,
-  tone,
+  tone = "default",
 }: {
   icon: LucideIcon;
   label: string;
   value: number;
-  tone: "default" | "amber" | "green" | "red";
+  tone?: "default" | "amber" | "green" | "red";
 }) {
   const toneClass =
     tone === "amber"
@@ -702,12 +827,40 @@ function SummaryMetric({
           : "text-foreground bg-background border-border";
 
   return (
-    <div className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${toneClass}`}>
-      <Icon className="h-4 w-4 shrink-0" />
-      <div>
-        <p className="text-xl font-bold leading-none tabular-nums">{value}</p>
-        <p className="text-xs mt-1 opacity-80">{label}</p>
+    <div className={cn("rounded-lg border px-3 py-3", toneClass)}>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-medium opacity-80">{label}</p>
+        <Icon className="h-4 w-4 shrink-0 opacity-70" />
       </div>
+      <p className="mt-2 text-2xl font-semibold leading-none tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function ImpactRow({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number | string;
+  tone?: "amber" | "red";
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={cn("font-semibold tabular-nums", tone === "amber" && "text-amber-700", tone === "red" && "text-red-700")}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function PlanMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border bg-background px-3 py-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-xl font-semibold tabular-nums">{value}</p>
     </div>
   );
 }
@@ -741,14 +894,47 @@ function StatusBadge({ status }: { status: string }) {
   };
 
   return (
-    <span className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium capitalize ${ui.className}`}>
+    <span className={cn("inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium capitalize", ui.className)}>
       {ui.label}
     </span>
   );
 }
 
+function getPriority(product: SyncProduct) {
+  if (product.failedCount > 0) {
+    return {
+      label: "Fix first",
+      className: "border-red-200 bg-red-50 text-red-700",
+    };
+  }
+
+  if (product.mismatchCount > 0) {
+    return {
+      label: "Stock differs",
+      className: "border-amber-200 bg-amber-50 text-amber-700",
+    };
+  }
+
+  return {
+    label: "Ready",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  };
+}
+
+function getPriorityScore(product: SyncProduct) {
+  return product.failedCount * 100000 + product.mismatchCount * 1000 + product.pendingCount;
+}
+
+function getImpactText(product: SyncProduct) {
+  const listingText = `${product.mappingCount} listing${product.mappingCount === 1 ? "" : "s"}`;
+  if (product.mismatchCount > 0) {
+    return `${product.mismatchCount} of ${listingText} currently differ from SeplorX.`;
+  }
+  return `${listingText} will receive the same available quantity.`;
+}
+
 function getStockRangeLabel(min: number | null, max: number | null) {
-  if (min === null || max === null) return "—";
+  if (min === null || max === null) return "-";
   return min === max ? String(min) : `${min}-${max}`;
 }
 
