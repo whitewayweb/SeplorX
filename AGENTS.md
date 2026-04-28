@@ -5,11 +5,32 @@ The `.agent/` directory contains broader Claude/ECC-oriented rules, skills, and 
 
 ## Working Style
 
-- Match existing project patterns before adding new abstractions.
+- Read existing patterns before editing.
+- Prefer current app architecture, shadcn components, data-access helpers, and server actions.
 - Keep changes scoped to the user's request.
 - Avoid unrelated refactors, formatting churn, or generated-file edits.
 - Prefer simple, readable implementations over clever or speculative designs.
 - Add comments only when they explain non-obvious intent or constraints.
+
+## Product and Data Flow
+
+- Implement end-to-end when changing product behavior: data query, auth and ownership checks, UI state, empty/error/loading states, and verification.
+- Use source-of-truth data directly.
+- Avoid proxy counts or duplicated business logic when a direct query or service exists.
+- For bulk or admin actions, show clear scope, confirmation, partial success/failure feedback, and refresh affected routes.
+
+## Performance
+
+- Treat performance as required from day one.
+- Aggregate, filter, and paginate on the server.
+- Avoid loading large child collections into initial pages.
+- Fetch details on demand when the full dataset is not required immediately.
+
+## SSR and Hydration
+
+- Keep SSR hydration safe.
+- Do not render `Date.now()`, `Math.random()`, browser-only values, or locale-dependent `toLocaleString()` output during SSR.
+- Use deterministic formatting with fixed locale and timezone, or move truly client-only values behind a client boundary.
 
 ## TypeScript and JavaScript
 
@@ -37,4 +58,3 @@ The `.agent/` directory contains broader Claude/ECC-oriented rules, skills, and 
 - Run the most relevant lint, typecheck, test, or build command before finalizing when practical.
 - If a check cannot be run, explain why in the final response.
 - Add or update tests when changing behavior with meaningful regression risk.
-

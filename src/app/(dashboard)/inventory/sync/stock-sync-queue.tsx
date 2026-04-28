@@ -4,11 +4,19 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowUpFromLine, ExternalLink, Loader2, Search } from "lucide-react";
+import { AlertTriangle, ArrowUpFromLine, CheckCircle2, ExternalLink, Loader2, PackageCheck, Search, type LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -25,7 +33,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { pushSelectedProductStock } from "./actions";
+import { getStockSyncProductDetails, pushSelectedProductStock } from "./actions";
 
 interface SyncMapping {
   id: number;
@@ -45,8 +53,19 @@ interface SyncProduct {
   quantityOnHand: number;
   reservedQuantity: number;
   availableQuantity: number;
+  mappingCount: number;
+  pendingCount: number;
+  failedCount: number;
+  unknownStockCount: number;
+  mismatchCount: number;
+  channelStockMin: number | null;
+  channelStockMax: number | null;
+  channelNames: string[];
   lastTransactionAt: Date | string | null;
   lastTransactionNotes: string | null;
+}
+
+interface SyncProductDetail extends SyncProduct {
   mappings: SyncMapping[];
 }
 
@@ -82,13 +101,17 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
   const [selectedProductIds, setSelectedProductIds] = useState<Set<number>>(new Set());
   const [pushingIds, setPushingIds] = useState<Set<number>>(new Set());
   const [reviewProductId, setReviewProductId] = useState<number | null>(null);
+  const [reviewProduct, setReviewProduct] = useState<SyncProductDetail | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [confirmProductIds, setConfirmProductIds] = useState<number[] | null>(null);
+  const [reviewTab, setReviewTab] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [channelFilter, setChannelFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [isPending, startTransition] = useTransition();
 
   const channelOptions = useMemo(() => {
-    return Array.from(new Set(products.flatMap((p) => p.mappings.map((m) => m.channelName)))).sort((a, b) =>
+    return Array.from(new Set(products.flatMap((p) => p.channelNames))).sort((a, b) =>
       a.localeCompare(b),
     );
   }, [products]);
@@ -101,34 +124,74 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
         !normalizedQuery ||
         product.name.toLowerCase().includes(normalizedQuery) ||
         (product.sku ?? "").toLowerCase().includes(normalizedQuery) ||
-        product.mappings.some((mapping) =>
-          [mapping.channelName, mapping.externalProductId, mapping.label ?? ""].some((value) =>
-            value.toLowerCase().includes(normalizedQuery),
-          ),
-        );
+        product.channelNames.some((channelName) => channelName.toLowerCase().includes(normalizedQuery));
 
       const matchesChannel =
-        channelFilter === "all" || product.mappings.some((mapping) => mapping.channelName === channelFilter);
+        channelFilter === "all" || product.channelNames.includes(channelFilter);
 
       const matchesStatus =
         statusFilter === "all" ||
-        (statusFilter === "pending" && product.mappings.some((mapping) => mapping.syncStatus === "pending_update")) ||
-        (statusFilter === "failed" && product.mappings.some((mapping) => mapping.syncStatus === "failed")) ||
-        (statusFilter === "mismatch" && product.mappings.some((mapping) => mapping.channelStock !== null && mapping.channelStock !== product.availableQuantity));
+        (statusFilter === "pending" && product.pendingCount > 0) ||
+        (statusFilter === "failed" && product.failedCount > 0) ||
+        (statusFilter === "mismatch" && product.mismatchCount > 0);
 
       return matchesSearch && matchesChannel && matchesStatus;
     });
   }, [channelFilter, products, searchQuery, statusFilter]);
 
   const actionableProductIds = useMemo(
-    () => filteredProducts.filter((p) => p.mappings.some((m) => m.canPushStock)).map((p) => p.id),
+    () => filteredProducts.filter((p) => p.mappingCount > 0).map((p) => p.id),
     [filteredProducts],
   );
 
   const allSelected = actionableProductIds.length > 0 && actionableProductIds.every((id) => selectedProductIds.has(id));
   const someSelected = selectedProductIds.size > 0 && !allSelected;
-  const filteredMappingCount = filteredProducts.reduce((total, product) => total + product.mappings.length, 0);
-  const selectedProduct = products.find((product) => product.id === reviewProductId) ?? null;
+  const filteredMappingCount = filteredProducts.reduce((total, product) => total + product.mappingCount, 0);
+  const selectedProduct = reviewProduct;
+  const totalPendingMappings = products.reduce((total, product) => total + product.pendingCount, 0);
+  const totalFailedMappings = products.reduce((total, product) => total + product.failedCount, 0);
+  const totalSupportedMappings = products.reduce((total, product) => total + product.mappingCount, 0);
+  const totalMismatchMappings = products.reduce((total, product) => total + product.mismatchCount, 0);
+  const confirmProducts = confirmProductIds ? products.filter((product) => confirmProductIds.includes(product.id)) : [];
+  const confirmMappingCount = confirmProducts.reduce((total, product) => total + product.mappingCount, 0);
+  const confirmChannelNames = Array.from(new Set(confirmProducts.flatMap((product) => product.channelNames))).sort();
+  const reviewMappings = selectedProduct
+    ? selectedProduct.mappings.filter((mapping) => {
+      if (reviewTab === "mismatch") return mapping.channelStock !== null && mapping.channelStock !== selectedProduct.availableQuantity;
+      if (reviewTab === "failed") return mapping.syncStatus === "failed";
+      if (reviewTab === "unknown") return mapping.channelStock === null;
+      return true;
+    })
+    : [];
+
+  async function openReview(productId: number) {
+    setReviewProductId(productId);
+    setReviewProduct(null);
+    setReviewLoading(true);
+    const result = await getStockSyncProductDetails(productId);
+    setReviewLoading(false);
+
+    if (result.error) {
+      toast.error("Could not load mappings", { description: result.error });
+      setReviewProductId(null);
+      return;
+    }
+
+    if ("success" in result && result.success) {
+      const product = result.product;
+      setReviewProduct({
+        ...product,
+        mappingCount: product.mappings.length,
+        pendingCount: product.mappings.filter((mapping) => mapping.syncStatus === "pending_update").length,
+        failedCount: product.mappings.filter((mapping) => mapping.syncStatus === "failed").length,
+        unknownStockCount: product.mappings.filter((mapping) => mapping.channelStock === null).length,
+        mismatchCount: product.mappings.filter((mapping) => mapping.channelStock !== null && mapping.channelStock !== product.availableQuantity).length,
+        channelStockMin: getMinChannelStock(product.mappings),
+        channelStockMax: getMaxChannelStock(product.mappings),
+        channelNames: Array.from(new Set(product.mappings.map((mapping) => mapping.channelName))).sort(),
+      });
+    }
+  }
 
   function toggleAll(checked: boolean | "indeterminate") {
     if (checked === true) {
@@ -145,6 +208,19 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
       else next.delete(productId);
       return next;
     });
+  }
+
+  function requestPush(productIds: number[], confirm = true) {
+    const uniqueProductIds = Array.from(new Set(productIds));
+    if (uniqueProductIds.length === 0) {
+      toast.info("Select at least one product with a supported channel mapping.");
+      return;
+    }
+    if (confirm && uniqueProductIds.length > 1) {
+      setConfirmProductIds(uniqueProductIds);
+      return;
+    }
+    pushProducts(uniqueProductIds);
   }
 
   function pushProducts(productIds: number[]) {
@@ -183,6 +259,7 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
       }
 
       setSelectedProductIds(new Set());
+      setConfirmProductIds(null);
       router.refresh();
     });
   }
@@ -205,34 +282,52 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
 
   return (
     <div className="space-y-4">
+      <Card className="overflow-hidden">
+        <CardContent className="p-0">
+          <div className="flex flex-col gap-4 border-l-4 border-l-blue-500 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap items-center gap-5">
+              <SummaryMetric icon={PackageCheck} label="Products" value={products.length} tone="default" />
+              <SummaryMetric icon={AlertTriangle} label="Listings to update" value={totalPendingMappings} tone="amber" />
+              <SummaryMetric icon={CheckCircle2} label="Push targets" value={totalSupportedMappings} tone="green" />
+              {totalMismatchMappings > 0 && <SummaryMetric icon={AlertTriangle} label="Mismatches" value={totalMismatchMappings} tone="red" />}
+            </div>
+            <div className="flex items-center gap-2">
+              {selectedProductIds.size > 0 && (
+                <Button
+                  variant="outline"
+                  onClick={() => requestPush(Array.from(selectedProductIds))}
+                  disabled={isPending}
+                  className="gap-2"
+                >
+                  {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="h-4 w-4" />}
+                  Push Selected ({selectedProductIds.size})
+                </Button>
+              )}
+              <Button
+                onClick={() => requestPush(actionableProductIds)}
+                disabled={isPending || actionableProductIds.length === 0}
+                className="gap-2"
+              >
+                {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="h-4 w-4" />}
+                Push All
+              </Button>
+            </div>
+          </div>
+          {totalFailedMappings > 0 && (
+            <div className="border-t bg-red-50 px-5 py-2 text-sm text-red-700">
+              {totalFailedMappings} mapping{totalFailedMappings === 1 ? "" : "s"} failed last push. Review failures before retrying if they repeat.
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-4">
+        <CardHeader>
           <div>
             <CardTitle className="text-lg">Products Requiring Stock Push</CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
               {filteredProducts.length} product{filteredProducts.length === 1 ? "" : "s"} shown · {filteredMappingCount} mapped listing{filteredMappingCount === 1 ? "" : "s"}.
             </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {selectedProductIds.size > 0 && (
-              <Button
-                variant="outline"
-                onClick={() => pushProducts(Array.from(selectedProductIds))}
-                disabled={isPending}
-                className="gap-2"
-              >
-                {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="h-4 w-4" />}
-                Push Selected ({selectedProductIds.size})
-              </Button>
-            )}
-            <Button
-              onClick={() => pushProducts(actionableProductIds)}
-              disabled={isPending || actionableProductIds.length === 0}
-              className="gap-2"
-            >
-              {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="h-4 w-4" />}
-              Push All Pending Stock
-            </Button>
           </div>
         </CardHeader>
         <CardContent className="pt-0">
@@ -299,19 +394,15 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
           )}
 
           {filteredProducts.map((product) => {
-            const canPushProduct = product.mappings.some((m) => m.canPushStock);
+            const canPushProduct = product.mappingCount > 0;
             const isPushingProduct = pushingIds.has(product.id);
-            const pendingCount = product.mappings.filter((m) => m.syncStatus === "pending_update").length;
-            const failedCount = product.mappings.filter((m) => m.syncStatus === "failed").length;
-            const mismatchCount = product.mappings.filter((m) => m.channelStock !== null && m.channelStock !== product.availableQuantity).length;
-            const channelNames = Array.from(new Set(product.mappings.map((m) => m.channelName)));
+            const pendingCount = product.pendingCount;
+            const failedCount = product.failedCount;
+            const mismatchCount = product.mismatchCount;
+            const channelNames = product.channelNames;
             const channelPreview = channelNames.slice(0, 2).join(", ");
             const hiddenChannelCount = Math.max(0, channelNames.length - 2);
-            const channelStockSamples = product.mappings
-              .filter((m) => m.channelStock !== null)
-              .slice(0, 3)
-              .map((m) => m.channelStock);
-            const stockRange = getStockRangeLabel(channelStockSamples);
+            const stockRange = getStockRangeLabel(product.channelStockMin, product.channelStockMax);
 
             return (
               <div key={product.id} className="grid grid-cols-[44px_minmax(320px,1.2fr)_minmax(240px,0.8fr)_minmax(260px,1fr)_180px] gap-4 px-4 py-4 hover:bg-muted/20">
@@ -346,7 +437,7 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                   <div className="text-xs text-muted-foreground">
                     {product.lastTransactionAt ? (
                       <>
-                        Last change: {new Date(product.lastTransactionAt).toLocaleString()}
+                        Last change: {formatDateTime(product.lastTransactionAt)}
                         {product.lastTransactionNotes ? ` · ${product.lastTransactionNotes}` : ""}
                       </>
                     ) : (
@@ -360,7 +451,7 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                     <p className="text-xs text-blue-700">Set channel stock to</p>
                     <p className="text-2xl font-bold tabular-nums text-blue-900">{product.availableQuantity}</p>
                     <p className="text-xs text-blue-700 mt-1">
-                      for {product.mappings.length} mapped listing{product.mappings.length === 1 ? "" : "s"}
+                      for {product.mappingCount} mapped listing{product.mappingCount === 1 ? "" : "s"}
                     </p>
                   </div>
                   {mismatchCount > 0 && (
@@ -372,7 +463,7 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
 
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="outline">{product.mappings.length} mapped</Badge>
+                    <Badge variant="outline">{product.mappingCount} mapped</Badge>
                     {pendingCount > 0 && <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">{pendingCount} pending</Badge>}
                     {failedCount > 0 && <Badge variant="destructive">{failedCount} failed</Badge>}
                     {mismatchCount > 0 && <Badge variant="secondary">{mismatchCount} mismatch</Badge>}
@@ -402,14 +493,14 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => setReviewProductId(product.id)}
+                    onClick={() => openReview(product.id)}
                   >
                     Review
                   </Button>
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => pushProducts([product.id])}
+                    onClick={() => requestPush([product.id], false)}
                     disabled={isPending || !canPushProduct}
                     className="gap-2"
                   >
@@ -424,14 +515,27 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
         </div>
       </div>
 
-      <Sheet open={!!selectedProduct} onOpenChange={(open) => !open && setReviewProductId(null)}>
+      <Sheet
+        open={reviewProductId !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setReviewProductId(null);
+            setReviewProduct(null);
+          }
+        }}
+      >
         <SheetContent side="right" className="sm:max-w-[720px] w-[680px] max-w-full overflow-y-auto">
-          {selectedProduct && (
+          {reviewLoading && (
+            <div className="flex h-full items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          )}
+          {selectedProduct && !reviewLoading && (
             <>
               <SheetHeader>
                 <SheetTitle className="text-base leading-snug pr-8">{selectedProduct.name}</SheetTitle>
                 <SheetDescription>
-                  {selectedProduct.sku ?? "No SKU"} · Push {selectedProduct.availableQuantity} available stock to {selectedProduct.mappings.length} mapped listing{selectedProduct.mappings.length === 1 ? "" : "s"}.
+                  {selectedProduct.sku ?? "No SKU"} · Push {selectedProduct.availableQuantity} available stock to {selectedProduct.mappingCount} mapped listing{selectedProduct.mappingCount === 1 ? "" : "s"}.
                 </SheetDescription>
               </SheetHeader>
 
@@ -449,14 +553,23 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                   </div>
                   <Button
                     size="sm"
-                    disabled={isPending || !selectedProduct.mappings.some((m) => m.canPushStock)}
-                    onClick={() => pushProducts([selectedProduct.id])}
+                    disabled={isPending || selectedProduct.mappingCount === 0}
+                    onClick={() => requestPush([selectedProduct.id], false)}
                     className="gap-2"
                   >
                     <ArrowUpFromLine className="h-3.5 w-3.5" />
                     Push {selectedProduct.availableQuantity}
                   </Button>
                 </div>
+
+                <Tabs value={reviewTab} onValueChange={setReviewTab}>
+                  <TabsList>
+                    <TabsTrigger value="all">All</TabsTrigger>
+                    <TabsTrigger value="mismatch">Mismatches</TabsTrigger>
+                    <TabsTrigger value="failed">Failed</TabsTrigger>
+                    <TabsTrigger value="unknown">Unknown stock</TabsTrigger>
+                  </TabsList>
+                </Tabs>
 
                 <div className="rounded-lg border overflow-hidden">
                   <div className="grid grid-cols-[1fr_110px_110px] gap-3 bg-muted/40 px-3 py-2 text-xs font-semibold text-muted-foreground">
@@ -465,7 +578,12 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                     <div className="text-right">Channel</div>
                   </div>
                   <div className="divide-y">
-                    {selectedProduct.mappings.map((mapping) => (
+                    {reviewMappings.length === 0 && (
+                      <div className="px-3 py-10 text-center text-sm text-muted-foreground">
+                        No mappings match this review filter.
+                      </div>
+                    )}
+                    {reviewMappings.map((mapping) => (
                       <div key={mapping.id} className="grid grid-cols-[1fr_110px_110px] gap-3 px-3 py-3 text-sm">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
@@ -488,6 +606,51 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
           )}
         </SheetContent>
       </Sheet>
+
+      <Dialog open={!!confirmProductIds} onOpenChange={(open) => !open && setConfirmProductIds(null)}>
+        <DialogContent className="sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle>Push stock to channel listings?</DialogTitle>
+            <DialogDescription>
+              This will update every supported mapped listing for the selected SeplorX products.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-2">
+              <DialogMetric label="Products" value={confirmProducts.length} />
+              <DialogMetric label="Listings" value={confirmMappingCount} />
+              <DialogMetric label="Channels" value={confirmChannelNames.length} />
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs font-medium text-muted-foreground">Channels affected</p>
+              <p className="text-sm mt-1">{confirmChannelNames.join(", ") || "No supported channel targets"}</p>
+            </div>
+            <div className="max-h-52 overflow-y-auto rounded-lg border divide-y">
+              {confirmProducts.map((product) => (
+                <div key={product.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{product.name}</p>
+                    <p className="text-xs text-muted-foreground font-mono">{product.sku ?? "No SKU"}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold tabular-nums">{product.availableQuantity}</p>
+                    <p className="text-xs text-muted-foreground">available</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmProductIds(null)} disabled={isPending}>
+              Cancel
+            </Button>
+            <Button onClick={() => confirmProductIds && pushProducts(confirmProductIds)} disabled={isPending || confirmMappingCount === 0} className="gap-2">
+              {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="h-4 w-4" />}
+              Push {confirmMappingCount} listings
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -518,6 +681,59 @@ function StockMetric({
   );
 }
 
+function SummaryMetric({
+  icon: Icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: number;
+  tone: "default" | "amber" | "green" | "red";
+}) {
+  const toneClass =
+    tone === "amber"
+      ? "text-amber-700 bg-amber-50 border-amber-100"
+      : tone === "green"
+        ? "text-emerald-700 bg-emerald-50 border-emerald-100"
+        : tone === "red"
+          ? "text-red-700 bg-red-50 border-red-100"
+          : "text-foreground bg-background border-border";
+
+  return (
+    <div className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${toneClass}`}>
+      <Icon className="h-4 w-4 shrink-0" />
+      <div>
+        <p className="text-xl font-bold leading-none tabular-nums">{value}</p>
+        <p className="text-xs mt-1 opacity-80">{label}</p>
+      </div>
+    </div>
+  );
+}
+
+function DialogMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border bg-background px-3 py-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-xl font-semibold tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function formatDateTime(value: Date | string) {
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZone: "UTC",
+  }).format(new Date(value));
+}
+
 function StatusBadge({ status }: { status: string }) {
   const ui = STATUS_UI[status] ?? {
     label: status.replace(/_/g, " "),
@@ -531,10 +747,21 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function getStockRangeLabel(values: (number | null)[]) {
-  const numbers = values.filter((value): value is number => typeof value === "number");
-  if (numbers.length === 0) return "—";
-  const min = Math.min(...numbers);
-  const max = Math.max(...numbers);
+function getStockRangeLabel(min: number | null, max: number | null) {
+  if (min === null || max === null) return "—";
   return min === max ? String(min) : `${min}-${max}`;
+}
+
+function getMinChannelStock(mappings: SyncMapping[]) {
+  const values = mappings
+    .map((mapping) => mapping.channelStock)
+    .filter((value): value is number => typeof value === "number");
+  return values.length === 0 ? null : Math.min(...values);
+}
+
+function getMaxChannelStock(mappings: SyncMapping[]) {
+  const values = mappings
+    .map((mapping) => mapping.channelStock)
+    .filter((value): value is number => typeof value === "number");
+  return values.length === 0 ? null : Math.max(...values);
 }

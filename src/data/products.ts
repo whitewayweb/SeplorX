@@ -82,7 +82,111 @@ export interface PendingStockSyncProduct {
   mappings: PendingStockSyncMapping[];
 }
 
-export async function getPendingStockSyncProducts(userId: number, tx: QueryClient = db): Promise<PendingStockSyncProduct[]> {
+export interface PendingStockSyncProductSummary {
+  id: number;
+  name: string;
+  sku: string | null;
+  quantityOnHand: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+  reorderLevel: number;
+  lastTransactionAt: Date | null;
+  lastTransactionNotes: string | null;
+  mappingCount: number;
+  pendingCount: number;
+  failedCount: number;
+  unknownStockCount: number;
+  mismatchCount: number;
+  channelStockMin: number | null;
+  channelStockMax: number | null;
+  channelNames: string[];
+}
+
+export async function getPendingStockSyncProductSummaries(userId: number, tx: QueryClient = db): Promise<PendingStockSyncProductSummary[]> {
+  const rows = await tx
+    .select({
+      productId: products.id,
+      productName: products.name,
+      sku: products.sku,
+      quantityOnHand: products.quantityOnHand,
+      reservedQuantity: products.reservedQuantity,
+      reorderLevel: products.reorderLevel,
+      mappingCount: sql<number>`COUNT(${channelProductMappings.id})::int`,
+      pendingCount: sql<number>`COUNT(${channelProductMappings.id}) FILTER (WHERE ${channelProductMappings.syncStatus} = 'pending_update')::int`,
+      failedCount: sql<number>`COUNT(${channelProductMappings.id}) FILTER (WHERE ${channelProductMappings.syncStatus} = 'failed')::int`,
+      unknownStockCount: sql<number>`COUNT(${channelProductMappings.id}) FILTER (WHERE ${channelProducts.stockQuantity} IS NULL)::int`,
+      mismatchCount: sql<number>`COUNT(${channelProductMappings.id}) FILTER (
+        WHERE ${channelProducts.stockQuantity} IS NOT NULL 
+        AND ${channelProducts.stockQuantity} != GREATEST(0, ${products.quantityOnHand} - ${products.reservedQuantity})
+      )::int`,
+      channelStockMin: sql<number | null>`MIN(${channelProducts.stockQuantity})`,
+      channelStockMax: sql<number | null>`MAX(${channelProducts.stockQuantity})`,
+      channelNames: sql<string[]>`COALESCE(array_agg(DISTINCT ${channels.name} ORDER BY ${channels.name}), ARRAY[]::text[])`,
+      lastTransactionAt: sql<Date | null>`(
+        SELECT ${inventoryTransactions.createdAt}
+        FROM ${inventoryTransactions}
+        WHERE ${inventoryTransactions.productId} = ${products.id}
+        ORDER BY ${inventoryTransactions.createdAt} DESC
+        LIMIT 1
+      )`,
+      lastTransactionNotes: sql<string | null>`(
+        SELECT ${inventoryTransactions.notes}
+        FROM ${inventoryTransactions}
+        WHERE ${inventoryTransactions.productId} = ${products.id}
+        ORDER BY ${inventoryTransactions.createdAt} DESC
+        LIMIT 1
+      )`,
+    })
+    .from(channelProductMappings)
+    .innerJoin(products, eq(channelProductMappings.productId, products.id))
+    .innerJoin(channels, eq(channelProductMappings.channelId, channels.id))
+    .leftJoin(
+      channelProducts,
+      and(
+        eq(channelProductMappings.channelId, channelProducts.channelId),
+        eq(channelProductMappings.externalProductId, channelProducts.externalId),
+      ),
+    )
+    .where(
+      and(
+        eq(channels.userId, userId),
+        eq(channels.status, "connected"),
+        ne(channelProductMappings.syncStatus, "in_sync"),
+      ),
+    )
+    .groupBy(
+      products.id,
+      products.name,
+      products.sku,
+      products.quantityOnHand,
+      products.reservedQuantity,
+      products.reorderLevel,
+      products.updatedAt,
+    )
+    .orderBy(desc(products.updatedAt), products.name);
+
+  return rows.map((row) => ({
+    id: row.productId,
+    name: row.productName,
+    sku: row.sku,
+    quantityOnHand: row.quantityOnHand,
+    reservedQuantity: row.reservedQuantity,
+    availableQuantity: Math.max(0, row.quantityOnHand - row.reservedQuantity),
+    reorderLevel: row.reorderLevel,
+    lastTransactionAt: row.lastTransactionAt,
+    lastTransactionNotes: row.lastTransactionNotes,
+    mappingCount: row.mappingCount,
+    pendingCount: row.pendingCount,
+    failedCount: row.failedCount,
+    unknownStockCount: row.unknownStockCount,
+    mismatchCount: row.mismatchCount,
+    channelStockMin: row.channelStockMin,
+    channelStockMax: row.channelStockMax,
+    channelNames: row.channelNames ?? [],
+  }));
+}
+
+export async function getPendingStockSyncProductDetails(userId: number, productId: number, tx: QueryClient = db): Promise<PendingStockSyncProduct | null> {
   const rows = await tx
     .select({
       productId: products.id,
@@ -129,6 +233,7 @@ export async function getPendingStockSyncProducts(userId: number, tx: QueryClien
       and(
         eq(channels.userId, userId),
         eq(channels.status, "connected"),
+        eq(channelProductMappings.productId, productId),
         ne(channelProductMappings.syncStatus, "in_sync"),
       ),
     )
@@ -168,7 +273,7 @@ export async function getPendingStockSyncProducts(userId: number, tx: QueryClien
     });
   }
 
-  return Array.from(grouped.values());
+  return Array.from(grouped.values())[0] ?? null;
 }
 
 export async function getPendingStockSyncProductCount(userId: number, tx: QueryClient = db): Promise<number> {
