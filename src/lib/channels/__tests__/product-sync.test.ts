@@ -11,6 +11,7 @@ function createChainMock(resolvedValue: unknown = []) {
     "returning",
     "orderBy",
     "onConflictDoNothing",
+    "onConflictDoUpdate",
   ];
   for (const method of methods) {
     chain[method] = vi.fn().mockReturnValue(chain);
@@ -219,7 +220,7 @@ describe("channel product sync jobs", () => {
     expect(amazonClientMock.downloadAndParseListingsReport).not.toHaveBeenCalled();
   });
 
-  it("imports a completed Amazon report and records product sync items", async () => {
+  it("stages a completed Amazon report without importing all products in one poll", async () => {
     const reportProducts = [
       { id: "B001", name: "New Amazon Product", sku: "SKU-1", stockQuantity: 4, rawPayload: { "seller-sku": "SKU-1" } },
     ];
@@ -251,6 +252,71 @@ describe("channel product sync jobs", () => {
       [{
         id: 3,
         channelId: 1,
+        status: "importing",
+        phase: "importing",
+        reportId: "REPORT-1",
+        reportDocumentId: "DOC-1",
+        totalCount: 1,
+        importedCount: 0,
+        enrichedCount: 0,
+        failedCount: 0,
+        skippedCount: 0,
+        errorMessage: null,
+        createdAt: new Date("2026-04-29T00:00:00Z"),
+        updatedAt: new Date("2026-04-29T00:00:00Z"),
+        completedAt: null,
+      }],
+      [],
+    ]);
+
+    const result = await processChannelProductSyncJobService(1, 3);
+
+    expect(result.status).toBe("importing");
+    expect(amazonClientMock.downloadAndParseListingsReport).toHaveBeenCalledWith("DOC-1");
+    expect(db.insert).toHaveBeenCalled();
+    expect(upsertChannelProducts).not.toHaveBeenCalled();
+    expect(amazonClientMock.enrichProducts).not.toHaveBeenCalled();
+  });
+
+  it("imports one bounded batch of staged Amazon report items", async () => {
+    const rawData = {
+      id: "B001",
+      name: "New Amazon Product",
+      sku: "SKU-1",
+      stockQuantity: 4,
+      rawPayload: { "seller-sku": "SKU-1" },
+    };
+    (db.update as ReturnType<typeof vi.fn>).mockReturnValue(createChainMock());
+    (db.execute as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: 41, externalId: "B001", sku: "SKU-1", rawData },
+    ]);
+    mockSelectSequence([
+      [{
+        id: 3,
+        channelId: 1,
+        status: "importing",
+        phase: "importing",
+        reportId: "REPORT-1",
+        reportDocumentId: "DOC-1",
+        importedCount: 0,
+      }],
+      [{
+        id: 1,
+        userId: 1,
+        channelType: "amazon",
+        storeUrl: "https://sellingpartnerapi-eu.amazon.com",
+        credentials: {},
+        status: "connected",
+      }],
+      [{
+        totalCount: 1,
+        importedCount: 1,
+        failedCount: 0,
+        pendingCount: 0,
+      }],
+      [{
+        id: 3,
+        channelId: 1,
         status: "done",
         phase: "done",
         reportId: "REPORT-1",
@@ -271,7 +337,6 @@ describe("channel product sync jobs", () => {
     const result = await processChannelProductSyncJobService(1, 3);
 
     expect(result.status).toBe("done");
-    expect(amazonClientMock.downloadAndParseListingsReport).toHaveBeenCalledWith("DOC-1");
     expect(upsertChannelProducts).toHaveBeenCalledWith([
       expect.objectContaining({
         channelId: 1,

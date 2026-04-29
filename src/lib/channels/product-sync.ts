@@ -4,7 +4,7 @@ import {
   channelProductSyncJobs,
   channels,
 } from "@/db/schema";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
 import { upsertChannelProducts } from "@/lib/channels/queries";
@@ -12,6 +12,8 @@ import type { ExternalProduct } from "@/lib/channels/types";
 import { AmazonAPIClient } from "@/lib/channels/amazon/api/client";
 
 const ACTIVE_JOB_STATUSES = ["queued", "waiting_report", "importing", "enriching"] as const;
+const REPORT_ITEM_INSERT_BATCH_SIZE = 500;
+const PRODUCT_IMPORT_BATCH_SIZE = 100;
 
 type ChannelProductSyncContext = {
   id: number;
@@ -238,14 +240,18 @@ async function processAmazonProductSyncJob(
     reportDocumentId = reportStatus.reportDocumentId;
   }
 
-  if (job.phase === "waiting_report" || job.phase === "importing") {
-    await importAmazonReportProducts(job.id, job.channelId, client, reportDocumentId);
+  if (job.phase === "waiting_report") {
+    await stageAmazonReportProducts(job.id, client, reportDocumentId);
+    return;
+  }
+
+  if (job.phase === "importing") {
+    await importStagedProductBatch(job.id, job.channelId);
   }
 }
 
-async function importAmazonReportProducts(
+async function stageAmazonReportProducts(
   jobId: number,
-  channelId: number,
   client: AmazonAPIClient,
   reportDocumentId: string,
 ) {
@@ -260,18 +266,15 @@ async function importAmazonReportProducts(
     .where(eq(channelProductSyncJobs.id, jobId));
 
   const externalProducts = await client.downloadAndParseListingsReport(reportDocumentId);
-  await persistExternalProducts(channelId, externalProducts);
+  await persistReportItems(jobId, externalProducts);
 
   await db
     .update(channelProductSyncJobs)
     .set({
-      status: "done",
-      phase: "done",
+      status: "importing",
+      phase: "importing",
       totalCount: externalProducts.length,
-      importedCount: externalProducts.length,
-      enrichedCount: externalProducts.length,
       updatedAt: new Date(),
-      completedAt: new Date(),
     })
     .where(eq(channelProductSyncJobs.id, jobId));
 }
@@ -339,6 +342,217 @@ async function persistExternalProducts(channelId: number, externalProducts: Exte
 
     await upsertChannelProducts(batch);
   }
+}
+
+async function persistReportItems(jobId: number, externalProducts: ExternalProduct[]) {
+  if (externalProducts.length === 0) return;
+
+  const now = new Date();
+  for (let i = 0; i < externalProducts.length; i += REPORT_ITEM_INSERT_BATCH_SIZE) {
+    const batch = externalProducts.slice(i, i + REPORT_ITEM_INSERT_BATCH_SIZE);
+
+    await db
+      .insert(channelProductSyncJobItems)
+      .values(
+        batch.map((product) => ({
+          jobId,
+          externalId: product.id,
+          sku: product.sku ?? null,
+          rawData: product,
+          status: "pending",
+          errorMessage: null,
+          updatedAt: now,
+        })),
+      )
+      .onConflictDoUpdate({
+        target: [
+          channelProductSyncJobItems.jobId,
+          channelProductSyncJobItems.externalId,
+        ],
+        set: {
+          sku: sql`EXCLUDED.sku`,
+          rawData: sql`EXCLUDED.raw_data`,
+          status: "pending",
+          errorMessage: null,
+          startedAt: null,
+          completedAt: null,
+          updatedAt: now,
+        },
+      });
+  }
+}
+
+async function importStagedProductBatch(jobId: number, channelId: number) {
+  const items = await claimPendingProductSyncItems(jobId, PRODUCT_IMPORT_BATCH_SIZE);
+
+  if (items.length === 0) {
+    await refreshProductSyncJobCounts(jobId);
+    return;
+  }
+
+  const productItems: Array<{ itemId: number; product: ExternalProduct }> = [];
+  const invalidItems: Array<{ itemId: number; error: string }> = [];
+
+  for (const item of items) {
+    const product = parseStagedExternalProduct(item.rawData, item.externalId, item.sku);
+    if (product) {
+      productItems.push({ itemId: item.id, product });
+    } else {
+      invalidItems.push({ itemId: item.id, error: "Invalid report product payload." });
+    }
+  }
+
+  if (productItems.length > 0) {
+    try {
+      await persistExternalProducts(channelId, productItems.map(({ product }) => product));
+      await markProductSyncItems(productItems.map(({ itemId }) => itemId), "success");
+    } catch {
+      await importProductsIndividually(channelId, productItems);
+    }
+  }
+
+  for (const item of invalidItems) {
+    await markProductSyncItems([item.itemId], "failed", item.error);
+  }
+
+  await refreshProductSyncJobCounts(jobId);
+}
+
+async function importProductsIndividually(
+  channelId: number,
+  productItems: Array<{ itemId: number; product: ExternalProduct }>,
+) {
+  for (const { itemId, product } of productItems) {
+    try {
+      await persistExternalProducts(channelId, [product]);
+      await markProductSyncItems([itemId], "success");
+    } catch (err) {
+      await markProductSyncItems(
+        [itemId],
+        "failed",
+        String(err).replace(/^Error:\s*/, "").substring(0, 300),
+      );
+    }
+  }
+}
+
+interface ClaimedProductSyncItem {
+  id: number;
+  externalId: string;
+  sku: string | null;
+  rawData: unknown;
+}
+
+async function claimPendingProductSyncItems(
+  jobId: number,
+  limit: number,
+): Promise<ClaimedProductSyncItem[]> {
+  const rows = await db.execute(sql`
+    WITH claimed AS (
+      SELECT ${channelProductSyncJobItems.id} AS id
+      FROM ${channelProductSyncJobItems}
+      WHERE ${channelProductSyncJobItems.jobId} = ${jobId}
+        AND ${channelProductSyncJobItems.status} = 'pending'
+      ORDER BY ${channelProductSyncJobItems.id}
+      FOR UPDATE SKIP LOCKED
+      LIMIT ${limit}
+    )
+    UPDATE ${channelProductSyncJobItems}
+    SET status = 'processing',
+        started_at = now(),
+        updated_at = now()
+    FROM claimed
+    WHERE ${channelProductSyncJobItems.id} = claimed.id
+    RETURNING
+      ${channelProductSyncJobItems.id} AS "id",
+      ${channelProductSyncJobItems.externalId} AS "externalId",
+      ${channelProductSyncJobItems.sku} AS "sku",
+      ${channelProductSyncJobItems.rawData} AS "rawData"
+  `);
+
+  return rows as unknown as ClaimedProductSyncItem[];
+}
+
+async function refreshProductSyncJobCounts(jobId: number) {
+  const [counts] = await db
+    .select({
+      totalCount: sql<number>`COUNT(*)::int`,
+      importedCount: sql<number>`COUNT(*) FILTER (WHERE ${channelProductSyncJobItems.status} = 'success')::int`,
+      failedCount: sql<number>`COUNT(*) FILTER (WHERE ${channelProductSyncJobItems.status} = 'failed')::int`,
+      pendingCount: sql<number>`COUNT(*) FILTER (WHERE ${channelProductSyncJobItems.status} IN ('pending', 'processing'))::int`,
+    })
+    .from(channelProductSyncJobItems)
+    .where(eq(channelProductSyncJobItems.jobId, jobId));
+
+  const pendingCount = counts?.pendingCount ?? 0;
+  const failedCount = counts?.failedCount ?? 0;
+  const importedCount = counts?.importedCount ?? 0;
+  const nextStatus = pendingCount > 0 ? "importing" : failedCount > 0 ? "failed" : "done";
+
+  await db
+    .update(channelProductSyncJobs)
+    .set({
+      status: nextStatus,
+      phase: nextStatus === "importing" ? "importing" : nextStatus,
+      totalCount: counts?.totalCount ?? 0,
+      importedCount,
+      enrichedCount: importedCount,
+      failedCount,
+      updatedAt: new Date(),
+      completedAt: pendingCount === 0 ? new Date() : null,
+    })
+    .where(eq(channelProductSyncJobs.id, jobId));
+}
+
+async function markProductSyncItems(
+  itemIds: number[],
+  status: "success" | "failed",
+  errorMessage: string | null = null,
+) {
+  if (itemIds.length === 0) return;
+
+  await db
+    .update(channelProductSyncJobItems)
+    .set({
+      status,
+      errorMessage,
+      completedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(inArray(channelProductSyncJobItems.id, itemIds));
+}
+
+function parseStagedExternalProduct(
+  rawData: unknown,
+  fallbackExternalId: string,
+  fallbackSku: string | null,
+): ExternalProduct | null {
+  if (!rawData || typeof rawData !== "object") return null;
+
+  const payload = rawData as Partial<ExternalProduct>;
+  const id = typeof payload.id === "string" && payload.id.length > 0
+    ? payload.id
+    : fallbackExternalId;
+  const name = typeof payload.name === "string" && payload.name.length > 0
+    ? payload.name
+    : id;
+  const sku = typeof payload.sku === "string" ? payload.sku : fallbackSku ?? undefined;
+  const stockQuantity = typeof payload.stockQuantity === "number" ? payload.stockQuantity : undefined;
+  const type = typeof payload.type === "string" ? payload.type : undefined;
+  const parentId = typeof payload.parentId === "string" ? payload.parentId : undefined;
+  const rawPayload = payload.rawPayload && typeof payload.rawPayload === "object"
+    ? payload.rawPayload as Record<string, unknown>
+    : {};
+
+  return {
+    id,
+    name,
+    sku,
+    stockQuantity,
+    type,
+    parentId,
+    rawPayload,
+  };
 }
 
 async function getChannelProductSyncContext(

@@ -81,7 +81,7 @@ export function SyncProductsButton({
 
                 if (nextJob.status === "done") {
                     toast.success("Products fetched", {
-                        description: `${nextJob.importedCount} imported, ${nextJob.failedCount} enrichment failures.`,
+                        description: `${nextJob.importedCount} imported, ${nextJob.failedCount} failed.`,
                     });
                     router.refresh();
                 } else if (nextJob.status === "failed") {

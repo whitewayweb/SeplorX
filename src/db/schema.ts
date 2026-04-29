@@ -417,6 +417,7 @@ export const channelProductSyncJobItems = pgTable("channel_product_sync_job_item
   channelProductId: integer("channel_product_id").references(() => channelProducts.id, { onDelete: "cascade" }),
   externalId: varchar("external_id", { length: 255 }).notNull(),
   sku: varchar("sku", { length: 255 }),
+  rawData: jsonb("raw_data").default({}).notNull(),
   status: varchar("status", { length: 30 }).default("pending").notNull(),
   errorMessage: text("error_message"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
