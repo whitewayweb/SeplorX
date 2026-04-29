@@ -15,7 +15,7 @@ function basicAuth(consumerKey: string, consumerSecret: string): string {
 async function wcFetch(
   storeUrl: string,
   path: string,
-  options: RequestInit,
+  options: RequestInit & { timeoutMs?: number },
 ): Promise<Response> {
   const base = storeUrl.replace(/\/$/, "");
   const res = await fetch(`${base}/wp-json/wc/v3${path}`, {
@@ -25,7 +25,7 @@ async function wcFetch(
       "User-Agent": `${PORTAL_NAME}/1.0 (Order Sync Agent)`,
       ...(options.headers as Record<string, string>),
     },
-    signal: options.signal || AbortSignal.timeout(20_000),
+    signal: options.signal || AbortSignal.timeout(options.timeoutMs ?? 20_000),
   });
   return res;
 }
@@ -194,6 +194,7 @@ export const woocommerceHandler: ChannelHandler = {
       method: "PUT",
       headers: { Authorization: basicAuth(credentials.consumerKey, credentials.consumerSecret) },
       body: JSON.stringify({ stock_quantity: quantity, manage_stock: true }),
+      timeoutMs: 45_000,
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");

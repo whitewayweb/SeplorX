@@ -26,16 +26,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -218,7 +208,7 @@ export function StockSyncQueue({
   const [channelFilter, setChannelFilter] = useState(initialChannelFilter);
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [isPending, startTransition] = useTransition();
-  const didMountSearchRef = useRef(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const filteredProducts = products;
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
@@ -250,6 +240,7 @@ export function StockSyncQueue({
   const closeProductPanel = useCallback(() => {
     setRequestedProductId(null);
     setListingPanelGroupKey(null);
+    setConfirmPushProduct(null);
   }, []);
 
   useEffect(() => {
@@ -301,18 +292,10 @@ export function StockSyncQueue({
   }, [initialSearchQuery]);
 
   useEffect(() => {
-    if (!didMountSearchRef.current) {
-      didMountSearchRef.current = true;
-      return;
-    }
-
-    const timeout = setTimeout(() => {
-      replaceQueueParams({ q: searchQuery.trim() || null });
-      closeProductPanel();
-    }, 400);
-
-    return () => clearTimeout(timeout);
-  }, [replaceQueueParams, searchQuery, closeProductPanel]);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!activeJob || (activeJob.status !== "queued" && activeJob.status !== "processing")) return;
@@ -407,11 +390,29 @@ export function StockSyncQueue({
     setListingSearchQuery("");
     setListingFilter("all");
     setListingPage(1);
+    setConfirmPushProduct(null);
   }
 
   function updateListingFilter(value: string) {
     setListingFilter(value as ListingFilter);
     setListingPage(1);
+  }
+
+  function updateSearchQuery(value: string) {
+    setSearchQuery(value);
+
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
+
+    searchDebounceRef.current = setTimeout(() => {
+      const nextQuery = value.trim();
+      const currentQuery = searchParams.get("q") ?? "";
+      if (nextQuery === currentQuery) return;
+
+      closeProductPanel();
+      replaceQueueParams({ q: nextQuery || null });
+    }, 400);
   }
 
   function updateStatusFilter(value: string) {
@@ -437,6 +438,7 @@ export function StockSyncQueue({
   function openProduct(productId: number) {
     setRequestedProductId(productId);
     setListingPanelGroupKey(null);
+    setConfirmPushProduct(null);
   }
 
   function requestStockPush(product: SyncProduct) {
@@ -542,10 +544,7 @@ export function StockSyncQueue({
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     value={searchQuery}
-                    onChange={(event) => {
-                      setSearchQuery(event.target.value);
-                      closeProductPanel();
-                    }}
+                    onChange={(event) => updateSearchQuery(event.target.value)}
                     placeholder="Search product, SKU..."
                     className="h-9 pl-9"
                   />
@@ -916,26 +915,35 @@ export function StockSyncQueue({
                   <BottomMetric label="Listings" value={displayProduct.mappingCount} />
                   <BottomMetric label="Mismatches" value={displayProduct.mismatchCount} tone="red" />
                 </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" asChild>
-                    <Link href={`/products/${displayProduct.id}`} className="gap-2">
-                      Open product
-                      <ExternalLink className="h-4 w-4" />
-                    </Link>
-                  </Button>
-                  <Button
-                    disabled={isPending || isAnyJobRunning || displayProduct.mappingCount === 0}
-                    onClick={() => requestStockPush(displayProduct)}
-                    className="gap-2"
-                  >
-                    {isAnyJobRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="h-4 w-4" />}
-                    {isActiveJobRunning
-                      ? `Pushing ${getCompletedJobCount(activeProductJob)} / ${activeProductJob.totalCount}`
-                      : isAnyJobRunning
-                        ? "Push in progress"
-                      : "Push this product"}
-                  </Button>
-                </div>
+                {confirmPushProduct?.id === displayProduct.id ? (
+                  <InlinePushConfirmation
+                    product={displayProduct}
+                    isPending={isPending}
+                    onCancel={() => setConfirmPushProduct(null)}
+                    onConfirm={startConfirmedStockPush}
+                  />
+                ) : (
+                  <div className="flex gap-2">
+                    <Button variant="outline" asChild>
+                      <Link href={`/products/${displayProduct.id}`} className="gap-2">
+                        Open product
+                        <ExternalLink className="h-4 w-4" />
+                      </Link>
+                    </Button>
+                    <Button
+                      disabled={isPending || isAnyJobRunning || displayProduct.mappingCount === 0}
+                      onClick={() => requestStockPush(displayProduct)}
+                      className="gap-2"
+                    >
+                      {isAnyJobRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="h-4 w-4" />}
+                      {isActiveJobRunning
+                        ? `Pushing ${getCompletedJobCount(activeProductJob)} / ${activeProductJob.totalCount}`
+                        : isAnyJobRunning
+                          ? "Push in progress"
+                        : "Push this product"}
+                    </Button>
+                  </div>
+                )}
               </div>
 
               {listingPanelGroup && (
@@ -951,6 +959,7 @@ export function StockSyncQueue({
                   filter={listingFilter}
                   isPending={isPending}
                   isPushLocked={isAnyJobRunning}
+                  isConfirmingPush={confirmPushProduct?.id === displayProduct.id}
                   job={activeProductJob}
                   jobItemsByMappingId={activeJobItemsByMappingId}
                   onSearchChange={(value) => {
@@ -961,6 +970,8 @@ export function StockSyncQueue({
                   onPageChange={setListingPage}
                   onClose={() => setListingPanelGroupKey(null)}
                   onPush={() => requestStockPush(displayProduct)}
+                  onCancelPush={() => setConfirmPushProduct(null)}
+                  onConfirmPush={startConfirmedStockPush}
                 />
               )}
               </div>
@@ -968,28 +979,6 @@ export function StockSyncQueue({
           </SheetContent>
         </Sheet>
       </section>
-      <AlertDialog open={!!confirmPushProduct} onOpenChange={(open) => !open && setConfirmPushProduct(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Push stock to mapped listings?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will set available stock for {confirmPushProduct?.mappingCount ?? 0} mapped listing{confirmPushProduct?.mappingCount === 1 ? "" : "s"} to {confirmPushProduct?.availableQuantity ?? 0}.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
-                event.preventDefault();
-                startConfirmedStockPush();
-              }}
-              disabled={isPending}
-            >
-              {isPending ? "Starting..." : "Push stock"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
@@ -1225,6 +1214,7 @@ function ListingPanel({
   filter,
   isPending,
   isPushLocked,
+  isConfirmingPush,
   job,
   jobItemsByMappingId,
   onSearchChange,
@@ -1232,6 +1222,8 @@ function ListingPanel({
   onPageChange,
   onClose,
   onPush,
+  onCancelPush,
+  onConfirmPush,
 }: {
   group: ChannelGroup;
   product: SyncProduct;
@@ -1244,6 +1236,7 @@ function ListingPanel({
   filter: ListingFilter;
   isPending: boolean;
   isPushLocked: boolean;
+  isConfirmingPush: boolean;
   job: StockPushJob | null;
   jobItemsByMappingId: Map<number, StockPushJobItem>;
   onSearchChange: (value: string) => void;
@@ -1251,6 +1244,8 @@ function ListingPanel({
   onPageChange: (value: number) => void;
   onClose: () => void;
   onPush: () => void;
+  onCancelPush: () => void;
+  onConfirmPush: () => void;
 }) {
   const firstItem = filteredCount === 0 ? 0 : (page - 1) * pageSize + 1;
   const lastItem = Math.min(page * pageSize, filteredCount);
@@ -1376,19 +1371,58 @@ function ListingPanel({
             </Button>
           </div>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={onClose} className="flex-1 sm:flex-none">
-            Close
-          </Button>
-          <Button onClick={onPush} disabled={isPending || isPushLocked || product.mappingCount === 0} className="flex-1 gap-2 sm:flex-none">
-            {isPushLocked ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="h-4 w-4" />}
-            {isPushing && job
-              ? `Pushing ${getCompletedJobCount(job)} / ${job.totalCount}`
-              : isBlockedByOtherPush
-                ? "Push in progress"
-                : "Push this product"}
-          </Button>
-        </div>
+        {isConfirmingPush ? (
+          <InlinePushConfirmation
+            product={product}
+            isPending={isPending}
+            onCancel={onCancelPush}
+            onConfirm={onConfirmPush}
+          />
+        ) : (
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose} className="flex-1 sm:flex-none">
+              Close
+            </Button>
+            <Button onClick={onPush} disabled={isPending || isPushLocked || product.mappingCount === 0} className="flex-1 gap-2 sm:flex-none">
+              {isPushLocked ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="h-4 w-4" />}
+              {isPushing && job
+                ? `Pushing ${getCompletedJobCount(job)} / ${job.totalCount}`
+                : isBlockedByOtherPush
+                  ? "Push in progress"
+                  : "Push this product"}
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function InlinePushConfirmation({
+  product,
+  isPending,
+  onCancel,
+  onConfirm,
+}: {
+  product: SyncProduct;
+  isPending: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2 sm:items-end lg:min-w-[360px]">
+      <p className="text-xs text-muted-foreground">
+        Confirm push: set {product.mappingCount} mapped listing{product.mappingCount === 1 ? "" : "s"} to{" "}
+        <span className="font-semibold text-foreground">{product.availableQuantity}</span>.
+      </p>
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={onCancel} disabled={isPending}>
+          Cancel
+        </Button>
+        <Button size="sm" onClick={onConfirm} disabled={isPending} className="gap-2">
+          {isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          {isPending ? "Starting..." : "Push stock"}
+        </Button>
       </div>
     </div>
   );

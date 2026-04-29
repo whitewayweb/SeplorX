@@ -530,6 +530,7 @@ export async function getChannelMappingsForStockPush(
         eq(channels.userId, userId),
         eq(channels.status, "connected"),
         inArray(channels.channelType, STOCK_PUSH_SUPPORTED_CHANNEL_TYPES),
+        ne(channelProductMappings.syncStatus, "in_sync"),
       ),
     );
 }

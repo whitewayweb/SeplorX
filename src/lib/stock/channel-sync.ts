@@ -323,7 +323,6 @@ async function claimPendingJobItemsForProcessing(
   jobId: number,
   limit: number,
 ): Promise<(StockPushMappingRow & { jobItemId: number })[]> {
-  const now = new Date();
   const rows = await db.execute(sql`
     WITH claimed AS (
       SELECT ${stockSyncJobItems.id} AS job_item_id
@@ -343,8 +342,8 @@ async function claimPendingJobItemsForProcessing(
     updated AS (
       UPDATE ${stockSyncJobItems}
       SET status = 'processing',
-          started_at = ${now},
-          updated_at = ${now}
+          started_at = now(),
+          updated_at = now()
       FROM claimed
       WHERE ${stockSyncJobItems.id} = claimed.job_item_id
       RETURNING
