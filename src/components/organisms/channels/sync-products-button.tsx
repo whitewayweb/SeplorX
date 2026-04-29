@@ -192,7 +192,7 @@ function ProductFetchProgress({
                 compact ? "grid-cols-1" : "grid-cols-3",
             )}>
                 <StatusMetric label="Imported" value={job.importedCount} />
-                {!compact && <StatusMetric label="Enriched" value={job.totalCount > 0 ? `${completed}/${job.totalCount}` : "-"} />}
+                {!compact && <StatusMetric label="Processed" value={job.totalCount > 0 ? `${completed}/${job.totalCount}` : "-"} />}
                 {!compact && <StatusMetric label="Failed" value={job.failedCount} />}
             </div>
             {job.errorMessage && (
@@ -235,7 +235,7 @@ function getJobLabel(job: ProductFetchJob) {
     if (job.status === "done") return "Product fetch complete";
     if (job.phase === "waiting_report") return "Amazon is preparing the report";
     if (job.phase === "importing") return "Importing listings";
-    if (job.phase === "enriching") return "Enriching details";
+    if (job.phase === "enriching") return "Finalizing import";
     return "Preparing fetch";
 }
 
@@ -244,7 +244,7 @@ function getJobDescription(job: ProductFetchJob) {
     if (job.status === "done") return "The local product cache is up to date.";
     if (job.phase === "waiting_report") return "This usually takes a few minutes. You can keep working while it runs.";
     if (job.phase === "importing") return "New listings are being added to the local cache.";
-    if (job.phase === "enriching") return "Images, relationships, FBA stock, and catalog details are being refreshed.";
+    if (job.phase === "enriching") return "Completing the product import without blocking the page.";
     return "Starting product reconciliation.";
 }
 

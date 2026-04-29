@@ -182,6 +182,7 @@ describe("channel product sync jobs", () => {
         phase: "waiting_report",
         reportId: "REPORT-1",
         reportDocumentId: null,
+        importedCount: 0,
       }],
       [{
         id: 1,
@@ -247,8 +248,6 @@ describe("channel product sync jobs", () => {
         credentials: {},
         status: "connected",
       }],
-      [{ id: 11, externalId: "B001", sku: "SKU-1" }],
-      [{ totalCount: 1, enrichedCount: 0, failedCount: 0, skippedCount: 0, pendingCount: 0 }],
       [{
         id: 3,
         channelId: 1,
@@ -258,7 +257,7 @@ describe("channel product sync jobs", () => {
         reportDocumentId: "DOC-1",
         totalCount: 1,
         importedCount: 1,
-        enrichedCount: 0,
+        enrichedCount: 1,
         failedCount: 0,
         skippedCount: 0,
         errorMessage: null,
@@ -281,6 +280,6 @@ describe("channel product sync jobs", () => {
         sku: "SKU-1",
       }),
     ]);
-    expect(db.insert).toHaveBeenCalled();
+    expect(amazonClientMock.enrichProducts).not.toHaveBeenCalled();
   });
 });

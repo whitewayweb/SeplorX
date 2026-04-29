@@ -2,17 +2,15 @@ import { db } from "@/db";
 import {
   channelProductSyncJobItems,
   channelProductSyncJobs,
-  channelProducts,
   channels,
 } from "@/db/schema";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
 import { upsertChannelProducts } from "@/lib/channels/queries";
 import type { ExternalProduct } from "@/lib/channels/types";
 import { AmazonAPIClient } from "@/lib/channels/amazon/api/client";
 
-const PRODUCT_SYNC_BATCH_SIZE = 3;
 const ACTIVE_JOB_STATUSES = ["queued", "waiting_report", "importing", "enriching"] as const;
 
 type ProductSyncStatus = "queued" | "waiting_report" | "importing" | "enriching" | "done" | "failed";
@@ -186,10 +184,23 @@ export async function getChannelProductSyncJobStatus(
 }
 
 async function processAmazonProductSyncJob(
-  job: { id: number; channelId: number; status: string; phase: string; reportId: string | null; reportDocumentId: string | null },
+  job: {
+    id: number;
+    channelId: number;
+    status: string;
+    phase: string;
+    reportId: string | null;
+    reportDocumentId: string | null;
+    importedCount: number;
+  },
   channel: ChannelProductSyncContext,
   credentials: Record<string, string>,
 ) {
+  if (job.phase === "enriching" || job.status === "enriching") {
+    await completeAmazonProductImportJob(job.id, job.importedCount);
+    return;
+  }
+
   const client = createAmazonClient(channel, credentials);
   let reportDocumentId = job.reportDocumentId;
 
@@ -232,8 +243,6 @@ async function processAmazonProductSyncJob(
   if (job.phase === "waiting_report" || job.phase === "importing") {
     await importAmazonReportProducts(job.id, job.channelId, client, reportDocumentId);
   }
-
-  await enrichPendingProductSyncItems(job.id, channel, credentials);
 }
 
 async function importAmazonReportProducts(
@@ -254,17 +263,31 @@ async function importAmazonReportProducts(
 
   const externalProducts = await client.downloadAndParseListingsReport(reportDocumentId);
   await persistExternalProducts(channelId, externalProducts);
-  await createProductSyncItems(jobId, channelId, externalProducts);
 
   await db
     .update(channelProductSyncJobs)
     .set({
-      status: externalProducts.length > 0 ? "enriching" : "done",
-      phase: externalProducts.length > 0 ? "enriching" : "done",
+      status: "done",
+      phase: "done",
       totalCount: externalProducts.length,
       importedCount: externalProducts.length,
+      enrichedCount: externalProducts.length,
       updatedAt: new Date(),
-      completedAt: externalProducts.length > 0 ? null : new Date(),
+      completedAt: new Date(),
+    })
+    .where(eq(channelProductSyncJobs.id, jobId));
+}
+
+async function completeAmazonProductImportJob(jobId: number, importedCount: number) {
+  await db
+    .update(channelProductSyncJobs)
+    .set({
+      status: "done",
+      phase: "done",
+      totalCount: importedCount,
+      enrichedCount: importedCount,
+      updatedAt: new Date(),
+      completedAt: new Date(),
     })
     .where(eq(channelProductSyncJobs.id, jobId));
 }
@@ -301,89 +324,6 @@ async function processImmediateProductSyncJob(
     .where(eq(channelProductSyncJobs.id, job.id));
 }
 
-async function enrichPendingProductSyncItems(
-  jobId: number,
-  channel: ChannelProductSyncContext,
-  credentials: Record<string, string>,
-) {
-  const pendingItems = await claimPendingProductSyncItems(jobId, channel.id, PRODUCT_SYNC_BATCH_SIZE);
-  if (pendingItems.length === 0) {
-    await refreshChannelProductSyncJobCounts(jobId);
-    return;
-  }
-
-  const client = createAmazonClient(channel, credentials);
-  const externalProducts = pendingItems.map((item) => ({
-    id: item.externalId,
-    name: item.name || item.externalId,
-    sku: item.sku ?? undefined,
-    stockQuantity: item.stockQuantity ?? undefined,
-    type: item.type as ExternalProduct["type"],
-    rawPayload: (item.rawData as Record<string, unknown>) ?? {},
-  }));
-
-  try {
-    const enrichedProducts = await client.enrichProducts(externalProducts, {
-      discoverVirtualParents: false,
-    });
-    await persistExternalProducts(channel.id, enrichedProducts);
-
-    await db
-      .update(channelProductSyncJobItems)
-      .set({ status: "success", errorMessage: null, completedAt: new Date(), updatedAt: new Date() })
-      .where(inArray(channelProductSyncJobItems.id, pendingItems.map((item) => item.jobItemId)));
-  } catch (err) {
-    const message = String(err).replace(/^Error:\s*/, "").substring(0, 300);
-    await db
-      .update(channelProductSyncJobItems)
-      .set({ status: "failed", errorMessage: message, completedAt: new Date(), updatedAt: new Date() })
-      .where(inArray(channelProductSyncJobItems.id, pendingItems.map((item) => item.jobItemId)));
-  }
-
-  await refreshChannelProductSyncJobCounts(jobId);
-}
-
-async function createProductSyncItems(
-  jobId: number,
-  channelId: number,
-  externalProducts: ExternalProduct[],
-) {
-  if (externalProducts.length === 0) return;
-
-  const externalIds = Array.from(new Set(externalProducts.map((product) => product.id)));
-  const productRows = await db
-    .select({
-      id: channelProducts.id,
-      externalId: channelProducts.externalId,
-      sku: channelProducts.sku,
-    })
-    .from(channelProducts)
-    .where(and(eq(channelProducts.channelId, channelId), inArray(channelProducts.externalId, externalIds)));
-
-  const byExternalId = new Map(productRows.map((product) => [product.externalId, product]));
-  const insertedAt = new Date();
-
-  await db
-    .insert(channelProductSyncJobItems)
-    .values(
-      externalIds.map((externalId) => {
-        const product = byExternalId.get(externalId);
-        const source = externalProducts.find((item) => item.id === externalId);
-        return {
-          jobId,
-          channelProductId: product?.id ?? null,
-          externalId,
-          sku: product?.sku ?? source?.sku ?? null,
-          status: "pending",
-          updatedAt: insertedAt,
-        };
-      }),
-    )
-    .onConflictDoNothing({
-      target: [channelProductSyncJobItems.jobId, channelProductSyncJobItems.externalId],
-    });
-}
-
 async function persistExternalProducts(channelId: number, externalProducts: ExternalProduct[]) {
   if (externalProducts.length === 0) return;
 
@@ -401,95 +341,6 @@ async function persistExternalProducts(channelId: number, externalProducts: Exte
 
     await upsertChannelProducts(batch);
   }
-}
-
-async function refreshChannelProductSyncJobCounts(jobId: number) {
-  const [counts] = await db
-    .select({
-      totalCount: sql<number>`COUNT(*)::int`,
-      enrichedCount: sql<number>`COUNT(*) FILTER (WHERE ${channelProductSyncJobItems.status} = 'success')::int`,
-      failedCount: sql<number>`COUNT(*) FILTER (WHERE ${channelProductSyncJobItems.status} = 'failed')::int`,
-      skippedCount: sql<number>`COUNT(*) FILTER (WHERE ${channelProductSyncJobItems.status} = 'skipped')::int`,
-      pendingCount: sql<number>`COUNT(*) FILTER (WHERE ${channelProductSyncJobItems.status} IN ('pending', 'processing'))::int`,
-    })
-    .from(channelProductSyncJobItems)
-    .where(eq(channelProductSyncJobItems.jobId, jobId));
-
-  const pendingCount = counts?.pendingCount ?? 0;
-  await db
-    .update(channelProductSyncJobs)
-    .set({
-      status: pendingCount > 0 ? "enriching" : "done",
-      phase: pendingCount > 0 ? "enriching" : "done",
-      totalCount: counts?.totalCount ?? 0,
-      enrichedCount: counts?.enrichedCount ?? 0,
-      failedCount: counts?.failedCount ?? 0,
-      skippedCount: counts?.skippedCount ?? 0,
-      updatedAt: new Date(),
-      completedAt: pendingCount > 0 ? null : new Date(),
-    })
-    .where(eq(channelProductSyncJobs.id, jobId));
-}
-
-async function claimPendingProductSyncItems(
-  jobId: number,
-  channelId: number,
-  limit: number,
-): Promise<Array<{
-  jobItemId: number;
-  externalId: string;
-  sku: string | null;
-  name: string | null;
-  stockQuantity: number | null;
-  type: string | null;
-  rawData: unknown;
-}>> {
-  const rows = await db.execute(sql`
-    WITH claimed AS (
-      SELECT ${channelProductSyncJobItems.id} AS job_item_id
-      FROM ${channelProductSyncJobItems}
-      WHERE ${channelProductSyncJobItems.jobId} = ${jobId}
-        AND ${channelProductSyncJobItems.status} = 'pending'
-      ORDER BY ${channelProductSyncJobItems.id}
-      FOR UPDATE OF ${channelProductSyncJobItems} SKIP LOCKED
-      LIMIT ${limit}
-    ),
-    updated AS (
-      UPDATE ${channelProductSyncJobItems}
-      SET status = 'processing',
-          started_at = now(),
-          updated_at = now()
-      FROM claimed
-      WHERE ${channelProductSyncJobItems.id} = claimed.job_item_id
-      RETURNING
-        ${channelProductSyncJobItems.id} AS job_item_id,
-        ${channelProductSyncJobItems.externalId} AS external_id,
-        ${channelProductSyncJobItems.sku} AS item_sku
-    )
-    SELECT
-      updated.job_item_id AS "jobItemId",
-      updated.external_id AS "externalId",
-      COALESCE(${channelProducts.sku}, updated.item_sku) AS "sku",
-      ${channelProducts.name} AS "name",
-      ${channelProducts.stockQuantity} AS "stockQuantity",
-      ${channelProducts.type} AS "type",
-      ${channelProducts.rawData} AS "rawData"
-    FROM updated
-    INNER JOIN ${channelProducts}
-      ON ${channelProducts.channelId} = ${channelId}
-      AND ${channelProducts.externalId} = updated.external_id
-    ORDER BY updated.job_item_id
-  `);
-
-  return rows as unknown as Array<{
-    jobItemId: number;
-    externalId: string;
-    sku: string | null;
-    name: string | null;
-    stockQuantity: number | null;
-    type: string | null;
-    rawData: unknown;
-  }>;
 }
 
 async function getChannelProductSyncContext(
@@ -542,6 +393,7 @@ async function getChannelProductSyncJobForUser(userId: number, jobId: number) {
       phase: channelProductSyncJobs.phase,
       reportId: channelProductSyncJobs.reportId,
       reportDocumentId: channelProductSyncJobs.reportDocumentId,
+      importedCount: channelProductSyncJobs.importedCount,
     })
     .from(channelProductSyncJobs)
     .where(and(eq(channelProductSyncJobs.id, jobId), eq(channelProductSyncJobs.userId, userId)))
