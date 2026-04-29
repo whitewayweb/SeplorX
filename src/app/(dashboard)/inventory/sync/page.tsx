@@ -16,7 +16,7 @@ export default async function InventorySyncPage() {
     <div className="p-6 space-y-6">
       <PageHeader
         title="Stock Sync Queue"
-        description="Review mapped SeplorX products with stock changes and push available stock to connected channels."
+        description="Review stock changes and push available stock to channels."
       >
         <Button variant="outline" asChild>
           <Link href="/inventory" className="gap-2">
