@@ -12,7 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Package, AlertTriangle, PackageX } from "lucide-react";
+import { ArrowUpFromLine, Package, AlertTriangle, PackageX } from "lucide-react";
 import { AGENT_REGISTRY } from "@/lib/agents/registry";
 import { ReorderTrigger } from "@/components/organisms/agents/reorder-trigger";
 import { ReorderApprovalCard } from "@/components/organisms/agents/reorder-approval-card";
@@ -24,11 +24,13 @@ import {
   getRecentInventoryTransactions 
 } from "@/data/inventory";
 import { getPendingAgentTasks } from "@/data/agents";
+import { getPendingStockSyncProductCount } from "@/data/products";
+import { Button } from "@/components/ui/button";
 
 export const dynamic = "force-dynamic";
 
 export default async function InventoryPage() {
-  await getAuthenticatedUserId();
+  const userId = await getAuthenticatedUserId();
 
   // Run all 5 independent queries in parallel
   const [
@@ -37,12 +39,14 @@ export default async function InventoryPage() {
     { totalValue },
     recentTransactions,
     pendingReorderTasks,
+    pendingStockSyncCount,
   ] = await Promise.all([
     getTotalActiveProductsCount(),
     getLowStockProducts(),
     getTotalStockValue(),
     getRecentInventoryTransactions(),
-    getPendingAgentTasks("reorder")
+    getPendingAgentTasks("reorder"),
+    getPendingStockSyncProductCount(userId),
   ]);
 
   const outOfStock = lowStockProducts.filter((p) => p.quantityOnHand <= 0);
@@ -59,6 +63,12 @@ export default async function InventoryPage() {
         title="Inventory"
         description="Stock overview, alerts, and recent transactions."
       >
+        <Button variant={pendingStockSyncCount > 0 ? "default" : "outline"} asChild>
+          <Link href="/inventory/sync">
+            <ArrowUpFromLine className="h-4 w-4 mr-2" />
+            Stock Sync {pendingStockSyncCount > 0 ? `(${pendingStockSyncCount})` : ""}
+          </Link>
+        </Button>
         {AGENT_REGISTRY.reorder.enabled && <ReorderTrigger />}
       </PageHeader>
 
@@ -77,7 +87,7 @@ export default async function InventoryPage() {
       )}
 
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-5">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Active Products</CardTitle>
@@ -112,6 +122,18 @@ export default async function InventoryPage() {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">{formattedStockValue}</p>
+          </CardContent>
+        </Card>
+        <Card className={pendingStockSyncCount > 0 ? "border-yellow-200 bg-yellow-50/40" : undefined}>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Stock Sync Required</CardTitle>
+            <ArrowUpFromLine className={`h-4 w-4 ${pendingStockSyncCount > 0 ? "text-yellow-600" : "text-muted-foreground"}`} />
+          </CardHeader>
+          <CardContent>
+            <p className={`text-2xl font-bold ${pendingStockSyncCount > 0 ? "text-yellow-700" : ""}`}>{pendingStockSyncCount}</p>
+            <Link href="/inventory/sync" className="text-xs text-blue-600 hover:underline mt-1 inline-block">
+              Review queue
+            </Link>
           </CardContent>
         </Card>
       </div>

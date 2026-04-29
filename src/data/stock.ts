@@ -25,26 +25,6 @@ export async function getOrdersAwaitingReturnAction() {
 
 
 /**
- * Get count of products with stock changes not synced to channels.
- * A product is out of sync if its available quantity differs from the last
- * pushed quantity. For now, we use reservedQuantity > 0 as a proxy signal
- * (since channels only know about quantityOnHand). In Phase 3, we'll add
- * a proper lastPushedQuantity column.
- */
-export async function getOutOfSyncProductCount(): Promise<number> {
-  const [result] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(products)
-    .where(
-      and(
-        eq(products.isActive, true),
-        sql`${products.reservedQuantity} > 0`,
-      ),
-    );
-  return result?.count ?? 0;
-}
-
-/**
  * Get the available quantity for a product (on-hand minus reserved).
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

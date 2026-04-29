@@ -11,12 +11,8 @@ import {
   StockAdjustmentSchema,
 } from "@/lib/validations/products";
 import { ChannelMappingIdSchema } from "@/lib/validations/channels";
-import { getChannelHandler } from "@/lib/channels/handlers";
-import { decryptChannelCredentials } from "@/lib/channels/utils";
 import type { ExternalProduct } from "@/lib/channels/types";
 import {
-  getProductQuantity,
-  getChannelMappingsForStockPush,
   getConnectedChannel,
   getProductById,
   getExternalProducts,
@@ -35,6 +31,7 @@ export type ChannelProductWithState = ExternalProduct & {
 };
 import { getAuthenticatedUserId } from "@/lib/auth";
 import { triggerChannelSync } from "@/lib/stock/service";
+import { pushProductStockToChannelsService } from "@/lib/stock/channel-sync";
 
 
 export async function createProduct(_prevState: unknown, formData: FormData) {
@@ -406,74 +403,10 @@ export async function deleteChannelMapping(_prevState: unknown, formData: FormDa
 export async function pushProductStockToChannels(productId: number) {
   try {
     const userId = await getAuthenticatedUserId();
-
-    const quantity = await getProductQuantity(productId);
-    if (quantity === null) throw new Error("Product not found.");
-
-    const mappings = await getChannelMappingsForStockPush(userId, productId);
-
-    if (mappings.length === 0) {
-      return { success: true, results: [], message: "No channel mappings found.", quantity };
-    }
-
-    const results: Array<{
-      channelName: string;
-      externalProductId: string;
-      label: string | null;
-      ok: boolean;
-      error?: string;
-    }> = [];
-
-    // Cache decrypted credentials per unique credential object to avoid redundant KMS calls
-    const decryptedCredsCache = new Map<string, Record<string, string>>();
-
-    for (const m of mappings) {
-      const handler = getChannelHandler(m.channelType);
-      if (!handler || !m.storeUrl) {
-        results.push({ channelName: m.channelName, externalProductId: m.externalProductId, label: m.label, ok: false, error: "Handler or store URL not available." });
-        continue;
-      }
-
-      // Use stringified credentials as cache key
-      const credsKey = JSON.stringify(m.credentials);
-      let decryptedCreds = decryptedCredsCache.get(credsKey);
-
-      if (!decryptedCreds) {
-        decryptedCreds = await decryptChannelCredentials(m.credentials);
-        decryptedCredsCache.set(credsKey, decryptedCreds);
-      }
-
-      if (Object.keys(decryptedCreds).length === 0) {
-        results.push({ channelName: m.channelName, externalProductId: m.externalProductId, label: m.label, ok: false, error: "Missing credentials." });
-        continue;
-      }
-
-      if (!handler.capabilities.canPushStock || !handler.pushStock) {
-        results.push({ channelName: m.channelName, externalProductId: m.externalProductId, label: m.label, ok: false, error: "This channel does not support stock push." });
-        continue;
-      }
-
-      try {
-        await handler.pushStock(
-          m.storeUrl,
-          decryptedCreds,
-          m.externalProductId,
-          quantity,
-          m.parentId,
-          m.channelSku,
-          m.productType,
-          m.rawData as Record<string, unknown> | null
-        );
-        console.log(`[pushProductStockToChannels] Successfully pushed stock to ${m.channelName} (externalProductId: ${m.externalProductId})`);
-        results.push({ channelName: m.channelName, externalProductId: m.externalProductId, label: m.label, ok: true });
-      } catch (err) {
-        console.error(`[pushProductStockToChannels] Error pushing stock to ${m.channelName} (externalProductId: ${m.externalProductId}):`, err);
-        const msg = String(err).replace(/^Error:\s*/, "").substring(0, 200);
-        results.push({ channelName: m.channelName, externalProductId: m.externalProductId, label: m.label, ok: false, error: msg });
-      }
-    }
-
-    return { success: true, results, quantity };
+    const result = await pushProductStockToChannelsService(userId, productId);
+    revalidatePath(`/products/${productId}`);
+    revalidatePath("/inventory/sync");
+    return { success: true, ...result };
   } catch (err) {
     console.error("[pushProductStockToChannels]", { productId, error: String(err) });
     return { error: String(err).replace(/^Error:\s*/, "") || "Failed to push stock to channels." };

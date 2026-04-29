@@ -9,7 +9,22 @@ import {
   channels,
   channelProducts,
 } from "@/db/schema";
-import { and, desc, eq, sql, count } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql, count } from "drizzle-orm";
+import { channelRegistry } from "@/lib/channels/registry";
+
+const STOCK_PUSH_SUPPORTED_CHANNEL_TYPES = channelRegistry
+  .filter((channel) => channel.capabilities?.canPushStock)
+  .map((channel) => channel.id);
+
+export type StockSyncQueueStatusFilter = "all" | "ready" | "review" | "failed";
+
+export interface PendingStockSyncProductSummaryQuery {
+  search?: string;
+  status?: StockSyncQueueStatusFilter;
+  channelName?: string;
+  limit?: number;
+  offset?: number;
+}
 
 export async function getProductById(productId: number, tx: QueryClient = db) {
   const result = await tx
@@ -55,6 +70,338 @@ export async function getProductMappings(productId: number, tx: QueryClient = db
       )
     )
     .where(eq(channelProductMappings.productId, productId));
+}
+
+export interface PendingStockSyncMapping {
+  id: number;
+  channelId: number;
+  channelName: string;
+  channelType: string;
+  externalProductId: string;
+  label: string | null;
+  syncStatus: string;
+  lastSyncError: string | null;
+  channelStock: number | null;
+}
+
+export interface PendingStockSyncProduct {
+  id: number;
+  name: string;
+  sku: string | null;
+  quantityOnHand: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+  reorderLevel: number;
+  lastTransactionAt: Date | null;
+  lastTransactionNotes: string | null;
+  mappings: PendingStockSyncMapping[];
+}
+
+export interface PendingStockSyncProductSummary {
+  id: number;
+  name: string;
+  sku: string | null;
+  quantityOnHand: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+  reorderLevel: number;
+  lastTransactionAt: Date | null;
+  lastTransactionNotes: string | null;
+  mappingCount: number;
+  pendingCount: number;
+  failedCount: number;
+  unknownStockCount: number;
+  mismatchCount: number;
+  channelStockMin: number | null;
+  channelStockMax: number | null;
+  channelNames: string[];
+}
+
+interface PendingStockSyncProductSummaryRow {
+  productId: number;
+  productName: string;
+  sku: string | null;
+  quantityOnHand: number;
+  reservedQuantity: number;
+  reorderLevel: number;
+  mappingCount: number;
+  pendingCount: number;
+  failedCount: number;
+  unknownStockCount: number;
+  mismatchCount: number;
+  channelStockMin: number | null;
+  channelStockMax: number | null;
+  channelNames: string[] | null;
+  lastTransactionAt: Date | null;
+  lastTransactionNotes: string | null;
+  totalCount: number;
+}
+
+export interface PendingStockSyncProductSummaryResult {
+  products: PendingStockSyncProductSummary[];
+  totalCount: number;
+}
+
+export async function getPendingStockSyncProductSummaries(
+  userId: number,
+  query: PendingStockSyncProductSummaryQuery = {},
+  tx: QueryClient = db,
+): Promise<PendingStockSyncProductSummaryResult> {
+  if (STOCK_PUSH_SUPPORTED_CHANNEL_TYPES.length === 0) {
+    return { products: [], totalCount: 0 };
+  }
+
+  const limit = Math.max(1, Math.min(query.limit ?? 25, 500));
+  const offset = Math.max(0, query.offset ?? 0);
+  const search = query.search?.trim();
+  const status = query.status ?? "all";
+  const channelName = query.channelName && query.channelName !== "all" ? query.channelName : null;
+  const supportedChannelTypes = sql.join(
+    STOCK_PUSH_SUPPORTED_CHANNEL_TYPES.map((channelType) => sql`${channelType}`),
+    sql`, `,
+  );
+  const filters = [
+    search
+      ? sql`(
+          "productName" ILIKE ${`%${search}%`}
+          OR COALESCE("sku", '') ILIKE ${`%${search}%`}
+          OR array_to_string("channelNames", ' ') ILIKE ${`%${search}%`}
+        )`
+      : undefined,
+    channelName ? sql`${channelName} = ANY("channelNames")` : undefined,
+    status === "failed"
+      ? sql`"failedCount" > 0`
+      : status === "review"
+        ? sql`"failedCount" = 0 AND ("mismatchCount" > 0 OR "unknownStockCount" > 0)`
+        : status === "ready"
+          ? sql`"failedCount" = 0 AND "mismatchCount" = 0 AND "unknownStockCount" = 0`
+          : undefined,
+  ].filter((filter): filter is NonNullable<typeof filter> => !!filter);
+  const filterSql = filters.length > 0 ? sql`WHERE ${sql.join(filters, sql` AND `)}` : sql``;
+
+  const rows = await tx.execute(sql`
+    WITH summaries AS (
+      SELECT
+        ${products.id} AS "productId",
+        ${products.name} AS "productName",
+        ${products.sku} AS "sku",
+        ${products.quantityOnHand} AS "quantityOnHand",
+        ${products.reservedQuantity} AS "reservedQuantity",
+        ${products.reorderLevel} AS "reorderLevel",
+        ${products.updatedAt} AS "productUpdatedAt",
+        COUNT(${channelProductMappings.id})::int AS "mappingCount",
+        COUNT(${channelProductMappings.id}) FILTER (
+          WHERE ${channelProductMappings.syncStatus} = 'pending_update'
+        )::int AS "pendingCount",
+        COUNT(${channelProductMappings.id}) FILTER (
+          WHERE ${channelProductMappings.syncStatus} = 'failed'
+        )::int AS "failedCount",
+        COUNT(${channelProductMappings.id}) FILTER (
+          WHERE ${channelProducts.stockQuantity} IS NULL
+        )::int AS "unknownStockCount",
+        COUNT(${channelProductMappings.id}) FILTER (
+          WHERE ${channelProducts.stockQuantity} IS NOT NULL
+          AND ${channelProducts.stockQuantity} != GREATEST(0, ${products.quantityOnHand} - ${products.reservedQuantity})
+        )::int AS "mismatchCount",
+        MIN(${channelProducts.stockQuantity}) AS "channelStockMin",
+        MAX(${channelProducts.stockQuantity}) AS "channelStockMax",
+        COALESCE(array_agg(DISTINCT ${channels.name} ORDER BY ${channels.name}), ARRAY[]::text[]) AS "channelNames",
+        (
+          SELECT ${inventoryTransactions.createdAt}
+          FROM ${inventoryTransactions}
+          WHERE ${inventoryTransactions.productId} = ${products.id}
+          ORDER BY ${inventoryTransactions.createdAt} DESC
+          LIMIT 1
+        ) AS "lastTransactionAt",
+        (
+          SELECT ${inventoryTransactions.notes}
+          FROM ${inventoryTransactions}
+          WHERE ${inventoryTransactions.productId} = ${products.id}
+          ORDER BY ${inventoryTransactions.createdAt} DESC
+          LIMIT 1
+        ) AS "lastTransactionNotes"
+      FROM ${channelProductMappings}
+      INNER JOIN ${products} ON ${channelProductMappings.productId} = ${products.id}
+      INNER JOIN ${channels} ON ${channelProductMappings.channelId} = ${channels.id}
+      LEFT JOIN ${channelProducts}
+        ON ${channelProductMappings.channelId} = ${channelProducts.channelId}
+        AND ${channelProductMappings.externalProductId} = ${channelProducts.externalId}
+      WHERE ${channels.userId} = ${userId}
+        AND ${channels.status} = 'connected'
+        AND ${channels.channelType} IN (${supportedChannelTypes})
+        AND ${channelProductMappings.syncStatus} != 'in_sync'
+      GROUP BY
+        ${products.id},
+        ${products.name},
+        ${products.sku},
+        ${products.quantityOnHand},
+        ${products.reservedQuantity},
+        ${products.reorderLevel},
+        ${products.updatedAt}
+    ),
+    filtered AS (
+      SELECT *
+      FROM summaries
+      ${filterSql}
+    )
+    SELECT *, COUNT(*) OVER()::int AS "totalCount"
+    FROM filtered
+    ORDER BY "failedCount" DESC, "mismatchCount" DESC, "pendingCount" DESC, "productUpdatedAt" DESC, "productName" ASC
+    LIMIT ${limit}
+    OFFSET ${offset}
+  `) as unknown as PendingStockSyncProductSummaryRow[];
+
+  return {
+    products: rows.map((row) => ({
+      id: row.productId,
+      name: row.productName,
+      sku: row.sku,
+      quantityOnHand: row.quantityOnHand,
+      reservedQuantity: row.reservedQuantity,
+      availableQuantity: Math.max(0, row.quantityOnHand - row.reservedQuantity),
+      reorderLevel: row.reorderLevel,
+      lastTransactionAt: row.lastTransactionAt,
+      lastTransactionNotes: row.lastTransactionNotes,
+      mappingCount: row.mappingCount,
+      pendingCount: row.pendingCount,
+      failedCount: row.failedCount,
+      unknownStockCount: row.unknownStockCount,
+      mismatchCount: row.mismatchCount,
+      channelStockMin: row.channelStockMin,
+      channelStockMax: row.channelStockMax,
+      channelNames: row.channelNames ?? [],
+    })),
+    totalCount: rows[0]?.totalCount ?? 0,
+  };
+}
+
+export async function getPendingStockSyncProductDetails(userId: number, productId: number, tx: QueryClient = db): Promise<PendingStockSyncProduct | null> {
+  const rows = await tx
+    .select({
+      productId: products.id,
+      productName: products.name,
+      sku: products.sku,
+      quantityOnHand: products.quantityOnHand,
+      reservedQuantity: products.reservedQuantity,
+      reorderLevel: products.reorderLevel,
+      mappingId: channelProductMappings.id,
+      channelId: channelProductMappings.channelId,
+      channelName: channels.name,
+      channelType: channels.channelType,
+      externalProductId: channelProductMappings.externalProductId,
+      label: channelProductMappings.label,
+      syncStatus: channelProductMappings.syncStatus,
+      lastSyncError: channelProductMappings.lastSyncError,
+      channelStock: channelProducts.stockQuantity,
+      lastTransactionAt: sql<Date | null>`(
+        SELECT ${inventoryTransactions.createdAt}
+        FROM ${inventoryTransactions}
+        WHERE ${inventoryTransactions.productId} = ${products.id}
+        ORDER BY ${inventoryTransactions.createdAt} DESC
+        LIMIT 1
+      )`,
+      lastTransactionNotes: sql<string | null>`(
+        SELECT ${inventoryTransactions.notes}
+        FROM ${inventoryTransactions}
+        WHERE ${inventoryTransactions.productId} = ${products.id}
+        ORDER BY ${inventoryTransactions.createdAt} DESC
+        LIMIT 1
+      )`,
+    })
+    .from(channelProductMappings)
+    .innerJoin(products, eq(channelProductMappings.productId, products.id))
+    .innerJoin(channels, eq(channelProductMappings.channelId, channels.id))
+    .leftJoin(
+      channelProducts,
+      and(
+        eq(channelProductMappings.channelId, channelProducts.channelId),
+        eq(channelProductMappings.externalProductId, channelProducts.externalId),
+      ),
+    )
+    .where(
+      and(
+        eq(channels.userId, userId),
+        eq(channels.status, "connected"),
+        inArray(channels.channelType, STOCK_PUSH_SUPPORTED_CHANNEL_TYPES),
+        eq(channelProductMappings.productId, productId),
+        ne(channelProductMappings.syncStatus, "in_sync"),
+      ),
+    )
+    .orderBy(desc(products.updatedAt), products.name, channels.name);
+
+  const grouped = new Map<number, PendingStockSyncProduct>();
+
+  for (const row of rows) {
+    const availableQuantity = Math.max(0, row.quantityOnHand - row.reservedQuantity);
+    const existing = grouped.get(row.productId);
+
+    if (!existing) {
+      grouped.set(row.productId, {
+        id: row.productId,
+        name: row.productName,
+        sku: row.sku,
+        quantityOnHand: row.quantityOnHand,
+        reservedQuantity: row.reservedQuantity,
+        availableQuantity,
+        reorderLevel: row.reorderLevel,
+        lastTransactionAt: row.lastTransactionAt,
+        lastTransactionNotes: row.lastTransactionNotes,
+        mappings: [],
+      });
+    }
+
+    grouped.get(row.productId)!.mappings.push({
+      id: row.mappingId,
+      channelId: row.channelId,
+      channelName: row.channelName,
+      channelType: row.channelType,
+      externalProductId: row.externalProductId,
+      label: row.label,
+      syncStatus: row.syncStatus,
+      lastSyncError: row.lastSyncError,
+      channelStock: row.channelStock,
+    });
+  }
+
+  return Array.from(grouped.values())[0] ?? null;
+}
+
+export async function getPendingStockSyncProductCount(userId: number, tx: QueryClient = db): Promise<number> {
+  const [result] = await tx
+    .select({ count: sql<number>`COUNT(DISTINCT ${channelProductMappings.productId})::int` })
+    .from(channelProductMappings)
+    .innerJoin(channels, eq(channelProductMappings.channelId, channels.id))
+    .where(
+      and(
+        eq(channels.userId, userId),
+        eq(channels.status, "connected"),
+        inArray(channels.channelType, STOCK_PUSH_SUPPORTED_CHANNEL_TYPES),
+        ne(channelProductMappings.syncStatus, "in_sync"),
+      ),
+    );
+
+  return result?.count ?? 0;
+}
+
+export async function getStockSyncQueueChannelOptions(userId: number, tx: QueryClient = db): Promise<string[]> {
+  if (STOCK_PUSH_SUPPORTED_CHANNEL_TYPES.length === 0) return [];
+
+  const rows = await tx
+    .select({ channelName: channels.name })
+    .from(channelProductMappings)
+    .innerJoin(channels, eq(channelProductMappings.channelId, channels.id))
+    .where(
+      and(
+        eq(channels.userId, userId),
+        eq(channels.status, "connected"),
+        inArray(channels.channelType, STOCK_PUSH_SUPPORTED_CHANNEL_TYPES),
+        ne(channelProductMappings.syncStatus, "in_sync"),
+      ),
+    )
+    .groupBy(channels.name)
+    .orderBy(channels.name);
+
+  return rows.map((row) => row.channelName);
 }
 
 export async function getInventoryTransactionsForProduct(productId: number, tx: QueryClient = db) {
@@ -143,7 +490,7 @@ export async function getProductQuantity(productId: number, tx: QueryClient = db
 
   if (productRows.length === 0) return null;
   // Push availableQuantity to channels (on-hand minus reserved)
-  return productRows[0].quantityOnHand - productRows[0].reservedQuantity;
+  return Math.max(0, productRows[0].quantityOnHand - productRows[0].reservedQuantity);
 }
 
 export async function getChannelMappingsForStockPush(
@@ -165,6 +512,7 @@ export async function getChannelMappingsForStockPush(
       parentId: sql<string | null>`${channelProducts.rawData}->>'parentId'`,
       productType: sql<string | null>`${channelProducts.rawData}->>'amazonProductType'`,
       channelSku: channelProducts.sku,
+      channelStock: channelProducts.stockQuantity,
       rawData: channelProducts.rawData,
     })
     .from(channelProductMappings)
@@ -181,6 +529,7 @@ export async function getChannelMappingsForStockPush(
         eq(channelProductMappings.productId, productId),
         eq(channels.userId, userId),
         eq(channels.status, "connected"),
+        inArray(channels.channelType, STOCK_PUSH_SUPPORTED_CHANNEL_TYPES),
       ),
     );
 }

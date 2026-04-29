@@ -383,6 +383,53 @@ export const channelProducts = pgTable("channel_products", {
   index("channel_products_channel_idx").on(table.channelId),
 ]).enableRLS();
 
+// ─── Stock Sync Jobs ────────────────────────────────────────────────────────
+// Durable progress/audit rows for product stock reconciliation pushes.
+// A job is scoped to one SeplorX product and contains one item per mapped
+// channel listing.
+
+export const stockSyncJobs = pgTable("stock_sync_jobs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  productId: integer("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  quantity: integer("quantity").notNull(),
+  status: varchar("status", { length: 30 }).default("queued").notNull(),
+  totalCount: integer("total_count").default(0).notNull(),
+  pushedCount: integer("pushed_count").default(0).notNull(),
+  failedCount: integer("failed_count").default(0).notNull(),
+  skippedCount: integer("skipped_count").default(0).notNull(),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  index("stock_sync_jobs_user_idx").on(table.userId),
+  index("stock_sync_jobs_product_idx").on(table.productId),
+  index("stock_sync_jobs_status_idx").on(table.status),
+]).enableRLS();
+
+export const stockSyncJobItems = pgTable("stock_sync_job_items", {
+  id: serial("id").primaryKey(),
+  jobId: integer("job_id").notNull().references(() => stockSyncJobs.id, { onDelete: "cascade" }),
+  mappingId: integer("mapping_id").notNull().references(() => channelProductMappings.id, { onDelete: "cascade" }),
+  channelId: integer("channel_id").notNull().references(() => channels.id, { onDelete: "cascade" }),
+  channelName: varchar("channel_name", { length: 255 }).notNull(),
+  externalProductId: varchar("external_product_id", { length: 255 }).notNull(),
+  label: text("label"),
+  status: varchar("status", { length: 30 }).default("pending").notNull(),
+  channelStock: integer("channel_stock"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  uniqueIndex("stock_sync_job_items_job_mapping_idx").on(table.jobId, table.mappingId),
+  index("stock_sync_job_items_job_idx").on(table.jobId),
+  index("stock_sync_job_items_status_idx").on(table.status),
+  index("stock_sync_job_items_mapping_idx").on(table.mappingId),
+]).enableRLS();
+
 // ─── Settings ────────────────────────────────────────────────────────────────
 // Scalable key-value store for all platform-wide configuration (agent toggles,
 // theme, notifications, etc.). Keys are namespaced by convention:
