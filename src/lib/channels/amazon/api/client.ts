@@ -20,6 +20,10 @@ const gunzipAsync = promisify(zlib.gunzip);
 const CATALOG_INCLUDED_DATA =
   "summaries,images,identifiers,attributes,dimensions,relationships,productTypes" as const;
 
+type EnrichProductsOptions = {
+  discoverVirtualParents?: boolean;
+};
+
 export class AmazonAPIClient {
   private marketplaceId: string;
   private clientId: string;
@@ -126,16 +130,71 @@ export class AmazonAPIClient {
   }
 
   public async fetchProducts(search?: string): Promise<ExternalProduct[]> {
+    const reportId = await this.createListingsReport();
     const accessToken = await this.getAccessToken();
-
-    const reportId = await this.createListingReport(accessToken);
     const reportDocumentId = await this.pollReportStatus(accessToken, reportId);
+    const products = await this.downloadAndParseListingsReport(
+      reportDocumentId,
+      search,
+    );
+
+    return await this.enrichProducts(products);
+  }
+
+  public async createListingsReport(): Promise<string> {
+    const accessToken = await this.getAccessToken();
+    return this.createListingReport(accessToken);
+  }
+
+  public async getListingsReportStatus(reportId: string): Promise<{
+    processingStatus: string;
+    reportDocumentId?: string;
+  }> {
+    const accessToken = await this.getAccessToken();
+    const getReportUrl = new URL(
+      `${this.endpoint}/reports/2021-06-30/reports/${reportId}`,
+    );
+    const getReportRes = await fetch(getReportUrl.toString(), {
+      headers: {
+        Accept: "application/json",
+        "x-amz-access-token": accessToken,
+      },
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!getReportRes.ok) {
+      await this.logErrorResponse(
+        "[Amazon SP-API] Get Report Status Error:",
+        getReportRes,
+      );
+      throw new Error(`Failed to get Amazon report status: ${getReportRes.status}`);
+    }
+
+    return getReportRes.json();
+  }
+
+  public async downloadAndParseListingsReport(
+    reportDocumentId: string,
+    search?: string,
+  ): Promise<ExternalProduct[]> {
+    const accessToken = await this.getAccessToken();
     const { url, compressionAlgorithm } = await this.getReportDocumentUrl(
       accessToken,
       reportDocumentId,
     );
 
-    return await this.downloadAndParseReport(url, compressionAlgorithm, search);
+    return this.downloadAndParseReport(url, compressionAlgorithm, search);
+  }
+
+  public async enrichProducts(
+    products: ExternalProduct[],
+    options: EnrichProductsOptions = {},
+  ): Promise<ExternalProduct[]> {
+    if (products.length === 0) return products;
+
+    const accessToken = await this.getAccessToken();
+    await this.enrichParsedProducts(accessToken, products, options);
+    return products;
   }
 
   public async getCatalogItem(
@@ -792,7 +851,14 @@ export class AmazonAPIClient {
       });
     }
 
-    const accessToken = await this.getAccessToken();
+    return externalProducts;
+  }
+
+  private async enrichParsedProducts(
+    accessToken: string,
+    externalProducts: ExternalProduct[],
+    options: EnrichProductsOptions,
+  ): Promise<void> {
     await this.enrichWithCatalogData(accessToken, externalProducts);
 
     try {
@@ -825,11 +891,14 @@ export class AmazonAPIClient {
       });
     }
 
-    const synthesizedAsins = this.processProductRelationships(externalProducts);
+    const discoverVirtualParents = options.discoverVirtualParents ?? true;
+    const synthesizedAsins = this.processProductRelationships(externalProducts, {
+      synthesizeMissingParents: discoverVirtualParents,
+    });
 
     // If we synthesized parents (likely because children referenced them but they had no SKU/Listing),
     // we MUST fetch their full metadata individually to discover the REST of the family.
-    if (synthesizedAsins.length > 0) {
+    if (discoverVirtualParents && synthesizedAsins.length > 0) {
       logger.info(`[Amazon SP-API] Synthesized ${synthesizedAsins.length} virtual parents. Discovering family relationships...`);
       // Process synthesized parents to discover all children. Limit concurrency and respect rate limits.
       for (const parentId of synthesizedAsins) {
@@ -853,7 +922,6 @@ export class AmazonAPIClient {
       }
     }
 
-    return externalProducts;
   }
 
   private async fetchFbaInventorySummaries(
@@ -1017,7 +1085,11 @@ export class AmazonAPIClient {
     }
   }
 
-  private processProductRelationships(products: ExternalProduct[]): string[] {
+  private processProductRelationships(
+    products: ExternalProduct[],
+    options: { synthesizeMissingParents?: boolean } = {},
+  ): string[] {
+    const synthesizeMissingParents = options.synthesizeMissingParents ?? true;
     const virtualParents = new Map<string, ExternalProduct>();
 
     for (const product of products) {
@@ -1063,6 +1135,7 @@ export class AmazonAPIClient {
 
         // If parent doesn't exist in the batch natively, stage a virtual parent
         if (
+          synthesizeMissingParents &&
           !products.some((p) => p.id === rels.parentId) &&
           !virtualParents.has(rels.parentId)
         ) {

@@ -383,6 +383,53 @@ export const channelProducts = pgTable("channel_products", {
   index("channel_products_channel_idx").on(table.channelId),
 ]).enableRLS();
 
+// ─── Channel Product Sync Jobs ──────────────────────────────────────────────
+// Durable reconciliation jobs for importing external channel listings into the
+// local channel_products cache. Amazon report generation can outlive a single
+// request, so jobs persist report IDs, progress counts, and item-level failures.
+
+export const channelProductSyncJobs = pgTable("channel_product_sync_jobs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  channelId: integer("channel_id").notNull().references(() => channels.id, { onDelete: "cascade" }),
+  status: varchar("status", { length: 30 }).default("queued").notNull(),
+  phase: varchar("phase", { length: 50 }).default("creating_report").notNull(),
+  reportId: varchar("report_id", { length: 255 }),
+  reportDocumentId: varchar("report_document_id", { length: 255 }),
+  totalCount: integer("total_count").default(0).notNull(),
+  importedCount: integer("imported_count").default(0).notNull(),
+  enrichedCount: integer("enriched_count").default(0).notNull(),
+  failedCount: integer("failed_count").default(0).notNull(),
+  skippedCount: integer("skipped_count").default(0).notNull(),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  index("channel_product_sync_jobs_user_idx").on(table.userId),
+  index("channel_product_sync_jobs_channel_idx").on(table.channelId),
+  index("channel_product_sync_jobs_status_idx").on(table.status),
+]).enableRLS();
+
+export const channelProductSyncJobItems = pgTable("channel_product_sync_job_items", {
+  id: serial("id").primaryKey(),
+  jobId: integer("job_id").notNull().references(() => channelProductSyncJobs.id, { onDelete: "cascade" }),
+  channelProductId: integer("channel_product_id").references(() => channelProducts.id, { onDelete: "cascade" }),
+  externalId: varchar("external_id", { length: 255 }).notNull(),
+  sku: varchar("sku", { length: 255 }),
+  status: varchar("status", { length: 30 }).default("pending").notNull(),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  uniqueIndex("channel_product_sync_job_items_job_ext_idx").on(table.jobId, table.externalId),
+  index("channel_product_sync_job_items_job_idx").on(table.jobId),
+  index("channel_product_sync_job_items_status_idx").on(table.status),
+  index("channel_product_sync_job_items_product_idx").on(table.channelProductId),
+]).enableRLS();
+
 // ─── Stock Sync Jobs ────────────────────────────────────────────────────────
 // Durable progress/audit rows for product stock reconciliation pushes.
 // A job is scoped to one SeplorX product and contains one item per mapped

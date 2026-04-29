@@ -211,6 +211,20 @@
       "when": 1777456740000,
       "tag": "0029_stock_sync_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1777456800000,
+      "tag": "0030_stock_sync_skipped_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1777456860000,
+      "tag": "0031_channel_product_sync_jobs",
+      "breakpoints": true
     }
   ]
 }

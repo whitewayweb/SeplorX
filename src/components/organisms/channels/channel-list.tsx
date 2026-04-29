@@ -4,7 +4,7 @@ import { useActionState, useTransition, useState, useEffect, useRef } from "reac
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { Store, Webhook, PackageSearch, PlugZap, RefreshCw } from "lucide-react";
+import { Store, Webhook, PlugZap, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { PORTAL_NAME } from "@/utils/constants";
@@ -22,13 +22,13 @@ import {
   deleteChannel,
   resetChannelStatus,
   registerChannelWebhooks,
-  syncChannelProducts,
 } from "@/app/(dashboard)/channels/actions";
 import { getChannelById } from "@/lib/channels/registry";
 import type { ChannelInstance } from "@/lib/channels/types";
 import { ChannelMappingTrigger } from "@/components/organisms/agents/channel-mapping-trigger";
 import { AGENT_REGISTRY } from "@/lib/agents/registry";
 import { EditChannelDialog } from "./edit-channel-dialog";
+import { SyncProductsButton as FetchProductsButton } from "./sync-products-button";
 
 // ─── Reconnect button (pending / disconnected OAuth channels) ─────────────────
 
@@ -148,38 +148,6 @@ function ReconnectApiKeyButton({
   );
 }
 
-// ─── Fetch Products button ────────────────────────────────────────────────────
-
-function FetchProductsButton({ channelId }: { channelId: number }) {
-  const [pending, startTransition] = useTransition();
-
-  function handleFetch() {
-    startTransition(async () => {
-      const res = await syncChannelProducts(channelId);
-      if (res.error) {
-        toast.error("Fetch failed", { description: res.error });
-      } else {
-        toast.success("Products Synced", {
-          description: `Successfully cached ${res.count} products from this channel.`,
-        });
-      }
-    });
-  }
-
-  return (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={handleFetch}
-      disabled={pending}
-      title="Fetch products from this channel"
-    >
-      <PackageSearch className="h-3 w-3 mr-1" />
-      {pending ? "Fetching…" : "Fetch Products"}
-    </Button>
-  );
-}
-
 // ─── Row actions ──────────────────────────────────────────────────────────────
 
 function ChannelRowActions({ channel }: { channel: ChannelInstance }) {
@@ -261,7 +229,7 @@ function ChannelRowActions({ channel }: { channel: ChannelInstance }) {
       {channel.status === "connected" && (() => {
         const def = getChannelById(channel.channelType as Parameters<typeof getChannelById>[0]);
         return def?.capabilities?.canFetchProducts ? (
-          <FetchProductsButton channelId={channel.id} />
+          <FetchProductsButton channelId={channel.id} size="sm" compact />
         ) : null;
       })()}
 

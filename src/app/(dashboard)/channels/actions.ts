@@ -22,6 +22,10 @@ import {
   getCatalogItemService,
   updateChannelProductService,
 } from "@/lib/channels/services";
+import {
+  processChannelProductSyncJobService,
+  startChannelProductSyncJobService,
+} from "@/lib/channels/product-sync";
 import { getAuthenticatedUserId } from "@/lib/auth";
 
 export async function createChannel(_prevState: unknown, formData: FormData) {
@@ -196,6 +200,40 @@ export async function syncChannelProducts(channelId: number) {
   } catch (err) {
     console.error("[syncChannelProducts]", { channelId: parsed.data.id, error: String(err) });
     return { error: String(err).replace(/^Error:\s*/, "").substring(0, 200) };
+  }
+}
+
+export async function startChannelProductFetchJob(channelId: number) {
+  const parsed = ChannelIdSchema.safeParse({ id: channelId });
+  if (!parsed.success) return { error: "Invalid channel ID." };
+
+  try {
+    const userId = await getAuthenticatedUserId();
+    const job = await startChannelProductSyncJobService(userId, parsed.data.id);
+    return { success: true, job };
+  } catch (err) {
+    console.error("[startChannelProductFetchJob]", { channelId: parsed.data.id, error: String(err) });
+    return { error: "Failed to start product fetch. Please try again." };
+  }
+}
+
+export async function pollChannelProductFetchJob(jobId: number) {
+  const parsed = z.number().int().positive().safeParse(jobId);
+  if (!parsed.success) return { error: "Invalid product fetch job ID." };
+
+  try {
+    const userId = await getAuthenticatedUserId();
+    const job = await processChannelProductSyncJobService(userId, parsed.data);
+
+    if (job.importedCount > 0 || job.status === "done" || job.status === "failed") {
+      revalidatePath("/channels");
+      revalidatePath(`/products/channels/${job.channelId}`);
+    }
+
+    return { success: true, job };
+  } catch (err) {
+    console.error("[pollChannelProductFetchJob]", { jobId: parsed.data, error: String(err) });
+    return { error: "Failed to update product fetch progress." };
   }
 }
 
