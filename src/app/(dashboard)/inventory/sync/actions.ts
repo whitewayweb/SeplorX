@@ -3,49 +3,16 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getAuthenticatedUserId } from "@/lib/auth";
-import { pushBulkProductStockToChannelsService } from "@/lib/stock/channel-sync";
+import {
+  createStockPushJobService,
+  processStockPushJobBatchService,
+} from "@/lib/stock/channel-sync";
 import { getPendingStockSyncProductDetails } from "@/data/products";
 import { getChannelById } from "@/lib/channels/registry";
 import type { ChannelType } from "@/lib/channels/types";
 
-const ProductIdsSchema = z.array(z.number().int().positive()).min(1).max(200);
-
-export async function pushSelectedProductStock(productIds: number[]) {
-  const parsed = ProductIdsSchema.safeParse(productIds);
-  if (!parsed.success) return { error: "Select at least one valid product." };
-
-  try {
-    const userId = await getAuthenticatedUserId();
-    const results = await pushBulkProductStockToChannelsService(userId, parsed.data);
-    const flattened = results.flatMap((product) =>
-      product.results.map((result) => ({
-        productId: product.productId,
-        quantity: product.quantity,
-        ...result,
-      })),
-    );
-
-    revalidatePath("/inventory");
-    revalidatePath("/inventory/sync");
-    revalidatePath("/");
-
-    for (const productId of parsed.data) {
-      revalidatePath(`/products/${productId}`);
-    }
-
-    return {
-      success: true,
-      products: results.length,
-      pushed: flattened.filter((r) => r.ok).length,
-      failed: flattened.filter((r) => !r.ok && !r.skipped).length,
-      skipped: flattened.filter((r) => r.skipped).length,
-      results: flattened,
-    };
-  } catch (err) {
-    console.error("[pushSelectedProductStock]", { error: String(err) });
-    return { error: String(err).replace(/^Error:\s*/, "") || "Failed to push stock." };
-  }
-}
+const ProductIdSchema = z.number().int().positive();
+const JobIdSchema = z.number().int().positive();
 
 export async function getStockSyncProductDetails(productId: number) {
   const parsed = z.number().int().positive().safeParse(productId);
@@ -72,5 +39,41 @@ export async function getStockSyncProductDetails(productId: number) {
   } catch (err) {
     console.error("[getStockSyncProductDetails]", { productId, error: String(err) });
     return { error: "Failed to load stock sync details." };
+  }
+}
+
+export async function startStockPushJob(productId: number) {
+  const parsed = ProductIdSchema.safeParse(productId);
+  if (!parsed.success) return { error: "Invalid product ID." };
+
+  try {
+    const userId = await getAuthenticatedUserId();
+    const job = await createStockPushJobService(userId, parsed.data);
+    return { success: true, job };
+  } catch (err) {
+    console.error("[startStockPushJob]", { productId, error: String(err) });
+    return { error: String(err).replace(/^Error:\s*/, "") || "Failed to start stock push." };
+  }
+}
+
+export async function pollStockPushJob(jobId: number) {
+  const parsed = JobIdSchema.safeParse(jobId);
+  if (!parsed.success) return { error: "Invalid job ID." };
+
+  try {
+    const userId = await getAuthenticatedUserId();
+    const job = await processStockPushJobBatchService(userId, parsed.data);
+
+    if (job.status === "done" || job.status === "failed") {
+      revalidatePath("/inventory");
+      revalidatePath("/inventory/sync");
+      revalidatePath("/");
+      revalidatePath(`/products/${job.productId}`);
+    }
+
+    return { success: true, job };
+  } catch (err) {
+    console.error("[pollStockPushJob]", { jobId, error: String(err) });
+    return { error: String(err).replace(/^Error:\s*/, "") || "Failed to check stock push progress." };
   }
 }

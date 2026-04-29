@@ -400,6 +400,7 @@ export async function getChannelMappingsForStockPush(
       parentId: sql<string | null>`${channelProducts.rawData}->>'parentId'`,
       productType: sql<string | null>`${channelProducts.rawData}->>'amazonProductType'`,
       channelSku: channelProducts.sku,
+      channelStock: channelProducts.stockQuantity,
       rawData: channelProducts.rawData,
     })
     .from(channelProductMappings)

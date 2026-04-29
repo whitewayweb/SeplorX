@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -32,6 +33,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   Table,
   TableBody,
@@ -43,7 +51,7 @@ import {
 import { getChannelById } from "@/lib/channels/registry";
 import type { ChannelType } from "@/lib/channels/types";
 import { cn } from "@/lib/utils";
-import { getStockSyncProductDetails, pushSelectedProductStock } from "./actions";
+import { getStockSyncProductDetails, pollStockPushJob, startStockPushJob } from "./actions";
 
 interface SyncMapping {
   id: number;
@@ -101,7 +109,52 @@ interface StockSyncQueueProps {
 
 type ListingFilter = "all" | "differences" | "pending" | "failed";
 
+interface StockPushJobItem {
+  id: number;
+  mappingId: number;
+  channelId: number;
+  channelName: string;
+  externalProductId: string;
+  label: string | null;
+  status: string;
+  channelStock: number | null;
+  errorMessage: string | null;
+  updatedAt: Date | string;
+}
+
+interface StockPushJob {
+  id: number;
+  productId: number;
+  quantity: number;
+  status: string;
+  totalCount: number;
+  pushedCount: number;
+  failedCount: number;
+  skippedCount: number;
+  errorMessage: string | null;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+  completedAt: Date | string | null;
+  items: StockPushJobItem[];
+}
+
 const STATUS_UI: Record<string, { label: string; className: string }> = {
+  pending: {
+    label: "Pending",
+    className: "border-muted bg-muted text-muted-foreground",
+  },
+  processing: {
+    label: "Syncing",
+    className: "border-blue-200 bg-blue-50 text-blue-700",
+  },
+  success: {
+    label: "Updated",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  },
+  skipped: {
+    label: "Skipped",
+    className: "border-slate-200 bg-slate-50 text-slate-700",
+  },
   pending_update: {
     label: "Review",
     className: "border-yellow-200 bg-yellow-50 text-yellow-700",
@@ -118,20 +171,16 @@ const STATUS_UI: Record<string, { label: string; className: string }> = {
     label: "Uploading",
     className: "border-indigo-200 bg-indigo-50 text-indigo-700",
   },
-  processing: {
-    label: "Processing",
-    className: "border-purple-200 bg-purple-50 text-purple-700",
-  },
 };
 
 export function StockSyncQueue({ products }: StockSyncQueueProps) {
   const router = useRouter();
-  const detailPanelRef = useRef<HTMLDivElement | null>(null);
   const [requestedProductId, setRequestedProductId] = useState<number | null>(null);
   const [detailCache, setDetailCache] = useState<Record<number, SyncProductDetail>>({});
   const [detailLoadingId, setDetailLoadingId] = useState<number | null>(null);
   const [expandedChannels, setExpandedChannels] = useState<Set<string>>(new Set());
-  const [pushingIds, setPushingIds] = useState<Set<number>>(new Set());
+  const [activeJob, setActiveJob] = useState<StockPushJob | null>(null);
+  const [isPollingJob, setIsPollingJob] = useState(false);
   const [listingPanelGroupKey, setListingPanelGroupKey] = useState<string | null>(null);
   const [listingSearchQuery, setListingSearchQuery] = useState("");
   const [listingFilter, setListingFilter] = useState<ListingFilter>("all");
@@ -218,23 +267,63 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
   const activeSummary = products.find((product) => product.id === activeProductId) ?? null;
   const activeDetail = activeProductId ? detailCache[activeProductId] ?? null : null;
   const displayProduct = activeDetail ?? activeSummary;
+  const activeProductJob = displayProduct && activeJob?.productId === displayProduct.id ? activeJob : null;
+  const activeJobItemsByMappingId = useMemo(() => {
+    return new Map((activeProductJob?.items ?? []).map((item) => [item.mappingId, item]));
+  }, [activeProductJob]);
+  const isAnyJobRunning = !!activeJob && (activeJob.status === "queued" || activeJob.status === "processing");
+  const isActiveJobRunning = !!activeProductJob && (activeProductJob.status === "queued" || activeProductJob.status === "processing");
   const channelGroups = useMemo(
     () => (activeDetail ? getChannelGroups(activeDetail) : []),
     [activeDetail],
   );
 
   useEffect(() => {
-    if (!displayProduct) return;
+    if (!activeJob || (activeJob.status !== "queued" && activeJob.status !== "processing")) return;
 
-    function handlePointerDown(event: PointerEvent) {
-      const target = event.target;
-      if (target instanceof Node && detailPanelRef.current?.contains(target)) return;
-      closeProductPanel();
-    }
+    let cancelled = false;
+    const timeout = setTimeout(async () => {
+      setIsPollingJob(true);
+      try {
+        const result = await pollStockPushJob(activeJob.id);
+        if (cancelled) return;
 
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [closeProductPanel, displayProduct]);
+        if (result.error) {
+          toast.error("Could not update push progress", { description: result.error });
+          setActiveJob((current) => current ? { ...current, status: "failed", errorMessage: result.error } : current);
+          return;
+        }
+
+        if ("success" in result && result.success) {
+          setActiveJob(result.job);
+          if (result.job.status === "done") {
+            toast.success("Stock push complete", {
+              description: `${result.job.pushedCount} updated, ${result.job.failedCount} failed, ${result.job.skippedCount} skipped.`,
+            });
+            setDetailCache({});
+            router.refresh();
+          } else if (result.job.status === "failed" && result.job.pushedCount + result.job.failedCount + result.job.skippedCount >= result.job.totalCount) {
+            toast.warning("Stock push finished with failures", {
+              description: `${result.job.pushedCount} updated, ${result.job.failedCount} failed, ${result.job.skippedCount} skipped.`,
+            });
+            setDetailCache({});
+            router.refresh();
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          toast.error("Could not update push progress", { description: String(err) });
+        }
+      } finally {
+        if (!cancelled) setIsPollingJob(false);
+      }
+    }, 900);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [activeJob, router]);
   const listingPanelGroup = channelGroups.find((group) => group.key === listingPanelGroupKey) ?? null;
   const listingPageSize = 25;
   const filteredListingPanelItems = useMemo(() => {
@@ -299,36 +388,36 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
       return;
     }
 
-    setPushingIds(new Set([productId]));
+    if (isAnyJobRunning) {
+      toast.info("Stock push already in progress", {
+        description: "Wait for the current product to finish before starting another push.",
+      });
+      return;
+    }
+
     startTransition(async () => {
-      const result = await pushSelectedProductStock([productId]);
-      setPushingIds(new Set());
+      try {
+        const result = await startStockPushJob(productId);
 
-      if (result.error) {
-        toast.error("Stock push failed", { description: result.error });
-        return;
-      }
+        if (result.error) {
+          toast.error("Could not start stock push", { description: result.error });
+          return;
+        }
 
-      if (!("success" in result) || !result.success) {
-        toast.error("Stock push failed");
-        return;
-      }
+        if (!("success" in result) || !result.success) {
+          toast.error("Could not start stock push");
+          return;
+        }
 
-      if (result.failed === 0) {
-        toast.success("Stock pushed", {
-          description: `${result.pushed} mapping${result.pushed === 1 ? "" : "s"} updated across ${result.products} product${result.products === 1 ? "" : "s"}.`,
+        setActiveJob(result.job);
+        toast.info("Stock push started", {
+          description: `Reconciling ${result.job.totalCount} mapped listing${result.job.totalCount === 1 ? "" : "s"}.`,
         });
-      } else {
-        const firstFailure = result.results.find((r) => !r.ok && !r.skipped);
-        toast.warning(`${result.pushed} succeeded, ${result.failed} failed`, {
-          description: firstFailure
-            ? `${firstFailure.channelName} / ${firstFailure.label ?? firstFailure.externalProductId}: ${firstFailure.error}`
-            : undefined,
+      } catch (err) {
+        toast.error("Could not start stock push", {
+          description: String(err).replace(/^Error:\s*/, "") || "The request did not complete.",
         });
       }
-
-      setDetailCache({});
-      router.refresh();
     });
   }
 
@@ -354,8 +443,8 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
         </div>
       )}
 
-      <section className={cn("grid min-h-[680px]", displayProduct && "xl:grid-cols-[minmax(560px,42%)_minmax(0,1fr)]")}>
-        <div className={cn("border-b xl:border-b-0", displayProduct && "xl:border-r")}>
+      <section className="relative min-h-[680px]">
+        <div className="border-b xl:border-b-0">
           <div className="border-b px-6 py-5">
             <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
               <div>
@@ -580,31 +669,46 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
           </div>
         </div>
 
-        {displayProduct && (
-          <div ref={detailPanelRef} className="relative flex min-h-[680px] flex-col">
-            <>
-              <div className="flex flex-col gap-4 border-b px-6 py-5 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h2 className="truncate text-lg font-semibold">{displayProduct.name}</h2>
-                    <Button variant="ghost" size="icon" asChild className="h-7 w-7 shrink-0">
-                      <Link href={`/products/${displayProduct.id}`} title="Open product">
+        <Sheet
+          open={!!displayProduct}
+          onOpenChange={(open) => {
+            if (!open) closeProductPanel();
+          }}
+        >
+          <SheetContent
+            side="right"
+            showCloseButton={false}
+            className="w-full gap-0 overflow-hidden p-0 sm:max-w-none md:w-[min(980px,78vw)] md:max-w-[980px]"
+          >
+            {displayProduct && (
+              <div className="relative flex min-h-0 flex-1 flex-col">
+                <SheetHeader className="flex flex-col gap-4 border-b px-6 py-5 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <SheetTitle className="truncate text-lg font-semibold">{displayProduct.name}</SheetTitle>
+                      <Button variant="ghost" size="icon" asChild className="h-7 w-7 shrink-0">
+                        <Link href={`/products/${displayProduct.id}`} title="Open product">
+                          <ExternalLink className="h-4 w-4" />
+                        </Link>
+                      </Button>
+                    </div>
+                    <SheetDescription className="mt-1 text-sm text-muted-foreground">
+                      SKU: <span className="font-mono">{displayProduct.sku ?? "No SKU"}</span>
+                    </SheetDescription>
+                  </div>
+
+                  <div className="flex shrink-0 gap-2">
+                    <Button variant="outline" asChild>
+                      <Link href={`/products/${displayProduct.id}`} className="gap-2">
+                        Open product
                         <ExternalLink className="h-4 w-4" />
                       </Link>
                     </Button>
+                    <Button variant="ghost" size="icon" onClick={closeProductPanel} className="h-10 w-10">
+                      <X className="h-4 w-4" />
+                    </Button>
                   </div>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    SKU: <span className="font-mono">{displayProduct.sku ?? "No SKU"}</span>
-                  </p>
-                </div>
-
-                <Button variant="outline" asChild>
-                  <Link href={`/products/${displayProduct.id}`} className="gap-2">
-                    Open product
-                    <ExternalLink className="h-4 w-4" />
-                  </Link>
-                </Button>
-              </div>
+                </SheetHeader>
 
               <div className="border-b px-4 py-4 sm:px-6">
                 <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-2 rounded-lg border bg-background p-2 sm:gap-3">
@@ -706,7 +810,10 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                                     <span>Set to {displayProduct.availableQuantity}</span>
                                   </div>
                                   <div className="text-left md:text-right">
-                                    <StatusBadge status={mapping.syncStatus} ready={mapping.channelStock === displayProduct.availableQuantity} />
+                                    <StatusBadge
+                                      status={activeJobItemsByMappingId.get(mapping.id)?.status ?? mapping.syncStatus}
+                                      ready={mapping.channelStock === displayProduct.availableQuantity}
+                                    />
                                   </div>
                                 </div>
                               ))}
@@ -729,6 +836,9 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
               </div>
 
               <div className="sticky bottom-0 grid gap-3 border-t bg-background/95 px-6 py-4 backdrop-blur lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
+                {activeProductJob && (
+                  <ReconciliationProgress job={activeProductJob} isPolling={isPollingJob} />
+                )}
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="hidden h-12 w-12 items-center justify-center rounded-md border bg-muted text-xs font-semibold text-muted-foreground sm:flex">
                     SKU
@@ -751,12 +861,16 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                     </Link>
                   </Button>
                   <Button
-                    disabled={isPending || displayProduct.mappingCount === 0}
+                    disabled={isPending || isAnyJobRunning || displayProduct.mappingCount === 0}
                     onClick={() => pushProduct(displayProduct.id)}
                     className="gap-2"
                   >
-                    {pushingIds.has(displayProduct.id) ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="h-4 w-4" />}
-                    Push this product
+                    {isAnyJobRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="h-4 w-4" />}
+                    {isActiveJobRunning
+                      ? `Pushing ${getCompletedJobCount(activeProductJob)} / ${activeProductJob.totalCount}`
+                      : isAnyJobRunning
+                        ? "Push in progress"
+                      : "Push this product"}
                   </Button>
                 </div>
               </div>
@@ -773,7 +887,9 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                   searchQuery={listingSearchQuery}
                   filter={listingFilter}
                   isPending={isPending}
-                  isPushing={pushingIds.has(displayProduct.id)}
+                  isPushLocked={isAnyJobRunning}
+                  job={activeProductJob}
+                  jobItemsByMappingId={activeJobItemsByMappingId}
                   onSearchChange={(value) => {
                     setListingSearchQuery(value);
                     setListingPage(1);
@@ -784,9 +900,10 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                   onPush={() => pushProduct(displayProduct.id)}
                 />
               )}
-            </>
-          </div>
-        )}
+              </div>
+            )}
+          </SheetContent>
+        </Sheet>
       </section>
     </div>
   );
@@ -1022,7 +1139,9 @@ function ListingPanel({
   searchQuery,
   filter,
   isPending,
-  isPushing,
+  isPushLocked,
+  job,
+  jobItemsByMappingId,
   onSearchChange,
   onFilterChange,
   onPageChange,
@@ -1039,7 +1158,9 @@ function ListingPanel({
   searchQuery: string;
   filter: ListingFilter;
   isPending: boolean;
-  isPushing: boolean;
+  isPushLocked: boolean;
+  job: StockPushJob | null;
+  jobItemsByMappingId: Map<number, StockPushJobItem>;
   onSearchChange: (value: string) => void;
   onFilterChange: (value: string) => void;
   onPageChange: (value: number) => void;
@@ -1049,6 +1170,8 @@ function ListingPanel({
   const firstItem = filteredCount === 0 ? 0 : (page - 1) * pageSize + 1;
   const lastItem = Math.min(page * pageSize, filteredCount);
   const action = getChannelAction(group);
+  const isPushing = !!job && (job.status === "queued" || job.status === "processing");
+  const isBlockedByOtherPush = isPushLocked && !isPushing;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col border-l bg-background shadow-2xl md:absolute md:inset-y-0 md:left-auto md:right-0 md:w-[min(760px,100%)]">
@@ -1131,7 +1254,10 @@ function ListingPanel({
                 <span>Set to {product.availableQuantity}</span>
               </div>
               <div className="text-left md:text-right">
-                <StatusBadge status={mapping.syncStatus} ready={mapping.channelStock === product.availableQuantity} />
+                <StatusBadge
+                  status={jobItemsByMappingId.get(mapping.id)?.status ?? mapping.syncStatus}
+                  ready={mapping.channelStock === product.availableQuantity}
+                />
               </div>
             </div>
           ))}
@@ -1169,12 +1295,62 @@ function ListingPanel({
           <Button variant="outline" onClick={onClose} className="flex-1 sm:flex-none">
             Close
           </Button>
-          <Button onClick={onPush} disabled={isPending || product.mappingCount === 0} className="flex-1 gap-2 sm:flex-none">
-            {isPushing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="h-4 w-4" />}
-            Push this product
+          <Button onClick={onPush} disabled={isPending || isPushLocked || product.mappingCount === 0} className="flex-1 gap-2 sm:flex-none">
+            {isPushLocked ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="h-4 w-4" />}
+            {isPushing && job
+              ? `Pushing ${getCompletedJobCount(job)} / ${job.totalCount}`
+              : isBlockedByOtherPush
+                ? "Push in progress"
+                : "Push this product"}
           </Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReconciliationProgress({ job, isPolling }: { job: StockPushJob; isPolling: boolean }) {
+  const completed = getCompletedJobCount(job);
+  const progress = job.totalCount === 0 ? 0 : Math.round((completed / job.totalCount) * 100);
+  const running = job.status === "queued" || job.status === "processing";
+  const recentItems = job.items
+    .filter((item) => item.status !== "pending")
+    .slice()
+    .reverse()
+    .slice(0, 4);
+
+  return (
+    <div className="space-y-3 rounded-lg border bg-blue-50/60 p-3 lg:col-span-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-blue-950">
+            {running ? "Reconciling channel stock" : job.status === "done" ? "Stock reconciliation complete" : "Stock reconciliation finished with failures"}
+          </p>
+          <p className="text-xs text-blue-700">
+            {completed} of {job.totalCount} listings processed - {job.pushedCount} updated, {job.failedCount} failed, {job.skippedCount} skipped
+          </p>
+        </div>
+        {running && (
+          <div className="flex items-center gap-2 text-xs font-medium text-blue-700">
+            <Loader2 className={cn("h-3.5 w-3.5", isPolling && "animate-spin")} />
+            Updating live
+          </div>
+        )}
+      </div>
+      <Progress value={progress} className="h-2" />
+      {recentItems.length > 0 && (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {recentItems.map((item) => (
+            <div key={item.id} className="flex items-center justify-between gap-3 rounded-md border bg-background px-2 py-1.5 text-xs">
+              <div className="min-w-0">
+                <p className="truncate font-medium">{item.channelName}</p>
+                <p className="truncate font-mono text-muted-foreground">{item.externalProductId}</p>
+              </div>
+              <StatusBadge status={item.status} />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1188,7 +1364,7 @@ function ActionBadge({ action }: { action: { label: string; className: string } 
 }
 
 function StatusBadge({ status, ready = false }: { status: string; ready?: boolean }) {
-  if (ready && status !== "failed") {
+  if (ready && status === "pending_update") {
     return (
       <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
         Ready
@@ -1266,6 +1442,10 @@ function getPriorityScore(product: SyncProduct) {
 
 function getChannelPriorityScore(group: ChannelGroup) {
   return group.failedCount * 100000 + group.mismatchCount * 1000 + group.pendingCount;
+}
+
+function getCompletedJobCount(job: StockPushJob) {
+  return job.pushedCount + job.failedCount + job.skippedCount;
 }
 
 function getStockRangeLabel(min: number | null, max: number | null) {

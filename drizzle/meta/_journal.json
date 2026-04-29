@@ -204,6 +204,13 @@
       "when": 1776900000000,
       "tag": "0028_add_last_order_sync_at",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1777456740000,
+      "tag": "0029_stock_sync_jobs",
+      "breakpoints": true
     }
   ]
 }
