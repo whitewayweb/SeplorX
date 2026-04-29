@@ -17,7 +17,6 @@ import {
   disconnectChannelService,
   deleteChannelService,
   registerChannelWebhooksService,
-  syncChannelProductsService,
   clearChannelProductsService,
   getCatalogItemService,
   updateChannelProductService,
@@ -184,21 +183,6 @@ export async function registerChannelWebhooks(channelId: number) {
     return { success: true };
   } catch (err) {
     console.error("[registerChannelWebhooks]", { channelId, error: String(err) });
-    return { error: String(err).replace(/^Error:\s*/, "").substring(0, 200) };
-  }
-}
-
-export async function syncChannelProducts(channelId: number) {
-  const parsed = ChannelIdSchema.safeParse({ id: channelId });
-  if (!parsed.success) return { error: "Invalid channel ID." };
-
-  try {
-    const userId = await getAuthenticatedUserId();
-    const count = await syncChannelProductsService(userId, parsed.data.id);
-    revalidatePath("/channels");
-    return { success: true, count };
-  } catch (err) {
-    console.error("[syncChannelProducts]", { channelId: parsed.data.id, error: String(err) });
     return { error: String(err).replace(/^Error:\s*/, "").substring(0, 200) };
   }
 }

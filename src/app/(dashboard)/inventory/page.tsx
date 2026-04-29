@@ -4,6 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/molecules/layout/page-header";
 import { InventoryTransactionsTable } from "@/components/organisms/inventory/inventory-transactions-table";
+import { TablePagination } from "@/components/ui/table-pagination";
+import { parsePaginationParams } from "@/lib/utils/pagination";
 import {
   Table,
   TableBody,
@@ -21,7 +23,7 @@ import {
   getTotalActiveProductsCount, 
   getLowStockProducts, 
   getTotalStockValue, 
-  getRecentInventoryTransactions 
+  getInventoryTransactions 
 } from "@/data/inventory";
 import { getPendingAgentTasks } from "@/data/agents";
 import { getPendingStockSyncProductCount } from "@/data/products";
@@ -29,22 +31,28 @@ import { Button } from "@/components/ui/button";
 
 export const dynamic = "force-dynamic";
 
-export default async function InventoryPage() {
+export default async function InventoryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const userId = await getAuthenticatedUserId();
+  const resolvedSearchParams = await searchParams;
+  const { page, limit, offset } = parsePaginationParams(resolvedSearchParams);
 
   // Run all 5 independent queries in parallel
   const [
     { count: totalProductsCount },
     lowStockProducts,
     { totalValue },
-    recentTransactions,
+    { transactions, totalCount: transactionCount },
     pendingReorderTasks,
     pendingStockSyncCount,
   ] = await Promise.all([
     getTotalActiveProductsCount(),
     getLowStockProducts(),
     getTotalStockValue(),
-    getRecentInventoryTransactions(),
+    getInventoryTransactions({ limit, offset }),
     getPendingAgentTasks("reorder"),
     getPendingStockSyncProductCount(userId),
   ]);
@@ -195,16 +203,17 @@ export default async function InventoryPage() {
         </Card>
       )}
 
-      {/* Recent Transactions */}
+      {/* Inventory Transactions */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Recent Transactions</CardTitle>
+          <CardTitle className="text-lg">Inventory Transactions</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <InventoryTransactionsTable
-            transactions={recentTransactions}
+            transactions={transactions}
             showProduct
           />
+          <TablePagination totalItems={transactionCount} itemsPerPage={limit} currentPage={page} />
         </CardContent>
       </Card>
     </div>

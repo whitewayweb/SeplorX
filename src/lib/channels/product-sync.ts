@@ -13,8 +13,6 @@ import { AmazonAPIClient } from "@/lib/channels/amazon/api/client";
 
 const ACTIVE_JOB_STATUSES = ["queued", "waiting_report", "importing", "enriching"] as const;
 
-type ProductSyncStatus = "queued" | "waiting_report" | "importing" | "enriching" | "done" | "failed";
-
 type ChannelProductSyncContext = {
   id: number;
   userId: number;
@@ -431,8 +429,4 @@ function createAmazonClient(
   }
 
   return new AmazonAPIClient(credentials, channel.storeUrl ?? "");
-}
-
-export function isChannelProductSyncRunning(status: string): status is ProductSyncStatus {
-  return status === "queued" || status === "waiting_report" || status === "importing" || status === "enriching";
 }
