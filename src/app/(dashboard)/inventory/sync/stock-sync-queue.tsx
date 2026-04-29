@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   ArrowUpFromLine,
@@ -25,6 +25,16 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Select,
   SelectContent,
@@ -105,6 +115,13 @@ interface ChannelGroup {
 
 interface StockSyncQueueProps {
   products: SyncProduct[];
+  channelOptions: string[];
+  totalCount: number;
+  currentPage: number;
+  pageSize: number;
+  initialSearchQuery: string;
+  initialStatusFilter: string;
+  initialChannelFilter: string;
 }
 
 type ListingFilter = "all" | "differences" | "pending" | "failed";
@@ -173,56 +190,38 @@ const STATUS_UI: Record<string, { label: string; className: string }> = {
   },
 };
 
-export function StockSyncQueue({ products }: StockSyncQueueProps) {
+export function StockSyncQueue({
+  products,
+  channelOptions,
+  totalCount,
+  currentPage,
+  pageSize,
+  initialSearchQuery,
+  initialStatusFilter,
+  initialChannelFilter,
+}: StockSyncQueueProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [requestedProductId, setRequestedProductId] = useState<number | null>(null);
   const [detailCache, setDetailCache] = useState<Record<number, SyncProductDetail>>({});
   const [detailLoadingId, setDetailLoadingId] = useState<number | null>(null);
   const [expandedChannels, setExpandedChannels] = useState<Set<string>>(new Set());
   const [activeJob, setActiveJob] = useState<StockPushJob | null>(null);
   const [isPollingJob, setIsPollingJob] = useState(false);
+  const [confirmPushProduct, setConfirmPushProduct] = useState<SyncProduct | null>(null);
   const [listingPanelGroupKey, setListingPanelGroupKey] = useState<string | null>(null);
   const [listingSearchQuery, setListingSearchQuery] = useState("");
   const [listingFilter, setListingFilter] = useState<ListingFilter>("all");
   const [listingPage, setListingPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [channelFilter, setChannelFilter] = useState("all");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState(initialStatusFilter);
+  const [channelFilter, setChannelFilter] = useState(initialChannelFilter);
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [isPending, startTransition] = useTransition();
+  const didMountSearchRef = useRef(false);
 
-  const channelOptions = useMemo(() => {
-    return Array.from(new Set(products.flatMap((p) => p.channelNames))).sort((a, b) =>
-      a.localeCompare(b),
-    );
-  }, [products]);
-
-  const filteredProducts = useMemo(() => {
-    const normalizedQuery = searchQuery.trim().toLowerCase();
-
-    return products
-      .filter((product) => {
-        const matchesSearch =
-          !normalizedQuery ||
-          product.name.toLowerCase().includes(normalizedQuery) ||
-          (product.sku ?? "").toLowerCase().includes(normalizedQuery) ||
-          product.channelNames.some((channelName) =>
-            channelName.toLowerCase().includes(normalizedQuery),
-          );
-
-        const matchesChannel =
-          channelFilter === "all" || product.channelNames.includes(channelFilter);
-
-        const action = getProductAction(product);
-        const matchesStatus =
-          statusFilter === "all" ||
-          (statusFilter === "ready" && action.kind === "ready") ||
-          (statusFilter === "review" && action.kind === "review") ||
-          (statusFilter === "failed" && action.kind === "failed");
-
-        return matchesSearch && matchesChannel && matchesStatus;
-      })
-      .sort((a, b) => getPriorityScore(b) - getPriorityScore(a));
-  }, [channelFilter, products, searchQuery, statusFilter]);
+  const filteredProducts = products;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
   const activeProductId =
     requestedProductId && filteredProducts.some((product) => product.id === requestedProductId)
@@ -236,7 +235,7 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
 
     setDetailLoadingId(null);
 
-    if (result.error) {
+    if ("error" in result) {
       toast.error("Could not load mappings", { description: result.error });
       return;
     }
@@ -278,6 +277,43 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
     [activeDetail],
   );
 
+  const replaceQueueParams = useCallback((updates: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams);
+    for (const [key, value] of Object.entries(updates)) {
+      if (!value || value === "all") params.delete(key);
+      else params.set(key, value);
+    }
+    if (!("page" in updates)) params.delete("page");
+    const nextQuery = params.toString();
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname);
+  }, [pathname, router, searchParams]);
+
+  useEffect(() => {
+    setStatusFilter(initialStatusFilter);
+  }, [initialStatusFilter]);
+
+  useEffect(() => {
+    setChannelFilter(initialChannelFilter);
+  }, [initialChannelFilter]);
+
+  useEffect(() => {
+    setSearchQuery(initialSearchQuery);
+  }, [initialSearchQuery]);
+
+  useEffect(() => {
+    if (!didMountSearchRef.current) {
+      didMountSearchRef.current = true;
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      replaceQueueParams({ q: searchQuery.trim() || null });
+      closeProductPanel();
+    }, 400);
+
+    return () => clearTimeout(timeout);
+  }, [replaceQueueParams, searchQuery, closeProductPanel]);
+
   useEffect(() => {
     if (!activeJob || (activeJob.status !== "queued" && activeJob.status !== "processing")) return;
 
@@ -288,7 +324,7 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
         const result = await pollStockPushJob(activeJob.id);
         if (cancelled) return;
 
-        if (result.error) {
+        if ("error" in result) {
           toast.error("Could not update push progress", { description: result.error });
           setActiveJob((current) => current ? { ...current, status: "failed", errorMessage: result.error } : current);
           return;
@@ -310,9 +346,9 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
             router.refresh();
           }
         }
-      } catch (err) {
+      } catch {
         if (!cancelled) {
-          toast.error("Could not update push progress", { description: String(err) });
+          toast.error("Could not update push progress", { description: "The request did not complete." });
         }
       } finally {
         if (!cancelled) setIsPollingJob(false);
@@ -355,6 +391,7 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
   const totalFailedMappings = products.reduce((total, product) => total + product.failedCount, 0);
   const totalSupportedMappings = products.reduce((total, product) => total + product.mappingCount, 0);
   const totalMismatchMappings = products.reduce((total, product) => total + product.mismatchCount, 0);
+  const hasActiveQueueFilter = searchQuery.trim() !== "" || statusFilter !== "all" || channelFilter !== "all";
 
   function toggleChannel(channelKey: string) {
     setExpandedChannels((current) => {
@@ -377,13 +414,33 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
     setListingPage(1);
   }
 
+  function updateStatusFilter(value: string) {
+    setStatusFilter(value);
+    closeProductPanel();
+    replaceQueueParams({ status: value });
+  }
+
+  function updateChannelFilter(value: string) {
+    setChannelFilter(value);
+    closeProductPanel();
+    replaceQueueParams({ channel: value });
+  }
+
+  function updatePage(page: number) {
+    replaceQueueParams({ page: String(Math.max(1, Math.min(page, totalPages))) });
+  }
+
+  function updatePageSize(value: string) {
+    replaceQueueParams({ limit: value, page: "1" });
+  }
+
   function openProduct(productId: number) {
     setRequestedProductId(productId);
     setListingPanelGroupKey(null);
   }
 
-  function pushProduct(productId: number) {
-    if (!productId) {
+  function requestStockPush(product: SyncProduct) {
+    if (!product.id) {
       toast.info("Open a product with a supported channel mapping first.");
       return;
     }
@@ -395,11 +452,18 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
       return;
     }
 
+    setConfirmPushProduct(product);
+  }
+
+  function startConfirmedStockPush() {
+    if (!confirmPushProduct) return;
+    const productId = confirmPushProduct.id;
+
     startTransition(async () => {
       try {
         const result = await startStockPushJob(productId);
 
-        if (result.error) {
+        if ("error" in result) {
           toast.error("Could not start stock push", { description: result.error });
           return;
         }
@@ -410,18 +474,19 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
         }
 
         setActiveJob(result.job);
+        setConfirmPushProduct(null);
         toast.info("Stock push started", {
           description: `Reconciling ${result.job.totalCount} mapped listing${result.job.totalCount === 1 ? "" : "s"}.`,
         });
-      } catch (err) {
+      } catch {
         toast.error("Could not start stock push", {
-          description: String(err).replace(/^Error:\s*/, "") || "The request did not complete.",
+          description: "The request did not complete.",
         });
       }
     });
   }
 
-  if (products.length === 0) {
+  if (totalCount === 0 && !hasActiveQueueFilter) {
     return (
       <div className="rounded-lg border bg-background px-6 py-16 text-center shadow-sm">
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
@@ -450,7 +515,7 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
               <div>
                 <h2 className="text-base font-semibold">Products needing action</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {filteredProducts.length} product{filteredProducts.length === 1 ? "" : "s"} - {totalSupportedMappings} listing{totalSupportedMappings === 1 ? "" : "s"} affected
+                  {totalCount} product{totalCount === 1 ? "" : "s"} - {totalSupportedMappings} listing{totalSupportedMappings === 1 ? "" : "s"} on this page
                 </p>
               </div>
             </div>
@@ -463,10 +528,7 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
             </div>
 
             <div className="mt-4 flex flex-col gap-3 2xl:flex-row 2xl:items-center">
-              <Tabs value={statusFilter} onValueChange={(value) => {
-                setStatusFilter(value);
-                closeProductPanel();
-              }}>
+              <Tabs value={statusFilter} onValueChange={updateStatusFilter}>
                 <TabsList className="h-9">
                   <TabsTrigger value="all">All</TabsTrigger>
                   <TabsTrigger value="ready">Ready</TabsTrigger>
@@ -488,10 +550,7 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                     className="h-9 pl-9"
                   />
                 </div>
-                <Select value={channelFilter} onValueChange={(value) => {
-                  setChannelFilter(value);
-                  closeProductPanel();
-                }}>
+                <Select value={channelFilter} onValueChange={updateChannelFilter}>
                   <SelectTrigger className="h-9">
                     <SelectValue placeholder="Channel" />
                   </SelectTrigger>
@@ -639,30 +698,34 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
           <div className="hidden items-center justify-between border-t px-6 py-4 text-sm text-muted-foreground md:flex">
             <div className="flex items-center gap-2">
               <span>Rows per page:</span>
-              <Select value="10">
+              <Select value={String(pageSize)} onValueChange={updatePageSize}>
                 <SelectTrigger className="h-8 w-[72px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="10">10</SelectItem>
+                  {[25, 50, 100, 200, 500].map((size) => (
+                    <SelectItem key={size} value={String(size)}>
+                      {size}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
             <span>
-              {filteredProducts.length === 0 ? "0-0" : `1-${filteredProducts.length}`} of {filteredProducts.length}
+              {totalCount === 0 ? "0-0" : `${(currentPage - 1) * pageSize + 1}-${Math.min(currentPage * pageSize, totalCount)}`} of {totalCount}
             </span>
             <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" disabled className="h-8 w-8">
+              <Button variant="ghost" size="icon" disabled={currentPage <= 1} onClick={() => updatePage(1)} className="h-8 w-8">
                 <ChevronsLeft className="h-4 w-4" />
               </Button>
-              <Button variant="ghost" size="icon" disabled className="h-8 w-8">
+              <Button variant="ghost" size="icon" disabled={currentPage <= 1} onClick={() => updatePage(currentPage - 1)} className="h-8 w-8">
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <span className="rounded-md bg-blue-50 px-3 py-1 text-primary">1</span>
-              <Button variant="ghost" size="icon" disabled className="h-8 w-8">
+              <span className="rounded-md bg-blue-50 px-3 py-1 text-primary">{currentPage}</span>
+              <Button variant="ghost" size="icon" disabled={currentPage >= totalPages} onClick={() => updatePage(currentPage + 1)} className="h-8 w-8">
                 <ChevronRight className="h-4 w-4" />
               </Button>
-              <Button variant="ghost" size="icon" disabled className="h-8 w-8">
+              <Button variant="ghost" size="icon" disabled={currentPage >= totalPages} onClick={() => updatePage(totalPages)} className="h-8 w-8">
                 <ChevronsRight className="h-4 w-4" />
               </Button>
             </div>
@@ -862,7 +925,7 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                   </Button>
                   <Button
                     disabled={isPending || isAnyJobRunning || displayProduct.mappingCount === 0}
-                    onClick={() => pushProduct(displayProduct.id)}
+                    onClick={() => requestStockPush(displayProduct)}
                     className="gap-2"
                   >
                     {isAnyJobRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="h-4 w-4" />}
@@ -897,7 +960,7 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                   onFilterChange={updateListingFilter}
                   onPageChange={setListingPage}
                   onClose={() => setListingPanelGroupKey(null)}
-                  onPush={() => pushProduct(displayProduct.id)}
+                  onPush={() => requestStockPush(displayProduct)}
                 />
               )}
               </div>
@@ -905,6 +968,28 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
           </SheetContent>
         </Sheet>
       </section>
+      <AlertDialog open={!!confirmPushProduct} onOpenChange={(open) => !open && setConfirmPushProduct(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Push stock to mapped listings?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will set available stock for {confirmPushProduct?.mappingCount ?? 0} mapped listing{confirmPushProduct?.mappingCount === 1 ? "" : "s"} to {confirmPushProduct?.availableQuantity ?? 0}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
+                event.preventDefault();
+                startConfirmedStockPush();
+              }}
+              disabled={isPending}
+            >
+              {isPending ? "Starting..." : "Push stock"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -1434,10 +1519,6 @@ function getChannelAction(group: ChannelGroup) {
     label: "Ready",
     className: "border-emerald-200 bg-emerald-50 text-emerald-700",
   };
-}
-
-function getPriorityScore(product: SyncProduct) {
-  return product.failedCount * 100000 + product.mismatchCount * 1000 + product.pendingCount;
 }
 
 function getChannelPriorityScore(group: ChannelGroup) {

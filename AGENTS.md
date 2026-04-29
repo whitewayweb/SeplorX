@@ -55,6 +55,17 @@ The `.agent/` directory contains broader Claude/ECC-oriented rules, skills, and 
 - Validate user input, API responses, and file data at system boundaries.
 - Avoid leaking sensitive details in user-facing errors.
 - Use existing project validation, auth, and logging patterns when available.
+- Server actions consumed by client components must return explicit typed success/error unions.
+- Do not return raw exception strings, provider errors, SQL details, credentials, or stack details to the client; log details server-side and return generic user-facing messages.
+
+## Queue and Job Workflows
+
+- Review queues must filter, sort, count, and paginate on the server.
+- Queue membership should represent actionable work only; exclude unsupported/non-actionable records or persist a clear terminal status.
+- Bulk actions must require explicit user confirmation and show the affected scope before execution.
+- Job creation and item creation must be transactional.
+- Concurrent job processing must atomically claim work before external side effects.
+- Stock quantities pushed externally must use the canonical available-stock definition: `Math.max(0, quantityOnHand - reservedQuantity)`.
 
 ## Frontend Work
 

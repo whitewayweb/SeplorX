@@ -6,15 +6,30 @@ import { getAuthenticatedUserId } from "@/lib/auth";
 import {
   createStockPushJobService,
   processStockPushJobBatchService,
+  type StockPushJobView,
 } from "@/lib/stock/channel-sync";
-import { getPendingStockSyncProductDetails } from "@/data/products";
+import { getPendingStockSyncProductDetails, type PendingStockSyncProduct } from "@/data/products";
 import { getChannelById } from "@/lib/channels/registry";
 import type { ChannelType } from "@/lib/channels/types";
 
 const ProductIdSchema = z.number().int().positive();
 const JobIdSchema = z.number().int().positive();
 
-export async function getStockSyncProductDetails(productId: number) {
+type ActionError = { success?: false; error: string };
+type StockSyncProductDetailResult =
+  | {
+      success: true;
+      product: PendingStockSyncProduct & {
+        mappings: Array<PendingStockSyncProduct["mappings"][number] & { canPushStock: boolean }>;
+      };
+    }
+  | ActionError;
+type StockPushJobActionResult = { success: true; job: StockPushJobView } | ActionError;
+
+const STOCK_PUSH_START_ERROR = "Failed to start stock push.";
+const STOCK_PUSH_POLL_ERROR = "Failed to check stock push progress.";
+
+export async function getStockSyncProductDetails(productId: number): Promise<StockSyncProductDetailResult> {
   const parsed = z.number().int().positive().safeParse(productId);
   if (!parsed.success) return { error: "Invalid product ID." };
 
@@ -42,7 +57,7 @@ export async function getStockSyncProductDetails(productId: number) {
   }
 }
 
-export async function startStockPushJob(productId: number) {
+export async function startStockPushJob(productId: number): Promise<StockPushJobActionResult> {
   const parsed = ProductIdSchema.safeParse(productId);
   if (!parsed.success) return { error: "Invalid product ID." };
 
@@ -51,12 +66,12 @@ export async function startStockPushJob(productId: number) {
     const job = await createStockPushJobService(userId, parsed.data);
     return { success: true, job };
   } catch (err) {
-    console.error("[startStockPushJob]", { productId, error: String(err) });
-    return { error: String(err).replace(/^Error:\s*/, "") || "Failed to start stock push." };
+    console.error("[startStockPushJob]", { productId, error: err });
+    return { error: STOCK_PUSH_START_ERROR };
   }
 }
 
-export async function pollStockPushJob(jobId: number) {
+export async function pollStockPushJob(jobId: number): Promise<StockPushJobActionResult> {
   const parsed = JobIdSchema.safeParse(jobId);
   if (!parsed.success) return { error: "Invalid job ID." };
 
@@ -73,7 +88,7 @@ export async function pollStockPushJob(jobId: number) {
 
     return { success: true, job };
   } catch (err) {
-    console.error("[pollStockPushJob]", { jobId, error: String(err) });
-    return { error: String(err).replace(/^Error:\s*/, "") || "Failed to check stock push progress." };
+    console.error("[pollStockPushJob]", { jobId, error: err });
+    return { error: STOCK_PUSH_POLL_ERROR };
   }
 }

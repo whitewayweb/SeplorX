@@ -82,39 +82,51 @@ export async function createStockPushJobService(
   userId: number,
   productId: number,
 ): Promise<StockPushJobView> {
-  const quantity = await getProductQuantity(productId);
-  if (quantity === null) throw new Error("Product not found.");
+  const jobId = await db.transaction(async (tx) => {
+    const quantity = await getProductQuantity(productId, tx);
+    if (quantity === null) throw new Error("Product not found.");
 
-  const mappings = await getChannelMappingsForStockPush(userId, productId);
-  if (mappings.length === 0) throw new Error("No connected channel mappings found for this product.");
+    const mappings = await getChannelMappingsForStockPush(userId, productId, tx);
+    if (mappings.length === 0) throw new Error("No supported channel stock mappings found for this product.");
 
-  const [job] = await db
-    .insert(stockSyncJobs)
-    .values({
-      userId,
-      productId,
-      quantity,
-      status: "queued",
-      totalCount: mappings.length,
-      updatedAt: new Date(),
-    })
-    .returning({ id: stockSyncJobs.id });
+    const now = new Date();
+    const [job] = await tx
+      .insert(stockSyncJobs)
+      .values({
+        userId,
+        productId,
+        quantity,
+        status: "queued",
+        totalCount: mappings.length,
+        updatedAt: now,
+      })
+      .returning({ id: stockSyncJobs.id });
 
-  await db.insert(stockSyncJobItems).values(
-    mappings.map((mapping) => ({
-      jobId: job.id,
-      mappingId: mapping.mappingId,
-      channelId: mapping.channelId,
-      channelName: mapping.channelName,
-      externalProductId: mapping.externalProductId,
-      label: mapping.label,
-      status: "pending",
-      channelStock: mapping.channelStock,
-      updatedAt: new Date(),
-    })),
-  );
+    const insertedItems = await tx
+      .insert(stockSyncJobItems)
+      .values(
+        mappings.map((mapping) => ({
+          jobId: job.id,
+          mappingId: mapping.mappingId,
+          channelId: mapping.channelId,
+          channelName: mapping.channelName,
+          externalProductId: mapping.externalProductId,
+          label: mapping.label,
+          status: "pending",
+          channelStock: mapping.channelStock,
+          updatedAt: now,
+        })),
+      )
+      .returning({ id: stockSyncJobItems.id });
 
-  return getStockPushJobStatus(userId, job.id);
+    if (insertedItems.length !== mappings.length) {
+      throw new Error("Failed to create stock push job items.");
+    }
+
+    return job.id;
+  });
+
+  return getStockPushJobStatus(userId, jobId);
 }
 
 export async function processStockPushJobBatchService(
@@ -134,18 +146,12 @@ export async function processStockPushJobBatchService(
     .set({ status: "processing", updatedAt: new Date() })
     .where(eq(stockSyncJobs.id, jobId));
 
-  const pendingItems = await getPendingJobItemsForProcessing(userId, jobId, Math.max(1, Math.min(batchSize, 20)));
+  const pendingItems = await claimPendingJobItemsForProcessing(userId, jobId, Math.max(1, Math.min(batchSize, 20)));
 
   if (pendingItems.length === 0) {
     await refreshStockPushJobCounts(jobId);
     return getStockPushJobStatus(userId, jobId);
   }
-
-  const now = new Date();
-  await db
-    .update(stockSyncJobItems)
-    .set({ status: "processing", startedAt: now, updatedAt: now })
-    .where(inArray(stockSyncJobItems.id, pendingItems.map((item) => item.jobItemId)));
 
   const decryptedCredsCache = new Map<string, Record<string, string>>();
   const itemResults = await Promise.all(
@@ -312,47 +318,65 @@ async function getStockPushJobForUser(userId: number, jobId: number) {
   return job ?? null;
 }
 
-async function getPendingJobItemsForProcessing(userId: number, jobId: number, limit: number) {
-  return await db
-    .select({
-      jobItemId: stockSyncJobItems.id,
-      mappingId: channelProductMappings.id,
-      channelId: channelProductMappings.channelId,
-      externalProductId: channelProductMappings.externalProductId,
-      label: channelProductMappings.label,
-      channelType: channels.channelType,
-      storeUrl: channels.storeUrl,
-      credentials: channels.credentials,
-      channelName: channels.name,
-      status: channels.status,
-      parentId: sql<string | null>`${channelProducts.rawData}->>'parentId'`,
-      productType: sql<string | null>`${channelProducts.rawData}->>'amazonProductType'`,
-      channelSku: channelProducts.sku,
-      channelStock: channelProducts.stockQuantity,
-      rawData: channelProducts.rawData,
-    })
-    .from(stockSyncJobItems)
-    .innerJoin(channelProductMappings, eq(stockSyncJobItems.mappingId, channelProductMappings.id))
-    .innerJoin(stockSyncJobs, eq(stockSyncJobItems.jobId, stockSyncJobs.id))
-    .innerJoin(channels, eq(channelProductMappings.channelId, channels.id))
-    .leftJoin(
-      channelProducts,
-      and(
-        eq(channelProductMappings.channelId, channelProducts.channelId),
-        eq(channelProductMappings.externalProductId, channelProducts.externalId),
-      ),
+async function claimPendingJobItemsForProcessing(
+  userId: number,
+  jobId: number,
+  limit: number,
+): Promise<(StockPushMappingRow & { jobItemId: number })[]> {
+  const now = new Date();
+  const rows = await db.execute(sql`
+    WITH claimed AS (
+      SELECT ${stockSyncJobItems.id} AS job_item_id
+      FROM ${stockSyncJobItems}
+      INNER JOIN ${stockSyncJobs} ON ${stockSyncJobItems.jobId} = ${stockSyncJobs.id}
+      INNER JOIN ${channelProductMappings} ON ${stockSyncJobItems.mappingId} = ${channelProductMappings.id}
+      INNER JOIN ${channels} ON ${channelProductMappings.channelId} = ${channels.id}
+      WHERE ${stockSyncJobItems.jobId} = ${jobId}
+        AND ${stockSyncJobItems.status} = 'pending'
+        AND ${stockSyncJobs.userId} = ${userId}
+        AND ${channels.userId} = ${userId}
+        AND ${channels.status} = 'connected'
+      ORDER BY ${stockSyncJobItems.id}
+      FOR UPDATE OF ${stockSyncJobItems} SKIP LOCKED
+      LIMIT ${limit}
+    ),
+    updated AS (
+      UPDATE ${stockSyncJobItems}
+      SET status = 'processing',
+          started_at = ${now},
+          updated_at = ${now}
+      FROM claimed
+      WHERE ${stockSyncJobItems.id} = claimed.job_item_id
+      RETURNING
+        ${stockSyncJobItems.id} AS job_item_id,
+        ${stockSyncJobItems.mappingId} AS mapping_id
     )
-    .where(
-      and(
-        eq(stockSyncJobItems.jobId, jobId),
-        eq(stockSyncJobItems.status, "pending"),
-        eq(stockSyncJobs.userId, userId),
-        eq(channels.userId, userId),
-        eq(channels.status, "connected"),
-      ),
-    )
-    .orderBy(asc(stockSyncJobItems.id))
-    .limit(limit);
+    SELECT
+      updated.job_item_id AS "jobItemId",
+      ${channelProductMappings.id} AS "mappingId",
+      ${channelProductMappings.channelId} AS "channelId",
+      ${channelProductMappings.externalProductId} AS "externalProductId",
+      ${channelProductMappings.label} AS "label",
+      ${channels.channelType} AS "channelType",
+      ${channels.storeUrl} AS "storeUrl",
+      ${channels.credentials} AS "credentials",
+      ${channels.name} AS "channelName",
+      ${channels.status} AS "status",
+      ${channelProducts.rawData}->>'parentId' AS "parentId",
+      ${channelProducts.rawData}->>'amazonProductType' AS "productType",
+      ${channelProducts.sku} AS "channelSku",
+      ${channelProducts.stockQuantity} AS "channelStock",
+      ${channelProducts.rawData} AS "rawData"
+    FROM updated
+    INNER JOIN ${channelProductMappings} ON updated.mapping_id = ${channelProductMappings.id}
+    INNER JOIN ${channels} ON ${channelProductMappings.channelId} = ${channels.id}
+    LEFT JOIN ${channelProducts}
+      ON ${channelProductMappings.channelId} = ${channelProducts.channelId}
+      AND ${channelProductMappings.externalProductId} = ${channelProducts.externalId}
+    ORDER BY updated.job_item_id
+  `);
+
+  return rows as unknown as (StockPushMappingRow & { jobItemId: number })[];
 }
 
 async function refreshStockPushJobCounts(jobId: number) {
