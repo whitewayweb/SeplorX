@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -18,18 +19,10 @@ import {
   Search,
   ShieldCheck,
   ShoppingBag,
+  X,
   XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -47,6 +40,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { getChannelById } from "@/lib/channels/registry";
+import type { ChannelType } from "@/lib/channels/types";
 import { cn } from "@/lib/utils";
 import { getStockSyncProductDetails, pushSelectedProductStock } from "./actions";
 
@@ -104,6 +99,8 @@ interface StockSyncQueueProps {
   products: SyncProduct[];
 }
 
+type ListingFilter = "all" | "differences" | "pending" | "failed";
+
 const STATUS_UI: Record<string, { label: string; className: string }> = {
   pending_update: {
     label: "Review",
@@ -129,13 +126,16 @@ const STATUS_UI: Record<string, { label: string; className: string }> = {
 
 export function StockSyncQueue({ products }: StockSyncQueueProps) {
   const router = useRouter();
-  const [selectedProductIds, setSelectedProductIds] = useState<Set<number>>(new Set());
-  const [requestedProductId, setRequestedProductId] = useState<number | null>(products[0]?.id ?? null);
+  const detailPanelRef = useRef<HTMLDivElement | null>(null);
+  const [requestedProductId, setRequestedProductId] = useState<number | null>(null);
   const [detailCache, setDetailCache] = useState<Record<number, SyncProductDetail>>({});
   const [detailLoadingId, setDetailLoadingId] = useState<number | null>(null);
   const [expandedChannels, setExpandedChannels] = useState<Set<string>>(new Set());
   const [pushingIds, setPushingIds] = useState<Set<number>>(new Set());
-  const [confirmProductIds, setConfirmProductIds] = useState<number[] | null>(null);
+  const [listingPanelGroupKey, setListingPanelGroupKey] = useState<string | null>(null);
+  const [listingSearchQuery, setListingSearchQuery] = useState("");
+  const [listingFilter, setListingFilter] = useState<ListingFilter>("all");
+  const [listingPage, setListingPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState("all");
   const [channelFilter, setChannelFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -178,7 +178,7 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
   const activeProductId =
     requestedProductId && filteredProducts.some((product) => product.id === requestedProductId)
       ? requestedProductId
-      : filteredProducts[0]?.id ?? null;
+      : null;
 
   const loadProductDetail = useCallback(async (productId: number, isCancelled: () => boolean) => {
     setDetailLoadingId(productId);
@@ -199,6 +199,11 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
     }
   }, []);
 
+  const closeProductPanel = useCallback(() => {
+    setRequestedProductId(null);
+    setListingPanelGroupKey(null);
+  }, []);
+
   useEffect(() => {
     if (!activeProductId || detailCache[activeProductId]) return;
 
@@ -210,11 +215,6 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
     };
   }, [activeProductId, detailCache, loadProductDetail]);
 
-  const actionableProductIds = useMemo(
-    () => filteredProducts.filter((p) => p.mappingCount > 0).map((p) => p.id),
-    [filteredProducts],
-  );
-
   const activeSummary = products.find((product) => product.id === activeProductId) ?? null;
   const activeDetail = activeProductId ? detailCache[activeProductId] ?? null : null;
   const displayProduct = activeDetail ?? activeSummary;
@@ -223,38 +223,49 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
     [activeDetail],
   );
 
-  const allSelected =
-    actionableProductIds.length > 0 &&
-    actionableProductIds.every((id) => selectedProductIds.has(id));
-  const someSelected = selectedProductIds.size > 0 && !allSelected;
+  useEffect(() => {
+    if (!displayProduct) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (target instanceof Node && detailPanelRef.current?.contains(target)) return;
+      closeProductPanel();
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [closeProductPanel, displayProduct]);
+  const listingPanelGroup = channelGroups.find((group) => group.key === listingPanelGroupKey) ?? null;
+  const listingPageSize = 25;
+  const filteredListingPanelItems = useMemo(() => {
+    if (!listingPanelGroup || !displayProduct) return [];
+
+    const normalizedQuery = listingSearchQuery.trim().toLowerCase();
+
+    return listingPanelGroup.listings.filter((mapping) => {
+      const matchesQuery =
+        !normalizedQuery ||
+        mapping.externalProductId.toLowerCase().includes(normalizedQuery) ||
+        (mapping.label ?? "").toLowerCase().includes(normalizedQuery);
+      const matchesFilter =
+        listingFilter === "all" ||
+        (listingFilter === "differences" && mapping.channelStock !== null && mapping.channelStock !== displayProduct.availableQuantity) ||
+        (listingFilter === "pending" && mapping.syncStatus === "pending_update") ||
+        (listingFilter === "failed" && mapping.syncStatus === "failed");
+
+      return matchesQuery && matchesFilter;
+    });
+  }, [displayProduct, listingFilter, listingPanelGroup, listingSearchQuery]);
+  const listingPageCount = Math.max(1, Math.ceil(filteredListingPanelItems.length / listingPageSize));
+  const visibleListingPanelItems = filteredListingPanelItems.slice(
+    (Math.min(listingPage, listingPageCount) - 1) * listingPageSize,
+    Math.min(listingPage, listingPageCount) * listingPageSize,
+  );
+
   const totalPendingMappings = products.reduce((total, product) => total + product.pendingCount, 0);
   const totalFailedMappings = products.reduce((total, product) => total + product.failedCount, 0);
   const totalSupportedMappings = products.reduce((total, product) => total + product.mappingCount, 0);
   const totalMismatchMappings = products.reduce((total, product) => total + product.mismatchCount, 0);
-  const confirmProducts = confirmProductIds
-    ? products.filter((product) => confirmProductIds.includes(product.id))
-    : [];
-  const confirmMappingCount = confirmProducts.reduce((total, product) => total + product.mappingCount, 0);
-  const confirmChannelNames = Array.from(
-    new Set(confirmProducts.flatMap((product) => product.channelNames)),
-  ).sort();
-
-  function toggleAll(checked: boolean | "indeterminate") {
-    if (checked === true) {
-      setSelectedProductIds(new Set(actionableProductIds));
-    } else {
-      setSelectedProductIds(new Set());
-    }
-  }
-
-  function toggleProduct(productId: number, checked: boolean) {
-    setSelectedProductIds((current) => {
-      const next = new Set(current);
-      if (checked) next.add(productId);
-      else next.delete(productId);
-      return next;
-    });
-  }
 
   function toggleChannel(channelKey: string) {
     setExpandedChannels((current) => {
@@ -265,29 +276,32 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
     });
   }
 
-  function requestPush(productIds: number[], confirm = true) {
-    const uniqueProductIds = Array.from(new Set(productIds));
-    if (uniqueProductIds.length === 0) {
-      toast.info("Select at least one product with a supported channel mapping.");
-      return;
-    }
-    if (confirm && uniqueProductIds.length > 1) {
-      setConfirmProductIds(uniqueProductIds);
-      return;
-    }
-    pushProducts(uniqueProductIds);
+  function openListingPanel(groupKey: string) {
+    setListingPanelGroupKey(groupKey);
+    setListingSearchQuery("");
+    setListingFilter("all");
+    setListingPage(1);
   }
 
-  function pushProducts(productIds: number[]) {
-    const uniqueProductIds = Array.from(new Set(productIds));
-    if (uniqueProductIds.length === 0) {
-      toast.info("Select at least one product with a supported channel mapping.");
+  function updateListingFilter(value: string) {
+    setListingFilter(value as ListingFilter);
+    setListingPage(1);
+  }
+
+  function openProduct(productId: number) {
+    setRequestedProductId(productId);
+    setListingPanelGroupKey(null);
+  }
+
+  function pushProduct(productId: number) {
+    if (!productId) {
+      toast.info("Open a product with a supported channel mapping first.");
       return;
     }
 
-    setPushingIds(new Set(uniqueProductIds));
+    setPushingIds(new Set([productId]));
     startTransition(async () => {
-      const result = await pushSelectedProductStock(uniqueProductIds);
+      const result = await pushSelectedProductStock([productId]);
       setPushingIds(new Set());
 
       if (result.error) {
@@ -313,9 +327,7 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
         });
       }
 
-      setSelectedProductIds(new Set());
       setDetailCache({});
-      setConfirmProductIds(null);
       router.refresh();
     });
   }
@@ -336,39 +348,36 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
 
   return (
     <div className="-mx-6 -mb-6 border-t bg-background">
-      <section className="flex flex-col gap-4 border-b px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
-        <div className="grid flex-1 gap-0 sm:grid-cols-2 lg:max-w-3xl lg:grid-cols-4">
-          <CommandMetric icon={Box} label="Products" value={products.length} />
-          <CommandMetric icon={ShoppingBag} label="Listings" value={totalPendingMappings} tone="amber" />
-          <CommandMetric icon={XCircle} label="Mismatches" value={totalMismatchMappings} tone="red" />
-          <CommandMetric icon={ShieldCheck} label="Ready targets" value={totalSupportedMappings} tone="green" />
-        </div>
-        <Button
-          onClick={() => requestPush(actionableProductIds)}
-          disabled={isPending || actionableProductIds.length === 0}
-          className="gap-2 lg:mr-2"
-        >
-          {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="h-4 w-4" />}
-          Push All Pending
-        </Button>
-      </section>
-
       {totalFailedMappings > 0 && (
         <div className="border-b bg-red-50 px-6 py-2 text-sm text-red-700">
           {totalFailedMappings} mapping{totalFailedMappings === 1 ? "" : "s"} failed last push. Review the failed listings before retrying.
         </div>
       )}
 
-      <section className="grid min-h-[680px] xl:grid-cols-[minmax(560px,42%)_minmax(0,1fr)]">
-        <div className="border-b xl:border-b-0 xl:border-r">
+      <section className={cn("grid min-h-[680px]", displayProduct && "xl:grid-cols-[minmax(560px,42%)_minmax(0,1fr)]")}>
+        <div className={cn("border-b xl:border-b-0", displayProduct && "xl:border-r")}>
           <div className="border-b px-6 py-5">
-            <h2 className="text-base font-semibold">Products needing action</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {filteredProducts.length} product{filteredProducts.length === 1 ? "" : "s"} - {totalSupportedMappings} listing{totalSupportedMappings === 1 ? "" : "s"} affected
-            </p>
+            <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
+              <div>
+                <h2 className="text-base font-semibold">Products needing action</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {filteredProducts.length} product{filteredProducts.length === 1 ? "" : "s"} - {totalSupportedMappings} listing{totalSupportedMappings === 1 ? "" : "s"} affected
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
+              <CommandMetric icon={Box} label="Products" value={products.length} />
+              <CommandMetric icon={ShoppingBag} label="Listings" value={totalPendingMappings} tone="amber" />
+              <CommandMetric icon={XCircle} label="Mismatches" value={totalMismatchMappings} tone="red" />
+              <CommandMetric icon={ShieldCheck} label="Ready targets" value={totalSupportedMappings} tone="green" />
+            </div>
 
             <div className="mt-4 flex flex-col gap-3 2xl:flex-row 2xl:items-center">
-              <Tabs value={statusFilter} onValueChange={setStatusFilter}>
+              <Tabs value={statusFilter} onValueChange={(value) => {
+                setStatusFilter(value);
+                closeProductPanel();
+              }}>
                 <TabsList className="h-9">
                   <TabsTrigger value="all">All</TabsTrigger>
                   <TabsTrigger value="ready">Ready</TabsTrigger>
@@ -382,12 +391,18 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
+                    onChange={(event) => {
+                      setSearchQuery(event.target.value);
+                      closeProductPanel();
+                    }}
                     placeholder="Search product, SKU..."
                     className="h-9 pl-9"
                   />
                 </div>
-                <Select value={channelFilter} onValueChange={setChannelFilter}>
+                <Select value={channelFilter} onValueChange={(value) => {
+                  setChannelFilter(value);
+                  closeProductPanel();
+                }}>
                   <SelectTrigger className="h-9">
                     <SelectValue placeholder="Channel" />
                   </SelectTrigger>
@@ -404,18 +419,11 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="hidden overflow-x-auto md:block">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/20 hover:bg-muted/20">
-                  <TableHead className="w-10 px-6">
-                    <Checkbox
-                      checked={allSelected || (someSelected ? "indeterminate" : false)}
-                      onCheckedChange={toggleAll}
-                      aria-label="Select all visible products"
-                    />
-                  </TableHead>
-                  <TableHead className="min-w-[210px]">Product</TableHead>
+                  <TableHead className="min-w-[260px] pl-6">Product</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Available</TableHead>
                   <TableHead className="text-right">Listings</TableHead>
@@ -426,7 +434,7 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
               <TableBody>
                 {filteredProducts.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-48 text-center text-sm text-muted-foreground">
+                    <TableCell colSpan={6} className="h-48 text-center text-sm text-muted-foreground">
                       No products match the current filters.
                     </TableCell>
                   </TableRow>
@@ -444,17 +452,12 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                         "cursor-pointer",
                         isActive && "border-l-2 border-l-primary bg-blue-50/70 hover:bg-blue-50/70",
                       )}
-                      onClick={() => setRequestedProductId(product.id)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openProduct(product.id);
+                      }}
                     >
-                      <TableCell className="px-6" onClick={(event) => event.stopPropagation()}>
-                        <Checkbox
-                          checked={selectedProductIds.has(product.id)}
-                          disabled={product.mappingCount === 0}
-                          onCheckedChange={(checked) => toggleProduct(product.id, checked === true)}
-                          aria-label={`Select ${product.name}`}
-                        />
-                      </TableCell>
-                      <TableCell className="max-w-[260px] whitespace-normal py-3">
+                      <TableCell className="max-w-[320px] whitespace-normal py-3 pl-6">
                         <p className="line-clamp-2 font-medium leading-snug text-primary">{product.name}</p>
                         <p className="mt-1 font-mono text-xs text-muted-foreground">{product.sku ?? "No SKU"}</p>
                       </TableCell>
@@ -488,7 +491,63 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
             </Table>
           </div>
 
-          <div className="flex items-center justify-between border-t px-6 py-4 text-sm text-muted-foreground">
+          <div className="divide-y md:hidden">
+            {filteredProducts.length === 0 && (
+              <div className="px-6 py-14 text-center text-sm text-muted-foreground">
+                No products match the current filters.
+              </div>
+            )}
+
+            {filteredProducts.map((product) => {
+              const action = getProductAction(product);
+              const isActive = product.id === activeProductId;
+
+              return (
+                <div
+                  key={product.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    openProduct(product.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.stopPropagation();
+                      openProduct(product.id);
+                    }
+                  }}
+                  className={cn(
+                    "block w-full cursor-pointer px-5 py-4 text-left transition-colors",
+                    isActive && "border-l-2 border-l-primary bg-blue-50/70",
+                  )}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="line-clamp-2 font-medium leading-snug text-primary">{product.name}</p>
+                          <p className="mt-1 font-mono text-xs text-muted-foreground">{product.sku ?? "No SKU"}</p>
+                        </div>
+                        <ActionBadge action={action} />
+                      </div>
+                      <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                        <MobileProductMetric label="Available" value={product.availableQuantity} tone="green" />
+                        <MobileProductMetric label="Listings" value={product.mappingCount} />
+                        <MobileProductMetric label="Mismatch" value={product.mismatchCount} tone={product.mismatchCount > 0 ? "red" : undefined} />
+                      </div>
+                      <p className="mt-3 text-xs text-muted-foreground">
+                        Last stock change{" "}
+                        {product.lastTransactionAt ? `${formatDate(product.lastTransactionAt)}, ${formatTime(product.lastTransactionAt)}` : "-"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="hidden items-center justify-between border-t px-6 py-4 text-sm text-muted-foreground md:flex">
             <div className="flex items-center gap-2">
               <span>Rows per page:</span>
               <Select value="10">
@@ -521,14 +580,8 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
           </div>
         </div>
 
-        <div className="relative flex min-h-[680px] flex-col">
-          {!displayProduct && (
-            <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
-              Select a product to review channel stock.
-            </div>
-          )}
-
-          {displayProduct && (
+        {displayProduct && (
+          <div ref={detailPanelRef} className="relative flex min-h-[680px] flex-col">
             <>
               <div className="flex flex-col gap-4 border-b px-6 py-5 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0">
@@ -553,8 +606,8 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                 </Button>
               </div>
 
-              <div className="border-b px-6 py-4">
-                <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-3 rounded-lg border bg-background p-2">
+              <div className="border-b px-4 py-4 sm:px-6">
+                <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-2 rounded-lg border bg-background p-2 sm:gap-3">
                   <StockEquationItem label="On hand" value={displayProduct.quantityOnHand} />
                   <span className="text-center text-muted-foreground">-</span>
                   <StockEquationItem
@@ -572,8 +625,8 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto px-6 py-5">
-                <div className="mb-3 grid grid-cols-[minmax(0,1fr)_80px_80px_90px_110px_90px] gap-3 px-1 text-xs font-medium text-muted-foreground">
+              <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+                <div className="mb-3 hidden grid-cols-[minmax(0,1fr)_80px_80px_90px_110px_90px] gap-3 px-1 text-xs font-medium text-muted-foreground md:grid">
                   <div className="text-sm font-semibold text-foreground">Channel breakdown</div>
                   <div className="text-right">Listings</div>
                   <div className="text-right">Pending</div>
@@ -600,25 +653,27 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                           <button
                             type="button"
                             onClick={() => toggleChannel(group.key)}
-                            className="grid w-full grid-cols-[minmax(0,1fr)_80px_80px_90px_110px_90px] items-center gap-3 bg-muted/20 px-3 py-3 text-left text-sm transition-colors hover:bg-muted/40"
+                            className="w-full bg-muted/20 px-3 py-3 text-left text-sm transition-colors hover:bg-muted/40 md:grid md:grid-cols-[minmax(0,1fr)_80px_80px_90px_110px_90px] md:items-center md:gap-3"
                           >
                             <div className="flex min-w-0 items-center gap-3">
                               <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform", !isExpanded && "-rotate-90")} />
                               <ChannelAvatar name={group.name} type={group.type} />
                               <span className="truncate font-semibold">{group.name}</span>
                             </div>
-                            <div className="text-right font-medium tabular-nums">{group.listings.length}</div>
-                            <div className="text-right font-medium tabular-nums text-orange-600">{group.pendingCount}</div>
-                            <div className="text-right font-medium tabular-nums text-red-600">{group.mismatchCount}</div>
-                            <div className="text-right font-medium tabular-nums">{getStockRangeLabel(group.channelStockMin, group.channelStockMax)}</div>
-                            <div className="text-right">
+                            <div className="mt-3 grid grid-cols-4 gap-2 text-xs md:mt-0 md:contents">
+                              <ChannelHeaderMetric label="Listings" value={group.listings.length} />
+                              <ChannelHeaderMetric label="Pending" value={group.pendingCount} tone="orange" />
+                              <ChannelHeaderMetric label="Mismatch" value={group.mismatchCount} tone="red" />
+                              <ChannelHeaderMetric label="Stock" value={getStockRangeLabel(group.channelStockMin, group.channelStockMax)} />
+                            </div>
+                            <div className="mt-3 text-left md:mt-0 md:text-right">
                               <ActionBadge action={action} />
                             </div>
                           </button>
 
                           {isExpanded && (
                             <div>
-                              <div className="grid grid-cols-[120px_minmax(220px,1fr)_100px_100px_100px_90px] gap-3 border-y bg-muted/10 px-3 py-2 text-xs font-medium text-muted-foreground">
+                              <div className="hidden grid-cols-[120px_minmax(220px,1fr)_100px_100px_100px_90px] gap-3 border-y bg-muted/10 px-3 py-2 text-xs font-medium text-muted-foreground md:grid">
                                 <div>External ID</div>
                                 <div>Listing title</div>
                                 <div className="text-right">Channel stock</div>
@@ -629,22 +684,28 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                               {visibleListings.map((mapping) => (
                                 <div
                                   key={mapping.id}
-                                  className="grid grid-cols-[120px_minmax(220px,1fr)_100px_100px_100px_90px] gap-3 border-b px-3 py-3 text-sm last:border-b-0"
+                                  className="grid gap-3 border-b px-3 py-3 text-sm last:border-b-0 md:grid-cols-[120px_minmax(220px,1fr)_100px_100px_100px_90px]"
                                 >
                                   <div className="font-mono text-xs font-medium">{mapping.externalProductId}</div>
                                   <div className="min-w-0">
                                     <p className="line-clamp-2 text-primary">{mapping.label ?? "View channel item"}</p>
                                     {mapping.lastSyncError && <p className="mt-1 line-clamp-2 text-xs text-red-600">{mapping.lastSyncError}</p>}
                                   </div>
-                                  <div className="text-right font-medium tabular-nums">
+                                  <div className="flex items-center justify-between text-xs md:block md:text-right md:text-sm">
+                                    <span className="text-muted-foreground md:hidden">Channel</span>
+                                    <span className="font-medium tabular-nums">
                                     {mapping.channelStock ?? "-"}
                                     {mapping.channelStock !== null && mapping.channelStock !== displayProduct.availableQuantity && (
                                       <span className="block text-xs text-muted-foreground">({mapping.channelStock})</span>
                                     )}
+                                    </span>
                                   </div>
-                                  <div className="text-right font-medium tabular-nums">{displayProduct.availableQuantity}</div>
-                                  <div className="text-right">Set to {displayProduct.availableQuantity}</div>
-                                  <div className="text-right">
+                                  <div className="hidden text-right font-medium tabular-nums md:block">{displayProduct.availableQuantity}</div>
+                                  <div className="flex items-center justify-between text-xs md:block md:text-right md:text-sm">
+                                    <span className="text-muted-foreground md:hidden">Outcome</span>
+                                    <span>Set to {displayProduct.availableQuantity}</span>
+                                  </div>
+                                  <div className="text-left md:text-right">
                                     <StatusBadge status={mapping.syncStatus} ready={mapping.channelStock === displayProduct.availableQuantity} />
                                   </div>
                                 </div>
@@ -653,7 +714,7 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                                 <button
                                   type="button"
                                   className="w-full border-t px-3 py-2 text-left text-sm text-primary hover:bg-muted/20"
-                                  onClick={() => toast.info(`${group.listings.length} ${group.name} listings are included in this product push.`)}
+                                  onClick={() => openListingPanel(group.key)}
                                 >
                                   View all {group.listings.length} listings
                                 </button>
@@ -691,7 +752,7 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                   </Button>
                   <Button
                     disabled={isPending || displayProduct.mappingCount === 0}
-                    onClick={() => requestPush([displayProduct.id], false)}
+                    onClick={() => pushProduct(displayProduct.id)}
                     className="gap-2"
                   >
                     {pushingIds.has(displayProduct.id) ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="h-4 w-4" />}
@@ -699,57 +760,34 @@ export function StockSyncQueue({ products }: StockSyncQueueProps) {
                   </Button>
                 </div>
               </div>
-            </>
-          )}
-        </div>
-      </section>
 
-      <Dialog open={!!confirmProductIds} onOpenChange={(open) => !open && setConfirmProductIds(null)}>
-        <DialogContent className="sm:max-w-[560px]">
-          <DialogHeader>
-            <DialogTitle>Push stock to channel listings?</DialogTitle>
-            <DialogDescription>
-              This will update every supported mapped listing for the selected SeplorX products.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-2">
-              <DialogMetric label="Products" value={confirmProducts.length} />
-              <DialogMetric label="Listings" value={confirmMappingCount} />
-              <DialogMetric label="Channels" value={confirmChannelNames.length} />
-            </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
-              <p className="text-xs font-medium text-muted-foreground">Channels affected</p>
-              <p className="mt-1 text-sm">{confirmChannelNames.join(", ") || "No supported channel targets"}</p>
-            </div>
-            <div className="max-h-52 overflow-y-auto rounded-lg border">
-              <div className="divide-y">
-                {confirmProducts.map((product) => (
-                  <div key={product.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">{product.name}</p>
-                      <p className="font-mono text-xs text-muted-foreground">{product.sku ?? "No SKU"}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-semibold tabular-nums">{product.availableQuantity}</p>
-                      <p className="text-xs text-muted-foreground">available</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+              {listingPanelGroup && (
+                <ListingPanel
+                  group={listingPanelGroup}
+                  product={displayProduct}
+                  listings={visibleListingPanelItems}
+                  filteredCount={filteredListingPanelItems.length}
+                  page={Math.min(listingPage, listingPageCount)}
+                  pageCount={listingPageCount}
+                  pageSize={listingPageSize}
+                  searchQuery={listingSearchQuery}
+                  filter={listingFilter}
+                  isPending={isPending}
+                  isPushing={pushingIds.has(displayProduct.id)}
+                  onSearchChange={(value) => {
+                    setListingSearchQuery(value);
+                    setListingPage(1);
+                  }}
+                  onFilterChange={updateListingFilter}
+                  onPageChange={setListingPage}
+                  onClose={() => setListingPanelGroupKey(null)}
+                  onPush={() => pushProduct(displayProduct.id)}
+                />
+              )}
+            </>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmProductIds(null)} disabled={isPending}>
-              Cancel
-            </Button>
-            <Button onClick={() => confirmProductIds && pushProducts(confirmProductIds)} disabled={isPending || confirmMappingCount === 0} className="gap-2">
-              {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="h-4 w-4" />}
-              Push {confirmMappingCount} listings
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        )}
+      </section>
     </div>
   );
 }
@@ -910,28 +948,234 @@ function BottomMetric({
   );
 }
 
-function DialogMetric({ label, value }: { label: string; value: number }) {
+function MobileProductMetric({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone?: "green" | "red";
+}) {
   return (
-    <div className="rounded-lg border bg-background px-3 py-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-xl font-semibold tabular-nums">{value}</p>
+    <div className="rounded-md border bg-background px-2 py-1.5">
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className={cn("font-semibold tabular-nums", tone === "green" && "text-emerald-700", tone === "red" && "text-red-600")}>
+        {value}
+      </p>
     </div>
   );
 }
 
-function ChannelAvatar({ name, type }: { name: string; type: string }) {
-  const label = type === "amazon" ? "a" : name.charAt(0).toUpperCase();
+function ChannelHeaderMetric({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number | string;
+  tone?: "orange" | "red";
+}) {
+  return (
+    <div className="rounded-md border bg-background px-2 py-1.5 text-right md:border-0 md:bg-transparent md:p-0">
+      <p className="text-[11px] text-muted-foreground md:hidden">{label}</p>
+      <p className={cn("font-medium tabular-nums", tone === "orange" && "text-orange-600", tone === "red" && "text-red-600")}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function ChannelAvatar({ name, type, size = "sm" }: { name: string; type: string; size?: "sm" | "md" }) {
+  const icon = getChannelById(type as ChannelType)?.icon ?? null;
+  const dimensionClass = size === "md" ? "h-9 w-9" : "h-6 w-6";
+  const imageClass = size === "md" ? "h-6 w-6" : "h-4 w-4";
+
+  if (icon) {
+    return (
+      <span className={cn("flex shrink-0 items-center justify-center rounded-md border bg-background", dimensionClass)}>
+        <Image src={icon} alt={`${name} logo`} width={24} height={24} className={cn("object-contain", imageClass)} />
+      </span>
+    );
+  }
+
   return (
     <span
       className={cn(
-        "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-bold",
-        type === "amazon"
-          ? "bg-amber-50 text-foreground"
-          : "bg-violet-50 text-violet-700",
+        "flex shrink-0 items-center justify-center rounded-md bg-muted text-xs font-bold text-muted-foreground",
+        dimensionClass,
       )}
     >
-      {label}
+      {name.charAt(0).toUpperCase()}
     </span>
+  );
+}
+
+function ListingPanel({
+  group,
+  product,
+  listings,
+  filteredCount,
+  page,
+  pageCount,
+  pageSize,
+  searchQuery,
+  filter,
+  isPending,
+  isPushing,
+  onSearchChange,
+  onFilterChange,
+  onPageChange,
+  onClose,
+  onPush,
+}: {
+  group: ChannelGroup;
+  product: SyncProduct;
+  listings: SyncMapping[];
+  filteredCount: number;
+  page: number;
+  pageCount: number;
+  pageSize: number;
+  searchQuery: string;
+  filter: ListingFilter;
+  isPending: boolean;
+  isPushing: boolean;
+  onSearchChange: (value: string) => void;
+  onFilterChange: (value: string) => void;
+  onPageChange: (value: number) => void;
+  onClose: () => void;
+  onPush: () => void;
+}) {
+  const firstItem = filteredCount === 0 ? 0 : (page - 1) * pageSize + 1;
+  const lastItem = Math.min(page * pageSize, filteredCount);
+  const action = getChannelAction(group);
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col border-l bg-background shadow-2xl md:absolute md:inset-y-0 md:left-auto md:right-0 md:w-[min(760px,100%)]">
+      <div className="border-b px-4 py-4 sm:px-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <ChannelAvatar name={group.name} type={group.type} size="md" />
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="truncate text-base font-semibold">{group.name} listings</h3>
+                <ActionBadge action={action} />
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {group.listings.length} mapped listings - {group.mismatchCount} stock differences - Push outcome: set to {product.availableQuantity}
+              </p>
+            </div>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 shrink-0">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="mt-4 grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(event) => onSearchChange(event.target.value)}
+              placeholder="Search external ID or listing title"
+              className="h-9 pl-9"
+            />
+          </div>
+          <Tabs value={filter} onValueChange={onFilterChange}>
+            <TabsList className="h-9">
+              <TabsTrigger value="all">All</TabsTrigger>
+              <TabsTrigger value="differences">Differences</TabsTrigger>
+              <TabsTrigger value="pending">Pending</TabsTrigger>
+              <TabsTrigger value="failed">Failed</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        <div className="hidden grid-cols-[120px_minmax(240px,1fr)_100px_90px_100px_90px] gap-3 border-b bg-muted/20 px-4 py-2 text-xs font-medium text-muted-foreground md:grid">
+          <div>External ID</div>
+          <div>Listing title</div>
+          <div className="text-right">Channel stock</div>
+          <div className="text-right">SeplorX</div>
+          <div className="text-right">Outcome</div>
+          <div className="text-right">Status</div>
+        </div>
+
+        {listings.length === 0 && (
+          <div className="px-5 py-16 text-center text-sm text-muted-foreground">
+            No listings match the current filters.
+          </div>
+        )}
+
+        <div className="divide-y">
+          {listings.map((mapping) => (
+            <div
+              key={mapping.id}
+              className="grid gap-2 px-4 py-3 text-sm md:grid-cols-[120px_minmax(240px,1fr)_100px_90px_100px_90px] md:gap-3"
+            >
+              <div className="font-mono text-xs font-medium">{mapping.externalProductId}</div>
+              <div className="min-w-0">
+                <p className="line-clamp-2 text-primary">{mapping.label ?? "View channel item"}</p>
+                {mapping.lastSyncError && <p className="mt-1 line-clamp-2 text-xs text-red-600">{mapping.lastSyncError}</p>}
+              </div>
+              <div className="flex items-center justify-between text-xs md:block md:text-right md:text-sm">
+                <span className="text-muted-foreground md:hidden">Channel</span>
+                <span className="font-medium tabular-nums">{mapping.channelStock ?? "-"}</span>
+              </div>
+              <div className="hidden text-right font-medium tabular-nums md:block">{product.availableQuantity}</div>
+              <div className="flex items-center justify-between text-xs md:block md:text-right md:text-sm">
+                <span className="text-muted-foreground md:hidden">
+                  Channel {mapping.channelStock ?? "-"} {"->"} SeplorX {product.availableQuantity}
+                </span>
+                <span>Set to {product.availableQuantity}</span>
+              </div>
+              <div className="text-left md:text-right">
+                <StatusBadge status={mapping.syncStatus} ready={mapping.channelStock === product.availableQuantity} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid gap-3 border-t bg-background px-4 py-3 sm:grid-cols-[1fr_auto] sm:items-center sm:px-5">
+        <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground sm:justify-start">
+          <span>
+            {firstItem}-{lastItem} of {filteredCount}
+          </span>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              disabled={page <= 1}
+              onClick={() => onPageChange(Math.max(1, page - 1))}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="min-w-8 text-center tabular-nums">{page}</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              disabled={page >= pageCount}
+              onClick={() => onPageChange(Math.min(pageCount, page + 1))}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={onClose} className="flex-1 sm:flex-none">
+            Close
+          </Button>
+          <Button onClick={onPush} disabled={isPending || product.mappingCount === 0} className="flex-1 gap-2 sm:flex-none">
+            {isPushing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="h-4 w-4" />}
+            Push this product
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

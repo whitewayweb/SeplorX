@@ -7,10 +7,20 @@ The `.agent/` directory contains broader Claude/ECC-oriented rules, skills, and 
 
 - Read existing patterns before editing.
 - Prefer current app architecture, shadcn components, data-access helpers, and server actions.
+- Before creating new UI helpers, icons, services, or workflows, search for an existing equivalent and reuse or extend it.
+- For channel-specific display, use the channel registry/configuration as the source of truth instead of hardcoded channel metadata.
+- Treat stock sync review queues as stock reconciliation workflows: emphasize review, compare, resolve, and audit-friendly actions over bulk shortcuts.
 - Keep changes scoped to the user's request.
 - Avoid unrelated refactors, formatting churn, or generated-file edits.
 - Prefer simple, readable implementations over clever or speculative designs.
 - Add comments only when they explain non-obvious intent or constraints.
+
+## Project Commands
+
+- Use Yarn for this repository; do not use npm commands unless the user explicitly asks.
+- Start the local development server with `yarn dev`.
+- Use `yarn fix` for the preferred fix/verification workflow when practical.
+- For targeted checks, prefer Yarn equivalents such as `yarn lint`, `yarn build`, and `yarn test`.
 
 ## Product and Data Flow
 
