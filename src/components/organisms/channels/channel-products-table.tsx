@@ -129,33 +129,31 @@ export function ChannelProductsTable({
 
     return (
         <>
-            <div className="flex items-center justify-between pb-4 min-h-[40px]">
-                <div>
-                    {selectedExternalIds.size > 0 && (
-                        <div className="flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                            <span className="text-sm font-medium text-muted-foreground mr-2">
-                                {selectedExternalIds.size} selected
-                            </span>
-                            <Button 
-                                onClick={() => setBulkSyncModalOpen(true)}
-                                variant="secondary" 
-                                size="sm" 
-                                className="shadow-sm border h-8"
-                            >
-                                Sync Selected
-                            </Button>
-                            <Button 
-                                onClick={() => setSelectedExternalIds(new Set())}
-                                variant="ghost" 
-                                size="sm" 
-                                className="h-8 text-muted-foreground"
-                            >
-                                Clear Selection
-                            </Button>
-                        </div>
-                    )}
+            {selectedExternalIds.size > 0 && (
+                <div className="flex min-h-10 items-center justify-between pb-3">
+                    <div className="flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                        <span className="mr-2 text-sm font-medium text-muted-foreground">
+                            {selectedExternalIds.size} selected
+                        </span>
+                        <Button
+                            onClick={() => setBulkSyncModalOpen(true)}
+                            variant="secondary"
+                            size="sm"
+                            className="h-8 border shadow-sm"
+                        >
+                            Sync Selected
+                        </Button>
+                        <Button
+                            onClick={() => setSelectedExternalIds(new Set())}
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 text-muted-foreground"
+                        >
+                            Clear Selection
+                        </Button>
+                    </div>
                 </div>
-            </div>
+            )}
 
             <div className="rounded-md border bg-white shadow-sm overflow-hidden">
                 <div className="overflow-x-auto">
