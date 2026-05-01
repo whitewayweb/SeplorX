@@ -16,6 +16,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DashboardTrendChart } from "@/components/organisms/dashboard/dashboard-trend-chart";
 import { PageHeader } from "@/components/molecules/layout/page-header";
 import {
   Table,
@@ -29,7 +30,6 @@ import type {
   CommerceDashboardData,
   DashboardAction,
   DashboardMetric,
-  DashboardTrendPoint,
 } from "@/data/dashboard";
 import { getOrderStatusBadgeClass } from "@/lib/utils/order-status";
 import { cn, formatCurrency, formatPercent } from "@/lib/utils";
@@ -56,8 +56,127 @@ function getActionToneClass(tone: DashboardAction["tone"]): string {
   return "border-blue-200 bg-blue-50/70 text-blue-800";
 }
 
-function MetricCard({ metric, index }: { metric: DashboardMetric; index: number }) {
+type MetricVisualType = "line" | "bars" | "comparison" | "inventory" | "health" | "queue";
+
+function MetricVisual({
+  values,
+  tone,
+  type,
+  valueText,
+}: {
+  values: number[];
+  tone: DashboardMetric["tone"];
+  type: MetricVisualType;
+  valueText: string;
+}) {
+  const maxValue = Math.max(...values, 1);
+  const barClass = tone === "critical"
+    ? "bg-red-500"
+    : tone === "warning"
+      ? "bg-amber-500"
+      : "bg-emerald-500";
+  const strokeClass = tone === "critical"
+    ? "stroke-red-500"
+    : tone === "warning"
+      ? "stroke-amber-500"
+      : "stroke-emerald-500";
+  const points = values.slice(-8).map((value, index, items) => {
+    const x = items.length <= 1 ? 0 : (index / (items.length - 1)) * 100;
+    const y = 40 - (value / maxValue) * 36;
+    return `${x},${Math.max(4, y)}`;
+  }).join(" ");
+
+  if (type === "line") {
+    return (
+      <svg viewBox="0 0 100 44" className="mt-4 h-10 w-full" aria-hidden="true">
+        <polyline
+          points={points}
+          fill="none"
+          strokeWidth="4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={strokeClass}
+        />
+      </svg>
+    );
+  }
+
+  if (type === "inventory") {
+    return (
+      <div className="mt-4 grid grid-cols-5 gap-1" aria-hidden="true">
+        {[0, 1, 2, 3, 4].map((item) => (
+          <span
+            key={item}
+            className={cn("h-2 rounded-full", item === 4 && tone === "warning" ? "bg-amber-500" : "bg-slate-300")}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  if (type === "comparison") {
+    return (
+      <div className="mt-4 space-y-1" aria-hidden="true">
+        {values.slice(-4).map((value, index) => (
+          <div key={`${value}-${index}`} className="h-2 rounded-full bg-muted">
+            <div
+              className={cn("h-2 rounded-full", barClass)}
+              style={{ width: `${Math.max(8, (value / maxValue) * 100)}%` }}
+            />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (type === "health") {
+    const [healthy, total] = valueText.split("/").map((value) => Number(value));
+    const percent = total > 0 ? Math.max(0, Math.min(100, (healthy / total) * 100)) : 0;
+
+    return (
+      <div className="mt-4 h-2 rounded-full bg-muted" aria-hidden="true">
+        <div className={cn("h-2 rounded-full", barClass)} style={{ width: `${percent}%` }} />
+      </div>
+    );
+  }
+
+  if (type === "queue") {
+    return (
+      <div className="mt-4 flex gap-1" aria-hidden="true">
+        {[0, 1, 2, 3].map((item) => (
+          <span
+            key={item}
+            className={cn("h-3 flex-1 rounded-sm", item === 0 ? "bg-red-500" : "bg-muted")}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 flex h-10 items-end gap-1" aria-hidden="true">
+      {values.slice(-8).map((value, index) => (
+        <span
+          key={`${value}-${index}`}
+          className={cn("min-w-1 flex-1 rounded-t opacity-80", barClass)}
+          style={{ height: `${Math.max(4, (value / maxValue) * 40)}px` }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function MetricCard({
+  metric,
+  index,
+  sparkValues,
+}: {
+  metric: DashboardMetric;
+  index: number;
+  sparkValues: number[];
+}) {
   const Icon = METRIC_ICONS[index] ?? BarChart3;
+  const visualTypes: MetricVisualType[] = ["line", "bars", "comparison", "inventory", "health", "queue"];
   const card = (
     <Card className="h-full transition-colors hover:bg-muted/30">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -69,6 +188,12 @@ function MetricCard({ metric, index }: { metric: DashboardMetric; index: number 
         <p className={cn("mt-1 text-xs", getMetricToneClass(metric.tone))}>
           {metric.detail}
         </p>
+        <MetricVisual
+          values={sparkValues}
+          tone={metric.tone}
+          type={visualTypes[index] ?? "bars"}
+          valueText={metric.value}
+        />
       </CardContent>
     </Card>
   );
@@ -82,40 +207,96 @@ function MetricCard({ metric, index }: { metric: DashboardMetric; index: number 
   );
 }
 
-function TrendBars({ points }: { points: DashboardTrendPoint[] }) {
-  const maxRevenue = Math.max(...points.map((point) => point.revenue), 1);
-  const visiblePoints = points.length > 0
-    ? points
-    : [{ id: "empty", label: "No sales", revenue: 0, profit: 0, orders: 0 }];
+function SectionHeading({ title, description }: { title: string; description: string }) {
+  return (
+    <div>
+      <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+      <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+    </div>
+  );
+}
+
+function RangeSelector({ dashboard }: { dashboard: CommerceDashboardData }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1 rounded-md border bg-background p-1">
+      {dashboard.range.options.map((option) => (
+        <Button
+          key={option.days}
+          variant={option.active ? "default" : "ghost"}
+          size="sm"
+          className="h-8"
+          asChild
+        >
+          <Link href={option.href}>{option.label}</Link>
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+function ProfitAndLossCard({ dashboard }: { dashboard: CommerceDashboardData }) {
+  const rows = [
+    {
+      label: "Net sales",
+      value: formatCurrency(dashboard.profitAndLoss.revenue),
+      tone: "text-foreground",
+    },
+    {
+      label: "Known cost of goods",
+      value: `-${formatCurrency(dashboard.profitAndLoss.estimatedCost)}`,
+      tone: "text-muted-foreground",
+    },
+    {
+      label: "Known-cost gross profit",
+      value: formatCurrency(dashboard.profitAndLoss.grossProfit),
+      tone: "text-emerald-700",
+    },
+    {
+      label: "Sales missing product cost",
+      value: formatCurrency(dashboard.profitAndLoss.missingCostRevenue),
+      tone: dashboard.profitAndLoss.missingCostRevenue > 0 ? "text-amber-700" : "text-muted-foreground",
+    },
+  ];
 
   return (
-    <div className="flex h-64 items-end gap-3 border-b border-l px-4 pb-8 pt-6">
-      {visiblePoints.map((point) => {
-        const revenueHeight = Math.max(6, (point.revenue / maxRevenue) * 180);
-        const profitHeight = Math.max(4, (point.profit / maxRevenue) * 180);
-
-        return (
-          <div key={point.id} className="flex min-w-0 flex-1 flex-col items-center gap-2">
-            <div className="flex h-48 w-full items-end justify-center gap-1">
-              <div
-                className="w-4 rounded-t bg-blue-600"
-                style={{ height: `${revenueHeight}px` }}
-                title={`Revenue ${formatCurrency(point.revenue)}`}
-              />
-              <div
-                className="w-4 rounded-t bg-emerald-500"
-                style={{ height: `${profitHeight}px` }}
-                title={`Profit ${formatCurrency(point.profit)}`}
-              />
+    <Card>
+      <CardHeader>
+        <CardTitle>Profit and loss</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Known-cost P&L for the selected {dashboard.range.label}.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-3">
+          {rows.map((row) => (
+            <div key={row.label} className="flex items-center justify-between gap-4">
+              <span className="text-sm text-muted-foreground">{row.label}</span>
+              <span className={cn("font-medium", row.tone)}>{row.value}</span>
             </div>
-            <div className="text-center">
-              <p className="text-xs font-medium">{point.label}</p>
-              <p className="text-[11px] text-muted-foreground">{point.orders} orders</p>
-            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-3 rounded-lg bg-muted/40 p-3 text-sm">
+          <div>
+            <p className="text-muted-foreground">Gross margin</p>
+            <p className="mt-1 font-semibold">
+              {formatPercent(dashboard.profitAndLoss.grossMarginPercent)}
+            </p>
           </div>
-        );
-      })}
-    </div>
+          <div>
+            <p className="text-muted-foreground">AOV</p>
+            <p className="mt-1 font-semibold">
+              {formatCurrency(dashboard.profitAndLoss.averageOrderValue)}
+            </p>
+          </div>
+          <div className="col-span-2">
+            <p className="text-muted-foreground">Included orders</p>
+            <p className="mt-1 font-semibold">
+              {dashboard.profitAndLoss.orderCount.toLocaleString("en-IN")}
+            </p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -124,8 +305,9 @@ export function CommerceDashboard({ dashboard }: { dashboard: CommerceDashboardD
     <div className="space-y-6 p-6">
       <PageHeader
         title="Commerce Control Dashboard"
-        description="Cash, orders, inventory risk, and channel reconciliation in one place."
+        description={`Cash, orders, inventory risk, and channel reconciliation for the last ${dashboard.range.label}.`}
       >
+        <RangeSelector dashboard={dashboard} />
         <Button variant="outline" asChild>
           <Link href="/inventory/sync">
             <RefreshCw className="mr-2 h-4 w-4" />
@@ -140,13 +322,72 @@ export function CommerceDashboard({ dashboard }: { dashboard: CommerceDashboardD
         </Button>
       </PageHeader>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        {dashboard.metrics.map((metric, index) => (
-          <MetricCard key={metric.label} metric={metric} index={index} />
-        ))}
+      <section className="space-y-3">
+        <SectionHeading
+          title="Business snapshot"
+          description="The current pulse across revenue, orders, stock, and work queues."
+        />
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+          {dashboard.metrics.map((metric, index) => {
+            const sparkValues = index === 1
+              ? dashboard.trend.map((point) => point.orders)
+              : index === 2
+                ? dashboard.trend.map((point) => point.profit)
+                : dashboard.trend.map((point) => point.revenue);
+
+            return (
+              <MetricCard
+                key={metric.label}
+                metric={metric}
+                index={index}
+                sparkValues={sparkValues.length > 0 ? sparkValues : [0]}
+              />
+            );
+          })}
+        </div>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[minmax(360px,0.85fr)_minmax(520px,1fr)_minmax(420px,0.95fr)]">
+      <section className="space-y-3">
+        <SectionHeading
+          title="Financial performance"
+          description="Sales, gross profit, margin, and cost view for the selected period."
+        />
+        <div className="grid gap-6 xl:grid-cols-[minmax(520px,1fr)_minmax(320px,0.45fr)]">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <CardTitle>Sales and profit trend</CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Revenue and known-cost gross profit from the last {dashboard.range.label}.
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <span className="h-2.5 w-2.5 rounded-sm bg-[var(--chart-1)]" />
+                    Revenue
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="h-2.5 w-2.5 rounded-sm bg-[var(--chart-2)]" />
+                    Known-cost profit
+                  </span>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <DashboardTrendChart points={dashboard.trend} />
+            </CardContent>
+          </Card>
+          <ProfitAndLossCard dashboard={dashboard} />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <SectionHeading
+          title="Operational actions"
+          description="Review queues and order states that need attention before they affect customers."
+        />
+        <div className="grid gap-6 xl:grid-cols-[minmax(360px,0.85fr)_minmax(520px,1fr)]">
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between gap-3">
@@ -202,86 +443,6 @@ export function CommerceDashboard({ dashboard }: { dashboard: CommerceDashboardD
 
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <CardTitle>Sales and profit trend</CardTitle>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Revenue and gross profit from the last 7 days.
-                </p>
-              </div>
-              <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1">
-                  <span className="h-2.5 w-2.5 rounded-sm bg-blue-600" />
-                  Revenue
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" />
-                  Profit
-                </span>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <TrendBars points={dashboard.trend} />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <CardTitle>Channel performance</CardTitle>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Sales, mapping coverage, and reconciliation health.
-                </p>
-              </div>
-              <PackageSearch className="h-5 w-5 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {dashboard.channelPerformance.length === 0 ? (
-              <p className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
-                Connect a channel to see sales, listings, and sync health.
-              </p>
-            ) : (
-              dashboard.channelPerformance.map((channel) => (
-                <div key={channel.id} className="space-y-3 rounded-lg border p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="h-2.5 w-2.5 rounded-full"
-                          style={{ backgroundColor: channel.color }}
-                        />
-                        <h3 className="truncate font-semibold">{channel.name}</h3>
-                      </div>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {channel.typeName} · {channel.orderCount} orders · {formatCurrency(channel.revenue)}
-                      </p>
-                    </div>
-                    <Badge variant="outline">{formatPercent(channel.mappingCoveragePercent)} mapped</Badge>
-                  </div>
-                  <div className="h-2 rounded-full bg-muted">
-                    <div
-                      className="h-2 rounded-full bg-blue-600"
-                      style={{ width: `${channel.mappingCoveragePercent}%` }}
-                    />
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
-                    <span>{channel.totalListings.toLocaleString("en-IN")} listings</span>
-                    <span>{channel.pendingSyncCount.toLocaleString("en-IN")} sync reviews</span>
-                    <span>{channel.failedFeedCount + channel.failedSyncCount} failures</span>
-                  </div>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-3">
-        <Card>
-          <CardHeader>
             <CardTitle>Orders needing work</CardTitle>
             <p className="text-sm text-muted-foreground">
               Current operational load by order status.
@@ -314,7 +475,75 @@ export function CommerceDashboard({ dashboard }: { dashboard: CommerceDashboardD
             </Table>
           </CardContent>
         </Card>
+        </div>
+      </section>
 
+      <section className="space-y-3">
+        <SectionHeading
+          title="Channels"
+          description="Channel-only sales, mapping coverage, and reconciliation health."
+        />
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <CardTitle>Channel performance</CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Sales, mapping coverage, and reconciliation health.
+                </p>
+              </div>
+              <PackageSearch className="h-5 w-5 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            {dashboard.channelPerformance.length === 0 ? (
+              <p className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
+                Connect a channel to see sales, listings, and sync health.
+              </p>
+            ) : (
+              <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+                {dashboard.channelPerformance.map((channel) => (
+                <div key={channel.id} className="space-y-3 rounded-lg border p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="h-2.5 w-2.5 rounded-full"
+                          style={{ backgroundColor: channel.color }}
+                        />
+                        <h3 className="truncate font-semibold">{channel.name}</h3>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {channel.typeName} · {channel.orderCount} orders · {formatCurrency(channel.revenue)}
+                      </p>
+                    </div>
+                    <Badge variant="outline">{formatPercent(channel.mappingCoveragePercent)} mapped</Badge>
+                  </div>
+                  <div className="h-2 rounded-full bg-muted">
+                    <div
+                      className="h-2 rounded-full bg-blue-600"
+                      style={{ width: `${channel.mappingCoveragePercent}%` }}
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+                    <span>{channel.totalListings.toLocaleString("en-IN")} listings</span>
+                    <span>{channel.pendingSyncCount.toLocaleString("en-IN")} sync reviews</span>
+                    <span>{channel.failedFeedCount + channel.failedSyncCount} failures</span>
+                  </div>
+                </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="space-y-3">
+        <SectionHeading
+          title="Inventory and products"
+          description="Stock risk and product profitability for fulfillment and buying decisions."
+        />
+        <div className="grid gap-6 xl:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Inventory risk</CardTitle>
@@ -364,13 +593,13 @@ export function CommerceDashboard({ dashboard }: { dashboard: CommerceDashboardD
           <CardHeader>
             <CardTitle>Top products by profit</CardTitle>
             <p className="text-sm text-muted-foreground">
-              Last 30 days, ranked by estimated gross profit.
+              Last {dashboard.range.label}, ranked by estimated gross profit.
             </p>
           </CardHeader>
           <CardContent>
             {dashboard.topProducts.length === 0 ? (
               <p className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
-                No mapped product sales found in the last 30 days.
+                No mapped product sales found in the last {dashboard.range.label}.
               </p>
             ) : (
               <div className="space-y-3">
@@ -400,64 +629,66 @@ export function CommerceDashboard({ dashboard }: { dashboard: CommerceDashboardD
             )}
           </CardContent>
         </Card>
+        </div>
       </section>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
+      <section className="space-y-3">
+        <SectionHeading
+          title="Recent order activity"
+          description="Latest channel orders with value and status."
+        />
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Recent orders</CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Latest channel orders with value and status.
-            </p>
-          </div>
-          <Button variant="ghost" asChild>
-            <Link href="/orders">
-              View all
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Link>
-          </Button>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Order ID</TableHead>
-                <TableHead>Channel</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Total</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {dashboard.recentOrders.length === 0 ? (
+            <Button variant="ghost" asChild>
+              <Link href="/orders">
+                View all
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={4} className="h-24 text-center text-sm text-muted-foreground">
-                    No recent orders.
-                  </TableCell>
+                  <TableHead>Order ID</TableHead>
+                  <TableHead>Channel</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
                 </TableRow>
-              ) : (
-                dashboard.recentOrders.map((order) => (
-                  <TableRow key={order.id}>
-                    <TableCell className="font-mono text-xs">
-                      <Link href={`/orders/${order.id}`} className="text-blue-600 hover:underline">
-                        {order.externalOrderId}
-                      </Link>
-                    </TableCell>
-                    <TableCell>{order.channelName ?? "Unknown channel"}</TableCell>
-                    <TableCell>
-                      <Badge className={cn(getOrderStatusBadgeClass(order.status))}>
-                        {order.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right font-medium">
-                      {formatCurrency(order.totalAmount, order.currency ?? "INR")}
+              </TableHeader>
+              <TableBody>
+                {dashboard.recentOrders.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="h-24 text-center text-sm text-muted-foreground">
+                      No recent orders.
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                ) : (
+                  dashboard.recentOrders.map((order) => (
+                    <TableRow key={order.id}>
+                      <TableCell className="font-mono text-xs">
+                        <Link href={`/orders/${order.id}`} className="text-blue-600 hover:underline">
+                          {order.externalOrderId}
+                        </Link>
+                      </TableCell>
+                      <TableCell>{order.channelName ?? "Unknown channel"}</TableCell>
+                      <TableCell>
+                        <Badge className={cn(getOrderStatusBadgeClass(order.status))}>
+                          {order.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-medium">
+                        {formatCurrency(order.totalAmount, order.currency ?? "INR")}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </section>
     </div>
   );
 }

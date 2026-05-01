@@ -16,10 +16,7 @@ export function getBaseUrl(headersObj: Headers): string {
   return `${protocol}://${host}`;
 }
 
-export function formatCurrency(amount: number, currency = "INR", compact = false): string {
-  if (compact && amount >= 100000) {
-    return `${currency} ${(amount / 100000).toFixed(amount >= 1000000 ? 1 : 2)}L`;
-  }
+export function formatCurrency(amount: number, currency = "INR"): string {
   return `${currency} ${amount.toLocaleString("en-IN", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
