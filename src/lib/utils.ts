@@ -15,3 +15,17 @@ export function getBaseUrl(headersObj: Headers): string {
   const protocol = headersObj.get("x-forwarded-proto") || (isLocal ? "http" : "https");
   return `${protocol}://${host}`;
 }
+
+export function formatCurrency(amount: number, currency = "INR", compact = false): string {
+  if (compact && amount >= 100000) {
+    return `${currency} ${(amount / 100000).toFixed(amount >= 1000000 ? 1 : 2)}L`;
+  }
+  return `${currency} ${amount.toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+export function formatPercent(value: number): string {
+  return `${value.toFixed(1)}%`;
+}

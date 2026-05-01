@@ -71,6 +71,6 @@
     "json-schema-to-typescript": "^15.0.4",
     "knip": "^5.83.1",
     "only-allow": "^1.2.2",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.4"
   }
 }

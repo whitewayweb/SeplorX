@@ -6,6 +6,7 @@ import { TablePagination } from "@/components/ui/table-pagination";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { DateRangePicker } from "@/components/organisms/orders/date-range-picker";
+import { getOrderStatusBadgeClass, getOrderStatusLabel } from "@/lib/utils/order-status";
 
 interface Order {
   id: number;
@@ -36,20 +37,6 @@ interface OrdersListProps {
   currentStatus?: string;
   statusCounts?: Record<string, number>;
 }
-
-const STATUS_COLORS: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-800",
-  processing: "bg-blue-100 text-blue-800",
-  "on-hold": "bg-purple-100 text-purple-800",
-  packed: "bg-cyan-100 text-cyan-800",
-  shipped: "bg-teal-100 text-teal-800",
-  delivered: "bg-green-100 text-green-800",
-  cancelled: "bg-red-100 text-red-800",
-  returned: "bg-pink-100 text-pink-800",
-  refunded: "bg-orange-100 text-orange-800",
-  failed: "bg-stone-100 text-stone-800",
-  draft: "bg-gray-100 text-gray-800",
-};
 
 export function OrdersList({
   orders,
@@ -84,7 +71,7 @@ export function OrdersList({
 
   const statusTabs = [
     ...ALL_STATUSES.map((status) => ({
-      label: status.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      label: getOrderStatusLabel(status),
       value: status,
       count: statusCounts[status] || 0,
     })),
@@ -140,7 +127,7 @@ export function OrdersList({
                   <span
                     className={cn(
                       "inline-flex items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold transition-colors",
-                      STATUS_COLORS[tab.value] || "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      getOrderStatusBadgeClass(tab.value)
                     )}
                   >
                     {tab.count}
@@ -198,8 +185,7 @@ export function OrdersList({
                     {order.buyerName ?? <span className="text-gray-400 italic text-xs">Amazon Anonymized</span>}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${STATUS_COLORS[order.status ?? ""] ?? "bg-gray-100 text-gray-700"
-                      }`}>
+                    <span className={`px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${getOrderStatusBadgeClass(order.status)}`}>
                       {order.status}
                     </span>
                   </td>
@@ -225,4 +211,3 @@ export function OrdersList({
     </div>
   );
 }
-
