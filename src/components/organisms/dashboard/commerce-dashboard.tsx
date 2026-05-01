@@ -16,10 +16,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  DashboardMetricVisual,
-  type MetricVisualType,
-} from "@/components/organisms/dashboard/dashboard-metric-visual";
 import { DashboardTrendChart } from "@/components/organisms/dashboard/dashboard-trend-chart";
 import { PageHeader } from "@/components/molecules/layout/page-header";
 import {
@@ -36,7 +32,7 @@ import type {
   DashboardMetric,
 } from "@/data/dashboard";
 import { getOrderStatusBadgeClass } from "@/lib/utils/order-status";
-import { cn, formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
+import { cn, formatCurrency, formatPercent } from "@/lib/utils";
 
 const METRIC_ICONS = [
   CircleDollarSign,
@@ -58,6 +54,116 @@ function getActionToneClass(tone: DashboardAction["tone"]): string {
   if (tone === "critical") return "border-red-200 bg-red-50/70 text-red-800";
   if (tone === "warning") return "border-amber-200 bg-amber-50/70 text-amber-800";
   return "border-blue-200 bg-blue-50/70 text-blue-800";
+}
+
+type MetricVisualType = "line" | "bars" | "comparison" | "inventory" | "health" | "queue";
+
+function MetricVisual({
+  values,
+  tone,
+  type,
+  valueText,
+}: {
+  values: number[];
+  tone: DashboardMetric["tone"];
+  type: MetricVisualType;
+  valueText: string;
+}) {
+  const maxValue = Math.max(...values, 1);
+  const barClass = tone === "critical"
+    ? "bg-red-500"
+    : tone === "warning"
+      ? "bg-amber-500"
+      : "bg-emerald-500";
+  const strokeClass = tone === "critical"
+    ? "stroke-red-500"
+    : tone === "warning"
+      ? "stroke-amber-500"
+      : "stroke-emerald-500";
+  const points = values.slice(-8).map((value, index, items) => {
+    const x = items.length <= 1 ? 0 : (index / (items.length - 1)) * 100;
+    const y = 40 - (value / maxValue) * 36;
+    return `${x},${Math.max(4, y)}`;
+  }).join(" ");
+
+  if (type === "line") {
+    return (
+      <svg viewBox="0 0 100 44" className="mt-4 h-10 w-full" aria-hidden="true">
+        <polyline
+          points={points}
+          fill="none"
+          strokeWidth="4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={strokeClass}
+        />
+      </svg>
+    );
+  }
+
+  if (type === "inventory") {
+    return (
+      <div className="mt-4 grid grid-cols-5 gap-1" aria-hidden="true">
+        {[0, 1, 2, 3, 4].map((item) => (
+          <span
+            key={item}
+            className={cn("h-2 rounded-full", item === 4 && tone === "warning" ? "bg-amber-500" : "bg-slate-300")}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  if (type === "comparison") {
+    return (
+      <div className="mt-4 space-y-1" aria-hidden="true">
+        {values.slice(-4).map((value, index) => (
+          <div key={`${value}-${index}`} className="h-2 rounded-full bg-muted">
+            <div
+              className={cn("h-2 rounded-full", barClass)}
+              style={{ width: `${Math.max(8, (value / maxValue) * 100)}%` }}
+            />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (type === "health") {
+    const [healthy, total] = valueText.split("/").map((value) => Number(value));
+    const percent = total > 0 ? Math.max(0, Math.min(100, (healthy / total) * 100)) : 0;
+
+    return (
+      <div className="mt-4 h-2 rounded-full bg-muted" aria-hidden="true">
+        <div className={cn("h-2 rounded-full", barClass)} style={{ width: `${percent}%` }} />
+      </div>
+    );
+  }
+
+  if (type === "queue") {
+    return (
+      <div className="mt-4 flex gap-1" aria-hidden="true">
+        {[0, 1, 2, 3].map((item) => (
+          <span
+            key={item}
+            className={cn("h-3 flex-1 rounded-sm", item === 0 ? "bg-red-500" : "bg-muted")}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 flex h-10 items-end gap-1" aria-hidden="true">
+      {values.slice(-8).map((value, index) => (
+        <span
+          key={`${value}-${index}`}
+          className={cn("min-w-1 flex-1 rounded-t opacity-80", barClass)}
+          style={{ height: `${Math.max(4, (value / maxValue) * 40)}px` }}
+        />
+      ))}
+    </div>
+  );
 }
 
 function MetricCard({
@@ -82,7 +188,7 @@ function MetricCard({
         <p className={cn("mt-1 text-xs", getMetricToneClass(metric.tone))}>
           {metric.detail}
         </p>
-        <DashboardMetricVisual
+        <MetricVisual
           values={sparkValues}
           tone={metric.tone}
           type={visualTypes[index] ?? "bars"}
@@ -136,11 +242,6 @@ function ProfitAndLossCard({ dashboard }: { dashboard: CommerceDashboardData }) 
       tone: "text-foreground",
     },
     {
-      label: "Known-cost sales",
-      value: formatCurrency(dashboard.profitAndLoss.knownCostRevenue),
-      tone: "text-foreground",
-    },
-    {
       label: "Known cost of goods",
       value: `-${formatCurrency(dashboard.profitAndLoss.estimatedCost)}`,
       tone: "text-muted-foreground",
@@ -190,7 +291,7 @@ function ProfitAndLossCard({ dashboard }: { dashboard: CommerceDashboardData }) 
           <div className="col-span-2">
             <p className="text-muted-foreground">Included orders</p>
             <p className="mt-1 font-semibold">
-              {formatNumber(dashboard.profitAndLoss.orderCount)}
+              {dashboard.profitAndLoss.orderCount.toLocaleString("en-IN")}
             </p>
           </div>
         </div>
@@ -326,7 +427,7 @@ export function CommerceDashboard({ dashboard }: { dashboard: CommerceDashboardD
                       </div>
                       <p className="mt-2 text-sm leading-5 opacity-85">{action.description}</p>
                     </div>
-                    <span className="text-2xl font-bold">{formatNumber(action.count)}</span>
+                    <span className="text-2xl font-bold">{action.count.toLocaleString("en-IN")}</span>
                   </div>
                   <Button variant="link" className="mt-2 h-auto p-0 font-semibold" asChild>
                     <Link href={action.href}>
@@ -425,8 +526,8 @@ export function CommerceDashboard({ dashboard }: { dashboard: CommerceDashboardD
                     />
                   </div>
                   <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
-                    <span>{formatNumber(channel.totalListings)} listings</span>
-                    <span>{formatNumber(channel.pendingSyncCount)} sync reviews</span>
+                    <span>{channel.totalListings.toLocaleString("en-IN")} listings</span>
+                    <span>{channel.pendingSyncCount.toLocaleString("en-IN")} sync reviews</span>
                     <span>{channel.failedFeedCount + channel.failedSyncCount} failures</span>
                   </div>
                 </div>

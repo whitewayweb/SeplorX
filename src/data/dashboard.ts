@@ -12,7 +12,7 @@ import {
 import { getPendingStockSyncProductCount } from "@/data/products";
 import { channelRegistry, getChannelById } from "@/lib/channels/registry";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
-import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
+import { formatCurrency, formatPercent } from "@/lib/utils";
 
 const ACTIVE_REVENUE_STATUSES = [
   "pending",
@@ -165,7 +165,6 @@ interface SalesSummary {
   revenuePreviousPeriod: number;
   ordersToday: number;
   ordersPeriod: number;
-  knownCostRevenuePeriod: number;
   grossProfitPeriod: number;
   estimatedCostPeriod: number;
   missingCostRevenue: number;
@@ -173,7 +172,6 @@ interface SalesSummary {
 
 export interface DashboardProfitAndLoss {
   revenue: number;
-  knownCostRevenue: number;
   estimatedCost: number;
   grossProfit: number;
   missingCostRevenue: number;
@@ -309,9 +307,6 @@ async function getSalesSummary(userId: number, window: DashboardWindow): Promise
       .where(and(eq(channels.userId, userId), inArray(salesOrders.status, ACTIVE_REVENUE_STATUSES))),
     db
       .select({
-        knownCostRevenuePeriod: sql<string>`coalesce(sum(
-          ${salesOrderItems.price}::numeric * ${salesOrderItems.quantity}
-        ) filter (where ${products.purchasePrice} is not null), 0)`,
         grossProfitPeriod: sql<string>`coalesce(sum(
           (${salesOrderItems.price}::numeric - ${products.purchasePrice}) * ${salesOrderItems.quantity}
         ) filter (where ${products.purchasePrice} is not null), 0)`,
@@ -344,7 +339,6 @@ async function getSalesSummary(userId: number, window: DashboardWindow): Promise
     revenuePreviousPeriod: toNumber(row?.revenuePreviousPeriod),
     ordersToday: toNumber(row?.ordersToday),
     ordersPeriod: toNumber(row?.ordersPeriod),
-    knownCostRevenuePeriod: toNumber(profit?.knownCostRevenuePeriod),
     grossProfitPeriod: toNumber(profit?.grossProfitPeriod),
     estimatedCostPeriod: toNumber(profit?.estimatedCostPeriod),
     missingCostRevenue: toNumber(profit?.missingCostRevenue),
@@ -729,15 +723,14 @@ export async function getCommerceDashboardData(
     getRecentOrders(userId),
   ]);
 
-  const grossMarginPercent = sales.knownCostRevenuePeriod > 0
-    ? (sales.grossProfitPeriod / sales.knownCostRevenuePeriod) * 100
+  const grossMarginPercent = sales.revenuePeriod > 0
+    ? (sales.grossProfitPeriod / sales.revenuePeriod) * 100
     : 0;
   const averageOrderValue = sales.ordersPeriod > 0
     ? sales.revenuePeriod / sales.ordersPeriod
     : 0;
   const profitAndLoss = {
     revenue: sales.revenuePeriod,
-    knownCostRevenue: sales.knownCostRevenuePeriod,
     estimatedCost: sales.estimatedCostPeriod,
     grossProfit: sales.grossProfitPeriod,
     missingCostRevenue: sales.missingCostRevenue,
@@ -772,8 +765,8 @@ export async function getCommerceDashboardData(
       },
       {
         label: "Orders today",
-        value: formatNumber(sales.ordersToday),
-        detail: `${formatNumber(sales.ordersPeriod)} orders in the last ${window.label}`,
+        value: sales.ordersToday.toLocaleString("en-IN"),
+        detail: `${sales.ordersPeriod.toLocaleString("en-IN")} orders in the last ${window.label}`,
         tone: sales.ordersToday > 0 ? "positive" : "default",
         href: "/orders",
       },
@@ -799,7 +792,7 @@ export async function getCommerceDashboardData(
       },
       {
         label: "Action queue",
-        value: formatNumber(actionCount),
+        value: actionCount.toLocaleString("en-IN"),
         detail: `${operational.failedFeeds + inventoryRisk.stockoutRiskCount} urgent blockers`,
         tone: actionCount > 0 ? "critical" : "positive",
       },
