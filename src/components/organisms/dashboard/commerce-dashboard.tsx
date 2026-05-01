@@ -16,6 +16,10 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  DashboardMetricVisual,
+  type MetricVisualType,
+} from "@/components/organisms/dashboard/dashboard-metric-visual";
 import { DashboardTrendChart } from "@/components/organisms/dashboard/dashboard-trend-chart";
 import { PageHeader } from "@/components/molecules/layout/page-header";
 import {
@@ -56,116 +60,6 @@ function getActionToneClass(tone: DashboardAction["tone"]): string {
   return "border-blue-200 bg-blue-50/70 text-blue-800";
 }
 
-type MetricVisualType = "line" | "bars" | "comparison" | "inventory" | "health" | "queue";
-
-function MetricVisual({
-  values,
-  tone,
-  type,
-  valueText,
-}: {
-  values: number[];
-  tone: DashboardMetric["tone"];
-  type: MetricVisualType;
-  valueText: string;
-}) {
-  const maxValue = Math.max(...values, 1);
-  const barClass = tone === "critical"
-    ? "bg-red-500"
-    : tone === "warning"
-      ? "bg-amber-500"
-      : "bg-emerald-500";
-  const strokeClass = tone === "critical"
-    ? "stroke-red-500"
-    : tone === "warning"
-      ? "stroke-amber-500"
-      : "stroke-emerald-500";
-  const points = values.slice(-8).map((value, index, items) => {
-    const x = items.length <= 1 ? 0 : (index / (items.length - 1)) * 100;
-    const y = 40 - (value / maxValue) * 36;
-    return `${x},${Math.max(4, y)}`;
-  }).join(" ");
-
-  if (type === "line") {
-    return (
-      <svg viewBox="0 0 100 44" className="mt-4 h-10 w-full" aria-hidden="true">
-        <polyline
-          points={points}
-          fill="none"
-          strokeWidth="4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={strokeClass}
-        />
-      </svg>
-    );
-  }
-
-  if (type === "inventory") {
-    return (
-      <div className="mt-4 grid grid-cols-5 gap-1" aria-hidden="true">
-        {[0, 1, 2, 3, 4].map((item) => (
-          <span
-            key={item}
-            className={cn("h-2 rounded-full", item === 4 && tone === "warning" ? "bg-amber-500" : "bg-slate-300")}
-          />
-        ))}
-      </div>
-    );
-  }
-
-  if (type === "comparison") {
-    return (
-      <div className="mt-4 space-y-1" aria-hidden="true">
-        {values.slice(-4).map((value, index) => (
-          <div key={`${value}-${index}`} className="h-2 rounded-full bg-muted">
-            <div
-              className={cn("h-2 rounded-full", barClass)}
-              style={{ width: `${Math.max(8, (value / maxValue) * 100)}%` }}
-            />
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if (type === "health") {
-    const [healthy, total] = valueText.split("/").map((value) => Number(value));
-    const percent = total > 0 ? Math.max(0, Math.min(100, (healthy / total) * 100)) : 0;
-
-    return (
-      <div className="mt-4 h-2 rounded-full bg-muted" aria-hidden="true">
-        <div className={cn("h-2 rounded-full", barClass)} style={{ width: `${percent}%` }} />
-      </div>
-    );
-  }
-
-  if (type === "queue") {
-    return (
-      <div className="mt-4 flex gap-1" aria-hidden="true">
-        {[0, 1, 2, 3].map((item) => (
-          <span
-            key={item}
-            className={cn("h-3 flex-1 rounded-sm", item === 0 ? "bg-red-500" : "bg-muted")}
-          />
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <div className="mt-4 flex h-10 items-end gap-1" aria-hidden="true">
-      {values.slice(-8).map((value, index) => (
-        <span
-          key={`${value}-${index}`}
-          className={cn("min-w-1 flex-1 rounded-t opacity-80", barClass)}
-          style={{ height: `${Math.max(4, (value / maxValue) * 40)}px` }}
-        />
-      ))}
-    </div>
-  );
-}
-
 function MetricCard({
   metric,
   index,
@@ -188,7 +82,7 @@ function MetricCard({
         <p className={cn("mt-1 text-xs", getMetricToneClass(metric.tone))}>
           {metric.detail}
         </p>
-        <MetricVisual
+        <DashboardMetricVisual
           values={sparkValues}
           tone={metric.tone}
           type={visualTypes[index] ?? "bars"}
