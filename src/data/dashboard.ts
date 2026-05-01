@@ -12,6 +12,7 @@ import {
 import { getPendingStockSyncProductCount } from "@/data/products";
 import { channelRegistry, getChannelById } from "@/lib/channels/registry";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { formatCurrency, formatPercent } from "@/lib/utils";
 
 const ACTIVE_REVENUE_STATUSES = [
   "pending",
@@ -62,6 +63,7 @@ export interface DashboardAction {
 }
 
 export interface DashboardTrendPoint {
+  id: string;
   label: string;
   revenue: number;
   profit: number;
@@ -166,18 +168,6 @@ function toNumber(value: number | string | null | undefined): number {
   if (value === null || value === undefined) return 0;
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function formatCurrency(amount: number): string {
-  if (amount >= 100000) {
-    return `INR ${(amount / 100000).toFixed(amount >= 1000000 ? 1 : 2)}L`;
-  }
-
-  return `INR ${Math.round(amount).toLocaleString("en-IN")}`;
-}
-
-function formatPercent(value: number): string {
-  return `${value.toFixed(1)}%`;
 }
 
 function getChangeLabel(current: number, previous: number): string {
@@ -433,7 +423,7 @@ async function getInventoryRisk(window: DashboardWindow): Promise<DashboardInven
 async function getTrend(userId: number, window: DashboardWindow): Promise<DashboardTrendPoint[]> {
   const rows = await db
     .select({
-      day: sql<string>`to_char(${salesOrders.purchasedAt}, 'Dy')`,
+      day: sql<string>`trim(to_char(${salesOrders.purchasedAt}, 'Dy'))`,
       sortDay: sql<string>`to_char(${salesOrders.purchasedAt}, 'YYYY-MM-DD')`,
       revenue: sql<string>`coalesce(sum(${salesOrderItems.price}::numeric * ${salesOrderItems.quantity}), 0)`,
       profit: sql<string>`coalesce(sum((${salesOrderItems.price}::numeric - coalesce(${products.purchasePrice}, 0)) * ${salesOrderItems.quantity}), 0)`,
@@ -450,10 +440,11 @@ async function getTrend(userId: number, window: DashboardWindow): Promise<Dashbo
         inArray(salesOrders.status, ACTIVE_REVENUE_STATUSES),
       ),
     )
-    .groupBy(sql`to_char(${salesOrders.purchasedAt}, 'Dy')`, sql`to_char(${salesOrders.purchasedAt}, 'YYYY-MM-DD')`)
+    .groupBy(sql`trim(to_char(${salesOrders.purchasedAt}, 'Dy'))`, sql`to_char(${salesOrders.purchasedAt}, 'YYYY-MM-DD')`)
     .orderBy(sql`to_char(${salesOrders.purchasedAt}, 'YYYY-MM-DD')`);
 
   return rows.map((row) => ({
+    id: row.sortDay,
     label: row.day,
     revenue: toNumber(row.revenue),
     profit: toNumber(row.profit),
@@ -624,7 +615,7 @@ async function getRecentOrders(userId: number): Promise<DashboardRecentOrder[]> 
     .from(salesOrders)
     .innerJoin(channels, eq(salesOrders.channelId, channels.id))
     .where(eq(channels.userId, userId))
-    .orderBy(desc(salesOrders.purchasedAt), desc(salesOrders.id))
+    .orderBy(desc(sql`coalesce(${salesOrders.purchasedAt}, ${salesOrders.createdAt})`), desc(salesOrders.id))
     .limit(6);
 
   return rows.map((row) => ({
@@ -679,7 +670,7 @@ export async function getCommerceDashboardData(userId: number): Promise<Commerce
     metrics: [
       {
         label: "Revenue today",
-        value: formatCurrency(sales.revenueToday),
+        value: formatCurrency(sales.revenueToday, "INR", true),
         detail: getChangeLabel(sales.revenueSevenDays, sales.revenuePreviousSevenDays),
         tone: sales.revenueSevenDays >= sales.revenuePreviousSevenDays ? "positive" : "warning",
         href: "/orders",
@@ -693,14 +684,14 @@ export async function getCommerceDashboardData(userId: number): Promise<Commerce
       },
       {
         label: "Gross profit",
-        value: formatCurrency(sales.grossProfitSevenDays),
-        detail: `${formatPercent(grossMarginPercent)} margin, ${formatCurrency(averageOrderValue)} AOV`,
+        value: formatCurrency(sales.grossProfitSevenDays, "INR", true),
+        detail: `${formatPercent(grossMarginPercent)} margin, ${formatCurrency(averageOrderValue, "INR", true)} AOV`,
         tone: grossMarginPercent > 0 ? "positive" : "default",
       },
       {
         label: "Cash in inventory",
-        value: formatCurrency(operational.inventoryValue),
-        detail: `${formatCurrency(inventoryRisk.slowMovingValue)} slow-moving stock`,
+        value: formatCurrency(operational.inventoryValue, "INR", true),
+        detail: `${formatCurrency(inventoryRisk.slowMovingValue, "INR", true)} slow-moving stock`,
         tone: inventoryRisk.slowMovingValue > 0 ? "warning" : "default",
         href: "/inventory",
       },

@@ -32,7 +32,7 @@ import type {
   DashboardTrendPoint,
 } from "@/data/dashboard";
 import { getOrderStatusBadgeClass } from "@/lib/utils/order-status";
-import { cn } from "@/lib/utils";
+import { cn, formatCurrency, formatPercent } from "@/lib/utils";
 
 const METRIC_ICONS = [
   CircleDollarSign,
@@ -42,14 +42,6 @@ const METRIC_ICONS = [
   PackageCheck,
   ClipboardList,
 ] as const;
-
-function formatCurrency(amount: number, currency = "INR"): string {
-  return `${currency} ${Math.round(amount).toLocaleString("en-IN")}`;
-}
-
-function formatPercent(value: number): string {
-  return `${value.toFixed(1)}%`;
-}
 
 function getMetricToneClass(tone: DashboardMetric["tone"]): string {
   if (tone === "positive") return "text-emerald-700";
@@ -94,7 +86,7 @@ function TrendBars({ points }: { points: DashboardTrendPoint[] }) {
   const maxRevenue = Math.max(...points.map((point) => point.revenue), 1);
   const visiblePoints = points.length > 0
     ? points
-    : [{ label: "No sales", revenue: 0, profit: 0, orders: 0 }];
+    : [{ id: "empty", label: "No sales", revenue: 0, profit: 0, orders: 0 }];
 
   return (
     <div className="flex h-64 items-end gap-3 border-b border-l px-4 pb-8 pt-6">
@@ -103,7 +95,7 @@ function TrendBars({ points }: { points: DashboardTrendPoint[] }) {
         const profitHeight = Math.max(4, (point.profit / maxRevenue) * 180);
 
         return (
-          <div key={point.label} className="flex min-w-0 flex-1 flex-col items-center gap-2">
+          <div key={point.id} className="flex min-w-0 flex-1 flex-col items-center gap-2">
             <div className="flex h-48 w-full items-end justify-center gap-1">
               <div
                 className="w-4 rounded-t bg-blue-600"
