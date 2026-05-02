@@ -50,6 +50,22 @@ const aiNavItems = [
   { title: "Agents", href: "/ai/agents", icon: Bot },
 ];
 
+function SidebarLink({
+  href,
+  children,
+  className,
+}: {
+  href: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <Link href={href} prefetch={false} className={className}>
+      {children}
+    </Link>
+  );
+}
+
 export function AppSidebarClient({
   userChannels = [],
 }: {
@@ -60,9 +76,9 @@ export function AppSidebarClient({
   return (
     <Sidebar>
       <SidebarHeader className="px-4 py-3">
-        <Link href="/" className="text-lg font-bold tracking-tight">
+        <SidebarLink href="/" className="text-lg font-bold tracking-tight">
           SeplorX
-        </Link>
+        </SidebarLink>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
@@ -81,10 +97,10 @@ export function AppSidebarClient({
                           : pathname.startsWith(item.href)
                     }
                   >
-                    <Link href={item.href}>
+                    <SidebarLink href={item.href}>
                       <item.icon />
                       <span>{item.title}</span>
-                    </Link>
+                    </SidebarLink>
                   </SidebarMenuButton>
 
                   {item.title === "Products" && (
@@ -94,7 +110,7 @@ export function AppSidebarClient({
                           asChild
                           isActive={pathname === "/products"}
                         >
-                          <Link href="/products">{PORTAL_NAME} Products</Link>
+                          <SidebarLink href="/products">{PORTAL_NAME} Products</SidebarLink>
                         </SidebarMenuSubButton>
                       </SidebarMenuSubItem>
                       <SidebarMenuSubItem>
@@ -102,7 +118,7 @@ export function AppSidebarClient({
                           asChild
                           isActive={pathname === "/products/fitment"}
                         >
-                          <Link href="/products/fitment">Fitment Registry</Link>
+                          <SidebarLink href="/products/fitment">Fitment Registry</SidebarLink>
                         </SidebarMenuSubButton>
                       </SidebarMenuSubItem>
                       {userChannels.map((channel) => (
@@ -111,9 +127,9 @@ export function AppSidebarClient({
                             asChild
                             isActive={pathname === `/products/channels/${channel.id}`}
                           >
-                            <Link href={`/products/channels/${channel.id}`}>
+                            <SidebarLink href={`/products/channels/${channel.id}`}>
                               {channel.name}
-                            </Link>
+                            </SidebarLink>
                           </SidebarMenuSubButton>
                         </SidebarMenuSubItem>
                       ))}
@@ -127,7 +143,7 @@ export function AppSidebarClient({
                           asChild
                           isActive={pathname === "/orders"}
                         >
-                          <Link href="/orders">All Orders</Link>
+                          <SidebarLink href="/orders">All Orders</SidebarLink>
                         </SidebarMenuSubButton>
                       </SidebarMenuSubItem>
                       {userChannels.map((channel) => (
@@ -136,9 +152,9 @@ export function AppSidebarClient({
                             asChild
                             isActive={pathname === `/orders/channels/${channel.id}`}
                           >
-                            <Link href={`/orders/channels/${channel.id}`}>
+                            <SidebarLink href={`/orders/channels/${channel.id}`}>
                               {channel.name}
-                            </Link>
+                            </SidebarLink>
                           </SidebarMenuSubButton>
                         </SidebarMenuSubItem>
                       ))}
@@ -160,10 +176,10 @@ export function AppSidebarClient({
                     asChild
                     isActive={pathname.startsWith(item.href)}
                   >
-                    <Link href={item.href}>
+                    <SidebarLink href={item.href}>
                       <item.icon />
                       <span>{item.title}</span>
-                    </Link>
+                    </SidebarLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -179,10 +195,10 @@ export function AppSidebarClient({
                   asChild
                   isActive={pathname === "/profile"}
                 >
-                  <Link href="/profile">
+                  <SidebarLink href="/profile">
                     <User />
                     <span>Profile</span>
-                  </Link>
+                  </SidebarLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
