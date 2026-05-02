@@ -57,3 +57,4 @@ next-env.d.ts
 /src/lib/channels/amazon/category_product_upload_templates
 /src/db
 *.sql
+!/drizzle/*.sql
