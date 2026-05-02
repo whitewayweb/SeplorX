@@ -2,17 +2,28 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/s
 import { AppSidebar } from "@/components/organisms/layout/app-sidebar";
 import { getAuthenticatedUserId } from "@/lib/auth";
 import { triggerOnDemandSync } from "@/lib/agents/on-demand-sync";
+import { logger } from "@/lib/logger";
+import { durationMs, startTimer } from "@/lib/debug-timing";
 
 export default async function DashboardLayout({
     children,
 }: Readonly<{
     children: React.ReactNode;
 }>) {
+    const startedAt = startTimer();
     const userId = await getAuthenticatedUserId();
+    logger.info("[dashboard-layout] auth complete", {
+        durationMs: durationMs(startedAt),
+    });
     
     // Trigger "Always Active" autonomous sync if data is stale (>15 mins)
     // Runs in background via fire-and-forget fetch in the utility
+    const syncStartedAt = startTimer();
     await triggerOnDemandSync(userId);
+    logger.info("[dashboard-layout] on-demand sync check complete", {
+        durationMs: durationMs(syncStartedAt),
+        totalDurationMs: durationMs(startedAt),
+    });
 
     return (
         <SidebarProvider>

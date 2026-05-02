@@ -7,6 +7,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 import { env } from "@/lib/env";
+import { logger } from "@/lib/logger";
 
 export const auth = betterAuth({
     baseURL: env.BETTER_AUTH_URL,
@@ -44,11 +45,30 @@ export const auth = betterAuth({
  * in the same request only hit the DB once.
  */
 export const getAuthenticatedSession = cache(async () => {
-    const session = await auth.api.getSession({
-        headers: await headers(),
+    const startedAt = Date.now();
+    let session;
+
+    try {
+        session = await auth.api.getSession({
+            headers: await headers(),
+        });
+    } catch (error) {
+        logger.error("[auth] getSession failed", {
+            durationMs: Date.now() - startedAt,
+            error,
+        });
+        throw error;
+    }
+
+    logger.info("[auth] getSession complete", {
+        durationMs: Date.now() - startedAt,
+        hasSession: Boolean(session),
     });
 
     if (!session) {
+        logger.warn("[auth] redirecting unauthenticated request", {
+            durationMs: Date.now() - startedAt,
+        });
         redirect("/login");
     }
 

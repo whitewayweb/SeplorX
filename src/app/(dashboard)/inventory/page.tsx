@@ -19,6 +19,7 @@ import { AGENT_REGISTRY } from "@/lib/agents/registry";
 import { ReorderTrigger } from "@/components/organisms/agents/reorder-trigger";
 import { ReorderApprovalCard } from "@/components/organisms/agents/reorder-approval-card";
 import type { ReorderPlan } from "@/lib/agents/tools/inventory-tools";
+import { logger } from "@/lib/logger";
 import { 
   getTotalActiveProductsCount, 
   getLowStockProducts, 
@@ -28,19 +29,58 @@ import {
 import { getPendingAgentTasks } from "@/data/agents";
 import { getPendingStockSyncProductCount } from "@/data/products";
 import { Button } from "@/components/ui/button";
+import { createDebugRequestId, durationMs, startTimer } from "@/lib/debug-timing";
 
 export const dynamic = "force-dynamic";
+
+async function timedInventoryStep<T>(
+  requestId: string,
+  step: string,
+  action: () => Promise<T>
+): Promise<T> {
+  const startedAt = startTimer();
+  logger.info("[inventory] step start", { requestId, step });
+
+  try {
+    const result = await action();
+    logger.info("[inventory] step complete", {
+      requestId,
+      step,
+      durationMs: durationMs(startedAt),
+    });
+    return result;
+  } catch (error) {
+    logger.error("[inventory] step failed", {
+      requestId,
+      step,
+      durationMs: durationMs(startedAt),
+      error,
+    });
+    throw error;
+  }
+}
 
 export default async function InventoryPage({
   searchParams,
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  const userId = await getAuthenticatedUserId();
-  const resolvedSearchParams = await searchParams;
+  const requestId = createDebugRequestId("inventory");
+  const pageStartedAt = startTimer();
+
+  logger.info("[inventory] request start", { requestId });
+
+  const userId = await timedInventoryStep(requestId, "auth", getAuthenticatedUserId);
+  const resolvedSearchParams = await timedInventoryStep(
+    requestId,
+    "resolve-search-params",
+    () => searchParams
+  );
   const { page, limit, offset } = parsePaginationParams(resolvedSearchParams);
 
-  // Run all 5 independent queries in parallel
+  logger.info("[inventory] pagination parsed", { requestId, page, limit, offset });
+
+  // Run independent queries in parallel; each step logs its own duration.
   const [
     { count: totalProductsCount },
     lowStockProducts,
@@ -49,13 +89,30 @@ export default async function InventoryPage({
     pendingReorderTasks,
     pendingStockSyncCount,
   ] = await Promise.all([
-    getTotalActiveProductsCount(),
-    getLowStockProducts(),
-    getTotalStockValue(),
-    getInventoryTransactions({ limit, offset }),
-    getPendingAgentTasks("reorder"),
-    getPendingStockSyncProductCount(userId),
+    timedInventoryStep(requestId, "total-active-products-count", getTotalActiveProductsCount),
+    timedInventoryStep(requestId, "low-stock-products", getLowStockProducts),
+    timedInventoryStep(requestId, "total-stock-value", getTotalStockValue),
+    timedInventoryStep(requestId, "inventory-transactions", () =>
+      getInventoryTransactions({ limit, offset })
+    ),
+    timedInventoryStep(requestId, "pending-reorder-tasks", () =>
+      getPendingAgentTasks("reorder")
+    ),
+    timedInventoryStep(requestId, "pending-stock-sync-count", () =>
+      getPendingStockSyncProductCount(userId)
+    ),
   ]);
+
+  logger.info("[inventory] data complete", {
+    requestId,
+    totalDurationMs: durationMs(pageStartedAt),
+    totalProductsCount,
+    lowStockProductCount: lowStockProducts.length,
+    transactionCount,
+    renderedTransactionCount: transactions.length,
+    pendingReorderTaskCount: pendingReorderTasks.length,
+    pendingStockSyncCount,
+  });
 
   const outOfStock = lowStockProducts.filter((p) => p.quantityOnHand <= 0);
   const lowStock = lowStockProducts.filter((p) => p.quantityOnHand > 0);
