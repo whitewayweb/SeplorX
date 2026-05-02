@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   serial,
@@ -240,6 +241,8 @@ export const productBundles = pgTable("product_bundles", {
   uniqueIndex("product_bundles_unique_link").on(table.bundleProductId, table.componentProductId),
   index("product_bundles_bundle_idx").on(table.bundleProductId),
   index("product_bundles_component_idx").on(table.componentProductId),
+  sql`CONSTRAINT "product_bundles_not_self_referential" CHECK ("bundle_product_id" <> "component_product_id")`,
+  sql`CONSTRAINT "product_bundles_quantity_positive" CHECK ("quantity" > 0)`,
 ]).enableRLS();
 
 // ─── Purchase Invoices ───────────────────────────────────────────────────────

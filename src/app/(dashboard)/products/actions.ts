@@ -34,7 +34,12 @@ import { triggerChannelSync } from "@/lib/stock/service";
 import { pushProductStockToChannelsService } from "@/lib/stock/channel-sync";
 
 
-export async function createProduct(_prevState: unknown, formData: FormData) {
+export async function createProduct(_prevState: unknown, formData: FormData): Promise<{
+  success?: boolean;
+  error?: string;
+  fieldErrors?: Record<string, string[] | undefined>;
+  existingProduct?: { id: number; name: string; sku: string | null; purchasePrice: string | null; unit: string } | null;
+}> {
   const rawAttrs = formData.get("attributes");
   let parsedAttrs: Record<string, string> = {};
   if (rawAttrs && typeof rawAttrs === "string" && rawAttrs.trim()) {
@@ -68,15 +73,34 @@ export async function createProduct(_prevState: unknown, formData: FormData) {
     };
   }
 
-  const { purchasePrice, sellingPrice, isBundle, components, ...rest } = parsed.data;
+  let { purchasePrice, sellingPrice, isBundle, components, ...rest } = parsed.data;
+
+  // For bundle products, force purchasePrice to null and quantityOnHand to 0
+  if (isBundle) {
+    purchasePrice = undefined;
+  }
 
   try {
-    await db.transaction(async (tx) => {
+    return await db.transaction(async (tx) => {
+      // Validate components: none can be bundles themselves (if nested bundles are unsupported)
+      if (isBundle && components.length > 0) {
+        const componentIds = components.map(c => c.componentProductId);
+        const bundleComponents = await tx
+          .select({ id: products.id })
+          .from(products)
+          .where(and(inArray(products.id, componentIds), eq(products.isBundle, true)));
+
+        if (bundleComponents.length > 0) {
+          return { error: "Nested bundles are not supported. Component products must be simple products." };
+        }
+      }
+
       const [newProduct] = await tx.insert(products).values({
         ...rest,
         isBundle,
         purchasePrice: purchasePrice != null && purchasePrice !== "" ? String(purchasePrice) : null,
         sellingPrice: sellingPrice != null && sellingPrice !== "" ? String(sellingPrice) : null,
+        quantityOnHand: isBundle ? 0 : 0, // Bundles always have 0 on-hand, they are virtual
       }).returning({ id: products.id });
 
       if (isBundle && components.length > 0) {
@@ -87,6 +111,11 @@ export async function createProduct(_prevState: unknown, formData: FormData) {
           sortOrder: i,
         })));
       }
+
+      revalidatePath("/products");
+      revalidatePath("/purchase/bills");
+      console.log(`[createProduct] Product created successfully: ${rest.name} (${rest.sku || "no sku"})`);
+      return { success: true };
     });
   } catch (err) {
     console.error("[createProduct]", { error: String(err) });
@@ -108,19 +137,13 @@ export async function createProduct(_prevState: unknown, formData: FormData) {
     }
     return { error: "Failed to create product. Please try again." };
   }
-
-  revalidatePath("/products");
-  revalidatePath("/purchase/bills");
-
-  // If a mapping is created later, it will start as in_sync.
-  // But if the user edits it later, it triggers.
-  // For new products, we don't have mappings yet, so nothing to update here.
-
-  console.log(`[createProduct] Product created successfully: ${rest.name} (${rest.sku || "no sku"})`);
-  return { success: true };
 }
 
-export async function updateProduct(_prevState: unknown, formData: FormData) {
+export async function updateProduct(_prevState: unknown, formData: FormData): Promise<{
+  success?: boolean;
+  error?: string;
+  fieldErrors?: Record<string, string[] | undefined>;
+}> {
   const rawAttrs = formData.get("attributes");
   let parsedAttrs: Record<string, string> = {};
   if (rawAttrs && typeof rawAttrs === "string" && rawAttrs.trim()) {
@@ -155,18 +178,43 @@ export async function updateProduct(_prevState: unknown, formData: FormData) {
     };
   }
 
-  const { id, purchasePrice, sellingPrice, isBundle, components, ...rest } = parsed.data;
+  let { id, purchasePrice, sellingPrice, isBundle, components, ...rest } = parsed.data;
 
   try {
-    await db.transaction(async (tx) => {
+    return await db.transaction(async (tx) => {
       const existing = await tx
-        .select({ id: products.id })
+        .select({ id: products.id, isBundle: products.isBundle })
         .from(products)
         .where(eq(products.id, id))
         .limit(1);
 
       if (existing.length === 0) {
         throw new Error("PRODUCT_NOT_FOUND");
+      }
+
+      const currentProduct = existing[0];
+
+      // Enforce bundle immutability: once a bundle, always a bundle
+      if (currentProduct.isBundle) {
+        isBundle = true;
+      }
+
+      // For bundle products, force purchasePrice to null
+      if (isBundle) {
+        purchasePrice = undefined;
+      }
+
+      // Validate components: none can be bundles themselves
+      if (isBundle && components.length > 0) {
+        const componentIds = components.map(c => c.componentProductId);
+        const bundleComponents = await tx
+          .select({ id: products.id })
+          .from(products)
+          .where(and(inArray(products.id, componentIds), eq(products.isBundle, true)));
+
+        if (bundleComponents.length > 0) {
+          return { error: "Nested bundles are not supported. Component products must be simple products." };
+        }
       }
 
       await tx
@@ -177,6 +225,8 @@ export async function updateProduct(_prevState: unknown, formData: FormData) {
           purchasePrice: purchasePrice != null && purchasePrice !== "" ? String(purchasePrice) : null,
           sellingPrice: sellingPrice != null && sellingPrice !== "" ? String(sellingPrice) : null,
           updatedAt: new Date(),
+          // If it's a bundle, we ensure quantityOnHand is 0 (virtual)
+          ...(isBundle ? { quantityOnHand: 0 } : {}),
         })
         .where(eq(products.id, id));
 
@@ -192,8 +242,12 @@ export async function updateProduct(_prevState: unknown, formData: FormData) {
       }
 
       // Flag all channel mappings for this product as pending_update
-      // so the Amazon Uploads dashboard picks them up for template generation.
       await triggerChannelSync(id, tx);
+
+      revalidatePath("/products");
+      revalidatePath(`/products/${id}`);
+      console.log(`[updateProduct] Product updated successfully: ${id} - ${rest.name}`);
+      return { success: true };
     });
   } catch (err) {
     const message = String(err);
@@ -211,14 +265,9 @@ export async function updateProduct(_prevState: unknown, formData: FormData) {
     }
     return { error: "Failed to update product. Please try again." };
   }
-
-  revalidatePath("/products");
-  revalidatePath(`/products/${id}`);
-  console.log(`[updateProduct] Product updated successfully: ${id} - ${rest.name}`);
-  return { success: true };
 }
 
-export async function toggleProductActive(_prevState: unknown, formData: FormData) {
+export async function toggleProductActive(_prevState: unknown, formData: FormData): Promise<{ success?: boolean; error?: string }> {
   const parsed = ProductIdSchema.safeParse({
     id: formData.get("id"),
   });
@@ -255,7 +304,7 @@ export async function toggleProductActive(_prevState: unknown, formData: FormDat
   return { success: true };
 }
 
-export async function deleteProduct(_prevState: unknown, formData: FormData) {
+export async function deleteProduct(_prevState: unknown, formData: FormData): Promise<{ success?: boolean; error?: string; code?: string }> {
   const parsed = ProductIdSchema.safeParse({
     id: formData.get("id"),
   });
@@ -319,7 +368,11 @@ export async function deleteProduct(_prevState: unknown, formData: FormData) {
   return { success: true };
 }
 
-export async function adjustStock(_prevState: unknown, formData: FormData) {
+export async function adjustStock(_prevState: unknown, formData: FormData): Promise<{
+  success?: boolean;
+  error?: string;
+  fieldErrors?: Record<string, string[] | undefined>;
+}> {
   const parsed = StockAdjustmentSchema.safeParse({
     productId: formData.get("productId"),
     quantity: formData.get("quantity"),
@@ -341,13 +394,17 @@ export async function adjustStock(_prevState: unknown, formData: FormData) {
     await db.transaction(async (tx) => {
       // Check product exists
       const existing = await tx
-        .select({ id: products.id, quantityOnHand: products.quantityOnHand })
+        .select({ id: products.id, quantityOnHand: products.quantityOnHand, isBundle: products.isBundle })
         .from(products)
         .where(eq(products.id, productId))
         .limit(1);
 
       if (existing.length === 0) {
         throw new Error("PRODUCT_NOT_FOUND");
+      }
+
+      if (existing[0].isBundle) {
+        throw new Error("BUNDLE_ADJUSTMENT_NOT_ALLOWED");
       }
 
       const newQty = existing[0].quantityOnHand + quantity;
@@ -384,6 +441,9 @@ export async function adjustStock(_prevState: unknown, formData: FormData) {
     if (message.includes("PRODUCT_NOT_FOUND")) {
       return { error: "Product not found." };
     }
+    if (message.includes("BUNDLE_ADJUSTMENT_NOT_ALLOWED")) {
+      return { error: "Stock adjustments are not allowed for bundle products. Stock is derived from components." };
+    }
     if (message.includes("INSUFFICIENT_STOCK:")) {
       const currentQty = message.split("INSUFFICIENT_STOCK:")[1];
       return { error: `Insufficient stock. Current: ${currentQty}, adjustment: ${quantity}.` };
@@ -401,7 +461,7 @@ export async function adjustStock(_prevState: unknown, formData: FormData) {
 
 // ─── Channel Product Mappings ─────────────────────────────────────────────────
 
-export async function deleteChannelMapping(_prevState: unknown, formData: FormData) {
+export async function deleteChannelMapping(_prevState: unknown, formData: FormData): Promise<{ success?: boolean; error?: string }> {
   const parsed = ChannelMappingIdSchema.safeParse({ id: formData.get("id") });
   if (!parsed.success) return { error: "Invalid mapping ID." };
 
@@ -440,7 +500,7 @@ export async function deleteChannelMapping(_prevState: unknown, formData: FormDa
  * for the given product. Returns per-channel results.
  * Called from the "Push to All Channels" button on the product detail page.
  */
-export async function pushProductStockToChannels(productId: number) {
+export async function pushProductStockToChannels(productId: number): Promise<{ success?: boolean; error?: string } & Record<string, any>> {
   try {
     const userId = await getAuthenticatedUserId();
     const result = await pushProductStockToChannelsService(userId, productId);
@@ -600,7 +660,13 @@ export async function getAttributeValuesAction(key: string) {
   }
 }
 
-export async function getSimpleProductsAction() {
+export interface SimpleProduct {
+  id: number;
+  name: string;
+  sku: string | null;
+}
+
+export async function getSimpleProductsAction(): Promise<SimpleProduct[]> {
   try {
     await getAuthenticatedUserId();
     return await db
@@ -618,7 +684,7 @@ export async function getSimpleProductsAction() {
   }
 }
 
-export async function getProductWithComponentsAction(id: number) {
+export async function getProductWithComponentsAction(id: number): Promise<any | null> {
   try {
     await getAuthenticatedUserId();
     return await getProductById(id, db);

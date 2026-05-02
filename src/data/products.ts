@@ -563,7 +563,17 @@ export async function getActiveProductsForDropdown(tx: QueryClient = db) {
     .orderBy(products.name);
 }
 
-export async function getProductQuantity(productId: number, tx: QueryClient = db): Promise<number | null> {
+export async function getProductQuantity(
+  productId: number,
+  tx: QueryClient = db,
+  visited = new Set<number>()
+): Promise<number | null> {
+  if (visited.has(productId)) {
+    console.warn(`[getProductQuantity] Cycle detected for product ${productId}. Returning 0.`);
+    return 0;
+  }
+  visited.add(productId);
+
   const productRows = await tx
     .select({
       quantityOnHand: products.quantityOnHand,
@@ -579,27 +589,18 @@ export async function getProductQuantity(productId: number, tx: QueryClient = db
   const product = productRows[0];
 
   if (product.isBundle) {
-    const { productBundles } = await import("@/db/schema");
-    const components = await tx
-      .select({
-        quantity: productBundles.quantity,
-        componentId: productBundles.componentProductId,
-      })
-      .from(productBundles)
-      .where(eq(productBundles.bundleProductId, productId));
+    // Optimization: Compute bundle availability using a single query if we assume no nested bundles.
+    // If nested bundles were allowed, we would need a recursive CTE or recursive calls with visited set.
+    // Given we enforce no nested bundles in actions, a single join is efficient.
+    const results = await tx.execute(sql`
+      SELECT MIN(FLOOR(GREATEST(0, p.quantity_on_hand - p.reserved_quantity) / NULLIF(pb.quantity, 0))) AS "available"
+      FROM ${productBundles} pb
+      JOIN ${products} p ON p.id = pb.component_product_id
+      WHERE pb.bundle_product_id = ${productId}
+    `);
 
-    if (components.length === 0) return 0;
-
-    let minAvailable = Infinity;
-    for (const comp of components) {
-      const compStock = await getProductQuantity(comp.componentId, tx);
-      if (compStock === null) return 0;
-      const bundleStockFromComp = Math.floor(compStock / comp.quantity);
-      if (bundleStockFromComp < minAvailable) {
-        minAvailable = bundleStockFromComp;
-      }
-    }
-    return minAvailable === Infinity ? 0 : minAvailable;
+    const available = (results[0] as any)?.available;
+    return available != null ? Number(available) : 0;
   }
 
   // Push availableQuantity to channels (on-hand minus reserved)
