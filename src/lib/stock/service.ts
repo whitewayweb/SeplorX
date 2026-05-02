@@ -6,8 +6,9 @@ import {
   inventoryTransactions,
   stockReservations,
   channelProductMappings,
+  productBundles,
 } from "@/db/schema";
-import { and, eq, notInArray, sql } from "drizzle-orm";
+import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 
 /**
  * Marks all channel mappings for a product as 'pending_update'.
@@ -15,10 +16,25 @@ import { and, eq, notInArray, sql } from "drizzle-orm";
  */
 export async function triggerChannelSync(productId: number, tx?: QueryClient): Promise<void> {
   const runner = tx || db;
+  
+  // 1. Mark the product itself as pending sync
   await runner
     .update(channelProductMappings)
     .set({ syncStatus: "pending_update" })
     .where(eq(channelProductMappings.productId, productId));
+
+  // 2. Mark all parent bundles that contain this product as a component as pending sync
+  const parentBundles = await runner
+    .select({ bundleProductId: productBundles.bundleProductId })
+    .from(productBundles)
+    .where(eq(productBundles.componentProductId, productId));
+
+  if (parentBundles.length > 0) {
+    await runner
+      .update(channelProductMappings)
+      .set({ syncStatus: "pending_update" })
+      .where(inArray(channelProductMappings.productId, parentBundles.map(b => b.bundleProductId)));
+  }
 }
 
 import type { SalesOrderStatus } from "@/db/schema";

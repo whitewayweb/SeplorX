@@ -485,7 +485,7 @@ export async function getProductPurchaseHistory(productId: number, tx: QueryClie
 }
 
 export async function getProductsList(tx: QueryClient = db) {
-  return await tx
+  const allProducts = await tx
     .select({
       id: products.id,
       name: products.name,
@@ -504,6 +504,49 @@ export async function getProductsList(tx: QueryClient = db) {
     })
     .from(products)
     .orderBy(desc(products.createdAt));
+
+  // For bundles, calculate available quantity dynamically based on components
+  const bundleProductsInList = allProducts.filter(p => p.isBundle);
+  if (bundleProductsInList.length > 0) {
+    const bundleIds = bundleProductsInList.map(b => b.id);
+    const allComponents = await tx
+      .select({
+        bundleId: productBundles.bundleProductId,
+        componentId: productBundles.componentProductId,
+        bundleQty: productBundles.quantity,
+        compQtyOnHand: products.quantityOnHand,
+        compReservedQty: products.reservedQuantity,
+      })
+      .from(productBundles)
+      .innerJoin(products, eq(productBundles.componentProductId, products.id))
+      .where(inArray(productBundles.bundleProductId, bundleIds));
+
+    const bundleMap = new Map<number, { bundleQty: number; available: number }[]>();
+    allComponents.forEach(c => {
+      const existing = bundleMap.get(c.bundleId) || [];
+      const available = Math.max(0, (c.compQtyOnHand ?? 0) - (c.compReservedQty ?? 0));
+      bundleMap.set(c.bundleId, [...existing, { bundleQty: c.bundleQty, available }]);
+    });
+
+    return allProducts.map(p => {
+      if (!p.isBundle) return p;
+      const comps = bundleMap.get(p.id) || [];
+      if (comps.length === 0) return { ...p, quantityOnHand: 0 };
+
+      let minAvailable = Infinity;
+      comps.forEach(c => {
+        const bundlePossible = Math.floor(c.available / c.bundleQty);
+        if (bundlePossible < minAvailable) minAvailable = bundlePossible;
+      });
+
+      return {
+        ...p,
+        quantityOnHand: minAvailable === Infinity ? 0 : minAvailable,
+      };
+    });
+  }
+
+  return allProducts;
 }
 
 export async function getActiveProductsForDropdown(tx: QueryClient = db) {

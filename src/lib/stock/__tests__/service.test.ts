@@ -41,10 +41,11 @@ vi.mock("@/db/schema", () => ({
   },
   // Required by triggerChannelSync() which is called after every stock mutation
   channelProductMappings: { productId: "cpm.product_id", syncStatus: "cpm.sync_status" },
+  productBundles: { bundleProductId: "pb.bundle_id", componentProductId: "pb.component_id" },
 }));
 
-import { db } from "@/db";
-import { processOrderStockChange, processReturnItem } from "../service";
+import { db, type QueryClient } from "@/db";
+import { processOrderStockChange, processReturnItem, triggerChannelSync } from "../service";
 
 // ─── Helper to set up the standard mock pattern ──────────────────────────────
 
@@ -94,8 +95,10 @@ describe("Stock Service — processOrderStockChange", () => {
       // First select per item: isBundle check, then reservation idempotency check
       tx._pushSelectResult([{ isBundle: false }]); // item 1: isBundle
       tx._pushSelectResult([]); // item 1: no existing reservation
+      tx._pushSelectResult([]); // item 1: triggerChannelSync -> parentBundles
       tx._pushSelectResult([{ isBundle: false }]); // item 2: isBundle
       tx._pushSelectResult([]); // item 2: no existing reservation
+      tx._pushSelectResult([]); // item 2: triggerChannelSync -> parentBundles
 
       tx.insert = vi.fn().mockReturnValue(createChainMock());
       tx.update = vi.fn().mockReturnValue(createChainMock());
@@ -452,5 +455,45 @@ describe("Stock Service — processReturnItem", () => {
     });
 
     await expect(processReturnItem(1, "restock", 1, 100)).rejects.toThrow("No product linked");
+  });
+});
+
+describe("Stock Service — triggerChannelSync", () => {
+  it("should mark product and its parent bundles as pending update", async () => {
+    let updateCount = 0;
+    const tx = createTxMock();
+    // Simulate finding 2 parent bundles
+    tx._pushSelectResult([{ bundleProductId: 100 }, { bundleProductId: 101 }]);
+    
+    const origUpdate = tx.update;
+    tx.update = vi.fn().mockImplementation((...args) => {
+      updateCount++;
+      return origUpdate(...args);
+    });
+
+    await triggerChannelSync(50, tx as unknown as QueryClient);
+
+    expect(tx.select).toHaveBeenCalledOnce();
+    // 1 update for the product itself + 1 update for all parent bundles = 2 updates
+    expect(updateCount).toBe(2);
+  });
+
+  it("should only mark the product itself if no parent bundles exist", async () => {
+    let updateCount = 0;
+    const tx = createTxMock();
+    // Simulate no parent bundles
+    tx._pushSelectResult([]);
+    
+    const origUpdate = tx.update;
+    tx.update = vi.fn().mockImplementation((...args) => {
+      updateCount++;
+      return origUpdate(...args);
+    });
+
+    await triggerChannelSync(50, tx as unknown as QueryClient);
+
+    expect(tx.select).toHaveBeenCalledOnce();
+    // Only 1 update for the product itself
+    expect(updateCount).toBe(1);
   });
 });

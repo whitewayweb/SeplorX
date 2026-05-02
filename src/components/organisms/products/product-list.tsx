@@ -267,7 +267,7 @@ function ProductTable({
           <TableHead>Unit</TableHead>
           {!isBundleTab && <TableHead className="text-right">Purchase</TableHead>}
           <TableHead className="text-right">Selling</TableHead>
-          {!isBundleTab && <TableHead className="text-right">Stock</TableHead>}
+          <TableHead className="text-right">Stock</TableHead>
           <TableHead>Status</TableHead>
           <TableHead className="text-right">Actions</TableHead>
         </TableRow>
@@ -293,11 +293,9 @@ function ProductTable({
             <TableCell>{product.unit}</TableCell>
             {!isBundleTab && <TableCell className="text-right">{formatPrice(product.purchasePrice)}</TableCell>}
             <TableCell className="text-right">{formatPrice(product.sellingPrice)}</TableCell>
-            {!isBundleTab && (
-              <TableCell className="text-right">
-                <StockBadge quantity={product.quantityOnHand} reorderLevel={product.reorderLevel} />
-              </TableCell>
-            )}
+            <TableCell className="text-right">
+              <StockBadge quantity={product.quantityOnHand} reorderLevel={product.reorderLevel} />
+            </TableCell>
             <TableCell>
               <Badge variant={product.isActive ? "default" : "secondary"} className="transition-colors">
                 {product.isActive ? "Active" : "Inactive"}

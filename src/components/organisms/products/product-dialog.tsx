@@ -15,9 +15,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
 import { createProduct, updateProduct, getAttributeKeys, getAttributeValuesAction, getSimpleProductsAction, getProductWithComponentsAction } from "@/app/(dashboard)/products/actions";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Pencil, X } from "lucide-react";
+import { Plus, Pencil, X, Loader2 } from "lucide-react";
 
 type Product = {
   id: number;
@@ -68,6 +69,7 @@ export function ProductDialog({ product }: ProductDialogProps) {
   const [isBundle, setIsBundle] = useState(false);
   const [components, setComponents] = useState<Array<{ componentProductId: number, quantity: number }>>([]);
   const [simpleProducts, setSimpleProducts] = useState<Array<{ id: number, name: string, sku: string | null }>>([]);
+  const [isLoadingComponents, setIsLoadingComponents] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -75,6 +77,7 @@ export function ProductDialog({ product }: ProductDialogProps) {
       getSimpleProductsAction().then(setSimpleProducts).catch(console.error);
       
       if (isEdit) {
+        setIsLoadingComponents(true);
         getProductWithComponentsAction(product.id).then((fullProduct) => {
           if (fullProduct) {
             setIsBundle(fullProduct.isBundle || false);
@@ -82,10 +85,11 @@ export function ProductDialog({ product }: ProductDialogProps) {
               setComponents(fullProduct.components);
             }
           }
-        }).catch(console.error);
+        }).catch(console.error).finally(() => setIsLoadingComponents(false));
       } else {
         setIsBundle(false);
         setComponents([]);
+        setIsLoadingComponents(false);
       }
     }
   }, [open, isEdit, product?.id]);
@@ -202,14 +206,42 @@ export function ProductDialog({ product }: ProductDialogProps) {
         </DialogHeader>
 
         <form key={formKey} action={action} className="space-y-4">
-          {isEdit && <input type="hidden" name="id" value={product.id} />}
-          <input type="hidden" name="attributes" value={serializeAttrs()} />
-          <input type="hidden" name="components" value={serializeComponents()} />
-          <input type="hidden" name="isBundle" value={isBundle ? "true" : "false"} />
+          {isLoadingComponents ? (
+            <div className="space-y-4 py-2">
+              <div className="flex items-center space-x-2">
+                <Skeleton className="h-6 w-10" />
+                <Skeleton className="h-4 w-32" />
+              </div>
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-9 w-full" />
+              </div>
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-9 w-full" />
+              </div>
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-28" />
+                <Skeleton className="h-24 w-full" />
+              </div>
+              <div className="pt-4 flex justify-end gap-2">
+                <Skeleton className="h-9 w-20" />
+                <Skeleton className="h-9 w-28" />
+              </div>
+            </div>
+          ) : (
+            <>
+              {isEdit && <input type="hidden" name="id" value={product.id} />}
+              <input type="hidden" name="attributes" value={serializeAttrs()} />
+              <input type="hidden" name="components" value={serializeComponents()} />
+              <input type="hidden" name="isBundle" value={isBundle ? "true" : "false"} />
 
           <div className="flex items-center space-x-2 pb-2">
-            <Switch id="is-bundle" checked={isBundle} onCheckedChange={setIsBundle} />
-            <Label htmlFor="is-bundle" className="font-semibold text-primary">Is Bundle / Combo</Label>
+            <Switch id="is-bundle" checked={isBundle} onCheckedChange={setIsBundle} disabled={isEdit} />
+            <Label htmlFor="is-bundle" className="font-semibold text-primary flex items-center gap-2">
+              Is Bundle / Combo
+              {isLoadingComponents && <Loader2 className="h-3 w-3 animate-spin" />}
+            </Label>
           </div>
 
           {isBundle && (
@@ -253,7 +285,7 @@ export function ProductDialog({ product }: ProductDialogProps) {
             </div>
           )}
 
-          {PRODUCT_FIELDS.map((field) => {
+          {PRODUCT_FIELDS.filter(f => !isBundle || f.key !== "purchasePrice").map((field) => {
             let defaultValue = "";
             if (isEdit && product) {
               const raw = product[field.key as keyof Product];
@@ -378,7 +410,9 @@ export function ProductDialog({ product }: ProductDialogProps) {
                   : "Create Product"}
             </Button>
           </DialogFooter>
-        </form>
+        </>
+      )}
+      </form>
       </DialogContent>
     </Dialog>
   );
