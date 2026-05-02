@@ -16,14 +16,29 @@ export function getBaseUrl(headersObj: Headers): string {
   return `${protocol}://${host}`;
 }
 
-export function formatCurrency(amount: number, currency = "INR", compact = false): string {
-  if (compact && amount >= 100000) {
-    return `${currency} ${(amount / 100000).toFixed(amount >= 1000000 ? 1 : 2)}L`;
+function addIndianDigitGrouping(value: string): string {
+  const [firstGroup, ...remainingGroups] = value.split(".");
+  const sign = firstGroup.startsWith("-") ? "-" : "";
+  const digits = sign ? firstGroup.slice(1) : firstGroup;
+
+  if (digits.length <= 3) {
+    return `${sign}${digits}${remainingGroups.length > 0 ? `.${remainingGroups.join(".")}` : ""}`;
   }
-  return `${currency} ${amount.toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+
+  const lastThree = digits.slice(-3);
+  const leadingDigits = digits.slice(0, -3);
+  const groupedLeading = leadingDigits.replace(/\B(?=(\d{2})+(?!\d))/g, ",");
+  return `${sign}${groupedLeading},${lastThree}${remainingGroups.length > 0 ? `.${remainingGroups.join(".")}` : ""}`;
+}
+
+export function formatNumber(value: number): string {
+  const safeValue = Number.isFinite(value) ? value : 0;
+  return addIndianDigitGrouping(Math.trunc(safeValue).toString());
+}
+
+export function formatCurrency(amount: number, currency = "INR"): string {
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+  return `${currency} ${addIndianDigitGrouping(safeAmount.toFixed(2))}`;
 }
 
 export function formatPercent(value: number): string {

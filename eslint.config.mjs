@@ -11,6 +11,7 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    "coverage/**",
     "next-env.d.ts",
     // Ignore generated Amazon SP-API types and helper scripts
     "src/lib/channels/amazon/api/types/**",

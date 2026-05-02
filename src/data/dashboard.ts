@@ -12,7 +12,7 @@ import {
 import { getPendingStockSyncProductCount } from "@/data/products";
 import { channelRegistry, getChannelById } from "@/lib/channels/registry";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
-import { formatCurrency, formatPercent } from "@/lib/utils";
+import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
 
 const ACTIVE_REVENUE_STATUSES = [
   "pending",
@@ -37,12 +37,30 @@ const STOCK_PUSH_SUPPORTED_CHANNEL_TYPES = channelRegistry
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+export const DASHBOARD_RANGES = [
+  { days: 7, label: "7 days" },
+  { days: 14, label: "14 days" },
+  { days: 30, label: "30 days" },
+  { days: 90, label: "90 days" },
+] as const;
+
+export type DashboardRangeDays = (typeof DASHBOARD_RANGES)[number]["days"];
+
+export interface DashboardRangeOption {
+  days: DashboardRangeDays;
+  label: string;
+  href: string;
+  active: boolean;
+}
+
 interface DashboardWindow {
   todayStart: string;
-  sevenDaysAgo: string;
-  fourteenDaysAgo: string;
+  periodStart: string;
+  previousPeriodStart: string;
   thirtyDaysAgo: string;
   sixtyDaysAgo: string;
+  days: DashboardRangeDays;
+  label: string;
 }
 
 export interface DashboardMetric {
@@ -65,8 +83,10 @@ export interface DashboardAction {
 export interface DashboardTrendPoint {
   id: string;
   label: string;
+  date: string;
   revenue: number;
   profit: number;
+  missingCostRevenue: number;
   orders: number;
 }
 
@@ -123,23 +143,43 @@ export interface DashboardRecentOrder {
 }
 
 export interface CommerceDashboardData {
+  range: {
+    days: DashboardRangeDays;
+    label: string;
+    options: DashboardRangeOption[];
+  };
   metrics: DashboardMetric[];
   actions: DashboardAction[];
   trend: DashboardTrendPoint[];
   orderWork: DashboardOrderWorkItem[];
   channelPerformance: DashboardChannelPerformance[];
   inventoryRisk: DashboardInventoryRisk;
+  profitAndLoss: DashboardProfitAndLoss;
   topProducts: DashboardProductPerformance[];
   recentOrders: DashboardRecentOrder[];
 }
 
 interface SalesSummary {
   revenueToday: number;
-  revenueSevenDays: number;
-  revenuePreviousSevenDays: number;
+  revenuePeriod: number;
+  revenuePreviousPeriod: number;
   ordersToday: number;
-  ordersSevenDays: number;
-  grossProfitSevenDays: number;
+  ordersPeriod: number;
+  knownCostRevenuePeriod: number;
+  grossProfitPeriod: number;
+  estimatedCostPeriod: number;
+  missingCostRevenue: number;
+}
+
+export interface DashboardProfitAndLoss {
+  revenue: number;
+  knownCostRevenue: number;
+  estimatedCost: number;
+  grossProfit: number;
+  missingCostRevenue: number;
+  grossMarginPercent: number;
+  averageOrderValue: number;
+  orderCount: number;
 }
 
 interface OperationalSummary {
@@ -150,17 +190,27 @@ interface OperationalSummary {
   inventoryValue: number;
 }
 
-function getDashboardWindow(): DashboardWindow {
+export function parseDashboardRange(value: string | string[] | undefined): DashboardRangeDays {
+  const rawValue = Array.isArray(value) ? value[0] : value;
+  const parsed = Number(rawValue);
+  const option = DASHBOARD_RANGES.find((range) => range.days === parsed);
+  return option?.days ?? 7;
+}
+
+function getDashboardWindow(days: DashboardRangeDays): DashboardWindow {
   const now = new Date();
   const todayStart = new Date(now);
   todayStart.setHours(0, 0, 0, 0);
+  const label = DASHBOARD_RANGES.find((range) => range.days === days)?.label ?? "7 days";
 
   return {
     todayStart: todayStart.toISOString(),
-    sevenDaysAgo: new Date(now.getTime() - 7 * DAY_MS).toISOString(),
-    fourteenDaysAgo: new Date(now.getTime() - 14 * DAY_MS).toISOString(),
+    periodStart: new Date(now.getTime() - days * DAY_MS).toISOString(),
+    previousPeriodStart: new Date(now.getTime() - days * 2 * DAY_MS).toISOString(),
     thirtyDaysAgo: new Date(now.getTime() - 30 * DAY_MS).toISOString(),
     sixtyDaysAgo: new Date(now.getTime() - 60 * DAY_MS).toISOString(),
+    days,
+    label,
   };
 }
 
@@ -170,13 +220,13 @@ function toNumber(value: number | string | null | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function getChangeLabel(current: number, previous: number): string {
+function getChangeLabel(current: number, previous: number, label: string): string {
   if (previous <= 0 && current <= 0) return "No sales in the previous period";
   if (previous <= 0) return "New sales this period";
 
   const changePercent = ((current - previous) / previous) * 100;
   const direction = changePercent >= 0 ? "+" : "";
-  return `${direction}${changePercent.toFixed(1)}% vs previous 7 days`;
+  return `${direction}${changePercent.toFixed(1)}% vs previous ${label}`;
 }
 
 function buildActions(
@@ -240,18 +290,18 @@ async function getSalesSummary(userId: number, window: DashboardWindow): Promise
         revenueToday: sql<string>`coalesce(sum(${salesOrders.totalAmount}) filter (
           where ${salesOrders.purchasedAt} >= ${window.todayStart}
         ), 0)`,
-        revenueSevenDays: sql<string>`coalesce(sum(${salesOrders.totalAmount}) filter (
-          where ${salesOrders.purchasedAt} >= ${window.sevenDaysAgo}
+        revenuePeriod: sql<string>`coalesce(sum(${salesOrders.totalAmount}) filter (
+          where ${salesOrders.purchasedAt} >= ${window.periodStart}
         ), 0)`,
-        revenuePreviousSevenDays: sql<string>`coalesce(sum(${salesOrders.totalAmount}) filter (
-          where ${salesOrders.purchasedAt} >= ${window.fourteenDaysAgo}
-            and ${salesOrders.purchasedAt} < ${window.sevenDaysAgo}
+        revenuePreviousPeriod: sql<string>`coalesce(sum(${salesOrders.totalAmount}) filter (
+          where ${salesOrders.purchasedAt} >= ${window.previousPeriodStart}
+            and ${salesOrders.purchasedAt} < ${window.periodStart}
         ), 0)`,
         ordersToday: sql<number>`count(*) filter (
           where ${salesOrders.purchasedAt} >= ${window.todayStart}
         )::int`,
-        ordersSevenDays: sql<number>`count(*) filter (
-          where ${salesOrders.purchasedAt} >= ${window.sevenDaysAgo}
+        ordersPeriod: sql<number>`count(*) filter (
+          where ${salesOrders.purchasedAt} >= ${window.periodStart}
         )::int`,
       })
       .from(salesOrders)
@@ -259,9 +309,18 @@ async function getSalesSummary(userId: number, window: DashboardWindow): Promise
       .where(and(eq(channels.userId, userId), inArray(salesOrders.status, ACTIVE_REVENUE_STATUSES))),
     db
       .select({
-        grossProfitSevenDays: sql<string>`coalesce(sum(
-        (${salesOrderItems.price}::numeric - coalesce(${products.purchasePrice}, 0)) * ${salesOrderItems.quantity}
-      ), 0)`,
+        knownCostRevenuePeriod: sql<string>`coalesce(sum(
+          ${salesOrderItems.price}::numeric * ${salesOrderItems.quantity}
+        ) filter (where ${products.purchasePrice} is not null), 0)`,
+        grossProfitPeriod: sql<string>`coalesce(sum(
+          (${salesOrderItems.price}::numeric - ${products.purchasePrice}) * ${salesOrderItems.quantity}
+        ) filter (where ${products.purchasePrice} is not null), 0)`,
+        estimatedCostPeriod: sql<string>`coalesce(sum(
+          ${products.purchasePrice} * ${salesOrderItems.quantity}
+        ) filter (where ${products.purchasePrice} is not null), 0)`,
+        missingCostRevenue: sql<string>`coalesce(sum(
+          ${salesOrderItems.price}::numeric * ${salesOrderItems.quantity}
+        ) filter (where ${products.purchasePrice} is null), 0)`,
       })
       .from(salesOrderItems)
       .innerJoin(salesOrders, eq(salesOrderItems.orderId, salesOrders.id))
@@ -271,7 +330,7 @@ async function getSalesSummary(userId: number, window: DashboardWindow): Promise
         and(
           eq(channels.userId, userId),
           inArray(salesOrders.status, ACTIVE_REVENUE_STATUSES),
-          sql`${salesOrders.purchasedAt} >= ${window.sevenDaysAgo}`,
+          sql`${salesOrders.purchasedAt} >= ${window.periodStart}`,
         ),
       ),
   ]);
@@ -281,11 +340,14 @@ async function getSalesSummary(userId: number, window: DashboardWindow): Promise
 
   return {
     revenueToday: toNumber(row?.revenueToday),
-    revenueSevenDays: toNumber(row?.revenueSevenDays),
-    revenuePreviousSevenDays: toNumber(row?.revenuePreviousSevenDays),
+    revenuePeriod: toNumber(row?.revenuePeriod),
+    revenuePreviousPeriod: toNumber(row?.revenuePreviousPeriod),
     ordersToday: toNumber(row?.ordersToday),
-    ordersSevenDays: toNumber(row?.ordersSevenDays),
-    grossProfitSevenDays: toNumber(profit?.grossProfitSevenDays),
+    ordersPeriod: toNumber(row?.ordersPeriod),
+    knownCostRevenuePeriod: toNumber(profit?.knownCostRevenuePeriod),
+    grossProfitPeriod: toNumber(profit?.grossProfitPeriod),
+    estimatedCostPeriod: toNumber(profit?.estimatedCostPeriod),
+    missingCostRevenue: toNumber(profit?.missingCostRevenue),
   };
 }
 
@@ -426,7 +488,12 @@ async function getTrend(userId: number, window: DashboardWindow): Promise<Dashbo
       day: sql<string>`trim(to_char(${salesOrders.purchasedAt}, 'Dy'))`,
       sortDay: sql<string>`to_char(${salesOrders.purchasedAt}, 'YYYY-MM-DD')`,
       revenue: sql<string>`coalesce(sum(${salesOrderItems.price}::numeric * ${salesOrderItems.quantity}), 0)`,
-      profit: sql<string>`coalesce(sum((${salesOrderItems.price}::numeric - coalesce(${products.purchasePrice}, 0)) * ${salesOrderItems.quantity}), 0)`,
+      profit: sql<string>`coalesce(sum(
+        (${salesOrderItems.price}::numeric - ${products.purchasePrice}) * ${salesOrderItems.quantity}
+      ) filter (where ${products.purchasePrice} is not null), 0)`,
+      missingCostRevenue: sql<string>`coalesce(sum(
+        ${salesOrderItems.price}::numeric * ${salesOrderItems.quantity}
+      ) filter (where ${products.purchasePrice} is null), 0)`,
       orders: sql<number>`count(distinct ${salesOrders.id})::int`,
     })
     .from(salesOrders)
@@ -436,7 +503,7 @@ async function getTrend(userId: number, window: DashboardWindow): Promise<Dashbo
     .where(
       and(
         eq(channels.userId, userId),
-        sql`${salesOrders.purchasedAt} >= ${window.sevenDaysAgo}`,
+        sql`${salesOrders.purchasedAt} >= ${window.periodStart}`,
         inArray(salesOrders.status, ACTIVE_REVENUE_STATUSES),
       ),
     )
@@ -445,9 +512,11 @@ async function getTrend(userId: number, window: DashboardWindow): Promise<Dashbo
 
   return rows.map((row) => ({
     id: row.sortDay,
-    label: row.day,
+    label: `${row.day} ${row.sortDay.slice(5).replace("-", "/")}`,
+    date: row.sortDay,
     revenue: toNumber(row.revenue),
     profit: toNumber(row.profit),
+    missingCostRevenue: toNumber(row.missingCostRevenue),
     orders: toNumber(row.orders),
   }));
 }
@@ -491,11 +560,11 @@ async function getChannelPerformance(
       name: channels.name,
       channelType: channels.channelType,
       revenue: sql<string>`coalesce(sum(${salesOrders.totalAmount}) filter (
-        where ${salesOrders.purchasedAt} >= ${window.sevenDaysAgo}
+        where ${salesOrders.purchasedAt} >= ${window.periodStart}
           and ${inArray(salesOrders.status, ACTIVE_REVENUE_STATUSES)}
       ), 0)`,
       orderCount: sql<number>`count(distinct ${salesOrders.id}) filter (
-        where ${salesOrders.purchasedAt} >= ${window.sevenDaysAgo}
+        where ${salesOrders.purchasedAt} >= ${window.periodStart}
           and ${inArray(salesOrders.status, ACTIVE_REVENUE_STATUSES)}
       )::int`,
       totalListings: sql<number>`coalesce((
@@ -568,7 +637,9 @@ async function getTopProducts(
       name: products.name,
       sku: products.sku,
       revenue: sql<string>`coalesce(sum(${salesOrderItems.price}::numeric * ${salesOrderItems.quantity}), 0)`,
-      profit: sql<string>`coalesce(sum((${salesOrderItems.price}::numeric - coalesce(${products.purchasePrice}, 0)) * ${salesOrderItems.quantity}), 0)`,
+      profit: sql<string>`coalesce(sum(
+        (${salesOrderItems.price}::numeric - ${products.purchasePrice}) * ${salesOrderItems.quantity}
+      ) filter (where ${products.purchasePrice} is not null), 0)`,
       availableQuantity: sql<number>`greatest(0, ${products.quantityOnHand} - ${products.reservedQuantity})::int`,
     })
     .from(salesOrderItems)
@@ -578,12 +649,14 @@ async function getTopProducts(
     .where(
       and(
         eq(channels.userId, userId),
-        sql`${salesOrders.purchasedAt} >= ${window.thirtyDaysAgo}`,
+        sql`${salesOrders.purchasedAt} >= ${window.periodStart}`,
         inArray(salesOrders.status, ACTIVE_REVENUE_STATUSES),
       ),
     )
     .groupBy(products.id)
-    .orderBy(desc(sql`coalesce(sum((${salesOrderItems.price}::numeric - coalesce(${products.purchasePrice}, 0)) * ${salesOrderItems.quantity}), 0)`))
+    .orderBy(desc(sql`coalesce(sum(
+      (${salesOrderItems.price}::numeric - ${products.purchasePrice}) * ${salesOrderItems.quantity}
+    ) filter (where ${products.purchasePrice} is not null), 0)`))
     .limit(5);
 
   return rows.map((row) => {
@@ -628,8 +701,11 @@ async function getRecentOrders(userId: number): Promise<DashboardRecentOrder[]> 
   }));
 }
 
-export async function getCommerceDashboardData(userId: number): Promise<CommerceDashboardData> {
-  const window = getDashboardWindow();
+export async function getCommerceDashboardData(
+  userId: number,
+  options: { rangeDays?: DashboardRangeDays } = {},
+): Promise<CommerceDashboardData> {
+  const window = getDashboardWindow(options.rangeDays ?? 7);
 
   const [
     sales,
@@ -653,12 +729,22 @@ export async function getCommerceDashboardData(userId: number): Promise<Commerce
     getRecentOrders(userId),
   ]);
 
-  const grossMarginPercent = sales.revenueSevenDays > 0
-    ? (sales.grossProfitSevenDays / sales.revenueSevenDays) * 100
+  const grossMarginPercent = sales.knownCostRevenuePeriod > 0
+    ? (sales.grossProfitPeriod / sales.knownCostRevenuePeriod) * 100
     : 0;
-  const averageOrderValue = sales.ordersSevenDays > 0
-    ? sales.revenueSevenDays / sales.ordersSevenDays
+  const averageOrderValue = sales.ordersPeriod > 0
+    ? sales.revenuePeriod / sales.ordersPeriod
     : 0;
+  const profitAndLoss = {
+    revenue: sales.revenuePeriod,
+    knownCostRevenue: sales.knownCostRevenuePeriod,
+    estimatedCost: sales.estimatedCostPeriod,
+    grossProfit: sales.grossProfitPeriod,
+    missingCostRevenue: sales.missingCostRevenue,
+    grossMarginPercent,
+    averageOrderValue,
+    orderCount: sales.ordersPeriod,
+  };
   const actionCount =
     operational.unmappedListings +
     pendingStockSyncProducts +
@@ -667,31 +753,40 @@ export async function getCommerceDashboardData(userId: number): Promise<Commerce
     inventoryRisk.lowStockCount;
 
   return {
+    range: {
+      days: window.days,
+      label: window.label,
+      options: DASHBOARD_RANGES.map((range) => ({
+        ...range,
+        href: range.days === 7 ? "/" : `/?range=${range.days}`,
+        active: range.days === window.days,
+      })),
+    },
     metrics: [
       {
         label: "Revenue today",
-        value: formatCurrency(sales.revenueToday, "INR", true),
-        detail: getChangeLabel(sales.revenueSevenDays, sales.revenuePreviousSevenDays),
-        tone: sales.revenueSevenDays >= sales.revenuePreviousSevenDays ? "positive" : "warning",
+        value: formatCurrency(sales.revenueToday),
+        detail: getChangeLabel(sales.revenuePeriod, sales.revenuePreviousPeriod, window.label),
+        tone: sales.revenuePeriod >= sales.revenuePreviousPeriod ? "positive" : "warning",
         href: "/orders",
       },
       {
         label: "Orders today",
-        value: sales.ordersToday.toLocaleString("en-IN"),
-        detail: `${sales.ordersSevenDays.toLocaleString("en-IN")} orders in the last 7 days`,
+        value: formatNumber(sales.ordersToday),
+        detail: `${formatNumber(sales.ordersPeriod)} orders in the last ${window.label}`,
         tone: sales.ordersToday > 0 ? "positive" : "default",
         href: "/orders",
       },
       {
-        label: "Gross profit",
-        value: formatCurrency(sales.grossProfitSevenDays, "INR", true),
-        detail: `${formatPercent(grossMarginPercent)} margin, ${formatCurrency(averageOrderValue, "INR", true)} AOV`,
+        label: "Known-cost profit",
+        value: formatCurrency(sales.grossProfitPeriod),
+        detail: `${formatPercent(grossMarginPercent)} margin, ${formatCurrency(sales.missingCostRevenue)} missing cost`,
         tone: grossMarginPercent > 0 ? "positive" : "default",
       },
       {
         label: "Cash in inventory",
-        value: formatCurrency(operational.inventoryValue, "INR", true),
-        detail: `${formatCurrency(inventoryRisk.slowMovingValue, "INR", true)} slow-moving stock`,
+        value: formatCurrency(operational.inventoryValue),
+        detail: `${formatCurrency(inventoryRisk.slowMovingValue)} slow-moving stock`,
         tone: inventoryRisk.slowMovingValue > 0 ? "warning" : "default",
         href: "/inventory",
       },
@@ -704,7 +799,7 @@ export async function getCommerceDashboardData(userId: number): Promise<Commerce
       },
       {
         label: "Action queue",
-        value: actionCount.toLocaleString("en-IN"),
+        value: formatNumber(actionCount),
         detail: `${operational.failedFeeds + inventoryRisk.stockoutRiskCount} urgent blockers`,
         tone: actionCount > 0 ? "critical" : "positive",
       },
@@ -714,6 +809,7 @@ export async function getCommerceDashboardData(userId: number): Promise<Commerce
     orderWork,
     channelPerformance,
     inventoryRisk,
+    profitAndLoss,
     topProducts,
     recentOrders,
   };
