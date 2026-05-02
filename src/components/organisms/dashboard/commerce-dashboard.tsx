@@ -56,6 +56,8 @@ function getActionToneClass(tone: DashboardAction["tone"]): string {
   return "border-blue-200 bg-blue-50/70 text-blue-800";
 }
 
+import { MetricMiniChart } from "@/components/organisms/dashboard/metric-mini-chart";
+
 function MetricCard({
   metric,
   index,
@@ -71,10 +73,19 @@ function MetricCard({
         <Icon className={cn("h-4 w-4", getMetricToneClass(metric.tone))} />
       </CardHeader>
       <CardContent>
-        <p className="text-2xl font-bold tracking-tight">{metric.value}</p>
-        <p className={cn("mt-1 text-xs", getMetricToneClass(metric.tone))}>
-          {metric.detail}
-        </p>
+        <div className="flex items-end justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-2xl font-bold tracking-tight">{metric.value}</p>
+            <p className={cn("mt-1 text-xs truncate", getMetricToneClass(metric.tone))}>
+              {metric.detail}
+            </p>
+          </div>
+          {metric.chart && (
+            <div className="h-10 w-16 shrink-0 mb-1">
+              <MetricMiniChart chart={metric.chart} tone={metric.tone} />
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

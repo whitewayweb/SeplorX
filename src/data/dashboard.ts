@@ -69,6 +69,11 @@ export interface DashboardMetric {
   detail: string;
   tone: "default" | "positive" | "warning" | "critical";
   href?: string;
+  chart?: {
+    type: "sparkline" | "bar" | "gauge" | "stacked";
+    data: number[]; // For sparkline/bar, it's an array of values. For gauge, it's [percent]. For stacked, it's [val1, val2, ...].
+    colors?: string[];
+  };
 }
 
 export interface DashboardAction {
@@ -220,14 +225,7 @@ function toNumber(value: number | string | null | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function getChangeLabel(current: number, previous: number, label: string): string {
-  if (previous <= 0 && current <= 0) return "No sales in the previous period";
-  if (previous <= 0) return "New sales this period";
 
-  const changePercent = ((current - previous) / previous) * 100;
-  const direction = changePercent >= 0 ? "+" : "";
-  return `${direction}${changePercent.toFixed(1)}% vs previous ${label}`;
-}
 
 function buildActions(
   summary: OperationalSummary,
@@ -483,42 +481,72 @@ async function getInventoryRisk(window: DashboardWindow): Promise<DashboardInven
 }
 
 async function getTrend(userId: number, window: DashboardWindow): Promise<DashboardTrendPoint[]> {
-  const rows = await db
-    .select({
-      day: sql<string>`trim(to_char(${salesOrders.purchasedAt}, 'Dy'))`,
-      sortDay: sql<string>`to_char(${salesOrders.purchasedAt}, 'YYYY-MM-DD')`,
-      revenue: sql<string>`coalesce(sum(${salesOrderItems.price}::numeric * ${salesOrderItems.quantity}), 0)`,
-      profit: sql<string>`coalesce(sum(
-        (${salesOrderItems.price}::numeric - ${products.purchasePrice}) * ${salesOrderItems.quantity}
-      ) filter (where ${products.purchasePrice} is not null), 0)`,
-      missingCostRevenue: sql<string>`coalesce(sum(
-        ${salesOrderItems.price}::numeric * ${salesOrderItems.quantity}
-      ) filter (where ${products.purchasePrice} is null), 0)`,
-      orders: sql<number>`count(distinct ${salesOrders.id})::int`,
-    })
-    .from(salesOrders)
-    .innerJoin(channels, eq(salesOrders.channelId, channels.id))
-    .leftJoin(salesOrderItems, eq(salesOrderItems.orderId, salesOrders.id))
-    .leftJoin(products, eq(salesOrderItems.productId, products.id))
-    .where(
-      and(
-        eq(channels.userId, userId),
-        sql`${salesOrders.purchasedAt} >= ${window.periodStart}`,
-        inArray(salesOrders.status, ACTIVE_REVENUE_STATUSES),
-      ),
-    )
-    .groupBy(sql`trim(to_char(${salesOrders.purchasedAt}, 'Dy'))`, sql`to_char(${salesOrders.purchasedAt}, 'YYYY-MM-DD')`)
-    .orderBy(sql`to_char(${salesOrders.purchasedAt}, 'YYYY-MM-DD')`);
+  const [ordersRows, profitRows] = await Promise.all([
+    db
+      .select({
+        day: sql<string>`trim(to_char(${salesOrders.purchasedAt}, 'Dy'))`,
+        sortDay: sql<string>`to_char(${salesOrders.purchasedAt}, 'YYYY-MM-DD')`,
+        revenue: sql<string>`coalesce(sum(${salesOrders.totalAmount}), 0)`,
+        orders: sql<number>`count(*)::int`,
+      })
+      .from(salesOrders)
+      .innerJoin(channels, eq(salesOrders.channelId, channels.id))
+      .where(
+        and(
+          eq(channels.userId, userId),
+          sql`${salesOrders.purchasedAt} >= ${window.periodStart}`,
+          inArray(salesOrders.status, ACTIVE_REVENUE_STATUSES),
+        ),
+      )
+      .groupBy(sql`trim(to_char(${salesOrders.purchasedAt}, 'Dy'))`, sql`to_char(${salesOrders.purchasedAt}, 'YYYY-MM-DD')`),
 
-  return rows.map((row) => ({
-    id: row.sortDay,
-    label: `${row.day} ${row.sortDay.slice(5).replace("-", "/")}`,
-    date: row.sortDay,
-    revenue: toNumber(row.revenue),
-    profit: toNumber(row.profit),
-    missingCostRevenue: toNumber(row.missingCostRevenue),
-    orders: toNumber(row.orders),
-  }));
+    db
+      .select({
+        sortDay: sql<string>`to_char(${salesOrders.purchasedAt}, 'YYYY-MM-DD')`,
+        profit: sql<string>`coalesce(sum(
+          (${salesOrderItems.price}::numeric - ${products.purchasePrice}) * ${salesOrderItems.quantity}
+        ) filter (where ${products.purchasePrice} is not null), 0)`,
+        missingCostRevenue: sql<string>`coalesce(sum(
+          ${salesOrderItems.price}::numeric * ${salesOrderItems.quantity}
+        ) filter (where ${products.purchasePrice} is null), 0)`,
+      })
+      .from(salesOrderItems)
+      .innerJoin(salesOrders, eq(salesOrderItems.orderId, salesOrders.id))
+      .innerJoin(channels, eq(salesOrders.channelId, channels.id))
+      .leftJoin(products, eq(salesOrderItems.productId, products.id))
+      .where(
+        and(
+          eq(channels.userId, userId),
+          sql`${salesOrders.purchasedAt} >= ${window.periodStart}`,
+          inArray(salesOrders.status, ACTIVE_REVENUE_STATUSES),
+        ),
+      )
+      .groupBy(sql`to_char(${salesOrders.purchasedAt}, 'YYYY-MM-DD')`),
+  ]);
+
+  const map = new Map<string, DashboardTrendPoint>();
+
+  for (const row of ordersRows) {
+    map.set(row.sortDay, {
+      id: row.sortDay,
+      label: `${row.day} ${row.sortDay.slice(5).replace("-", "/")}`,
+      date: row.sortDay,
+      revenue: toNumber(row.revenue),
+      profit: 0,
+      missingCostRevenue: 0,
+      orders: toNumber(row.orders),
+    });
+  }
+
+  for (const row of profitRows) {
+    const existing = map.get(row.sortDay);
+    if (existing) {
+      existing.profit = toNumber(row.profit);
+      existing.missingCostRevenue = toNumber(row.missingCostRevenue);
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
 
 async function getOrderWork(userId: number): Promise<DashboardOrderWorkItem[]> {
@@ -766,9 +794,13 @@ export async function getCommerceDashboardData(
       {
         label: "Revenue today",
         value: formatCurrency(sales.revenueToday),
-        detail: getChangeLabel(sales.revenuePeriod, sales.revenuePreviousPeriod, window.label),
-        tone: sales.revenuePeriod >= sales.revenuePreviousPeriod ? "positive" : "warning",
+        detail: `${formatCurrency(sales.revenuePeriod)} in the last ${window.label}`,
+        tone: sales.revenueToday > 0 ? "positive" : "default",
         href: "/orders",
+        chart: {
+          type: "sparkline",
+          data: trend.map((t) => t.revenue),
+        },
       },
       {
         label: "Orders today",
@@ -776,12 +808,20 @@ export async function getCommerceDashboardData(
         detail: `${formatNumber(sales.ordersPeriod)} orders in the last ${window.label}`,
         tone: sales.ordersToday > 0 ? "positive" : "default",
         href: "/orders",
+        chart: {
+          type: "bar",
+          data: trend.map((t) => t.orders),
+        },
       },
       {
         label: "Known-cost profit",
         value: formatCurrency(sales.grossProfitPeriod),
         detail: `${formatPercent(grossMarginPercent)} margin, ${formatCurrency(sales.missingCostRevenue)} missing cost`,
         tone: grossMarginPercent > 0 ? "positive" : "default",
+        chart: {
+          type: "sparkline",
+          data: trend.map((t) => t.profit),
+        },
       },
       {
         label: "Cash in inventory",
@@ -796,12 +836,29 @@ export async function getCommerceDashboardData(
         detail: `${inventoryRisk.lowStockCount} low stock, ${operational.reservedUnits} reserved units`,
         tone: inventoryRisk.lowStockCount > 0 ? "warning" : "positive",
         href: "/inventory",
+        chart: {
+          type: "gauge",
+          data: [
+            inventoryRisk.activeProducts > 0
+              ? ((inventoryRisk.activeProducts - inventoryRisk.lowStockCount) / inventoryRisk.activeProducts) * 100
+              : 100,
+          ],
+        },
       },
       {
         label: "Action queue",
         value: formatNumber(actionCount),
         detail: `${operational.failedFeeds + inventoryRisk.stockoutRiskCount} urgent blockers`,
         tone: actionCount > 0 ? "critical" : "positive",
+        chart: {
+          type: "stacked",
+          data: [
+            operational.failedFeeds + inventoryRisk.stockoutRiskCount, // Urgent
+            inventoryRisk.lowStockCount + operational.unmappedListings, // Warning
+            pendingStockSyncProducts + operational.returnsAwaitingAction, // Normal
+          ],
+          colors: ["var(--destructive)", "var(--chart-3)", "var(--chart-1)"],
+        },
       },
     ],
     actions: buildActions(operational, inventoryRisk, pendingStockSyncProducts),
