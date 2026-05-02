@@ -69,6 +69,11 @@ export interface DashboardMetric {
   detail: string;
   tone: "default" | "positive" | "warning" | "critical";
   href?: string;
+  chart?: {
+    type: "sparkline" | "bar" | "gauge" | "stacked";
+    data: number[]; // For sparkline/bar, it's an array of values. For gauge, it's [percent]. For stacked, it's [val1, val2, ...].
+    colors?: string[];
+  };
 }
 
 export interface DashboardAction {
@@ -792,6 +797,10 @@ export async function getCommerceDashboardData(
         detail: `${formatCurrency(sales.revenuePeriod)} in the last ${window.label}`,
         tone: sales.revenueToday > 0 ? "positive" : "default",
         href: "/orders",
+        chart: {
+          type: "sparkline",
+          data: trend.map((t) => t.revenue),
+        },
       },
       {
         label: "Orders today",
@@ -799,12 +808,20 @@ export async function getCommerceDashboardData(
         detail: `${formatNumber(sales.ordersPeriod)} orders in the last ${window.label}`,
         tone: sales.ordersToday > 0 ? "positive" : "default",
         href: "/orders",
+        chart: {
+          type: "bar",
+          data: trend.map((t) => t.orders),
+        },
       },
       {
         label: "Known-cost profit",
         value: formatCurrency(sales.grossProfitPeriod),
         detail: `${formatPercent(grossMarginPercent)} margin, ${formatCurrency(sales.missingCostRevenue)} missing cost`,
         tone: grossMarginPercent > 0 ? "positive" : "default",
+        chart: {
+          type: "sparkline",
+          data: trend.map((t) => t.profit),
+        },
       },
       {
         label: "Cash in inventory",
@@ -819,12 +836,28 @@ export async function getCommerceDashboardData(
         detail: `${inventoryRisk.lowStockCount} low stock, ${operational.reservedUnits} reserved units`,
         tone: inventoryRisk.lowStockCount > 0 ? "warning" : "positive",
         href: "/inventory",
+        chart: {
+          type: "gauge",
+          data: [
+            inventoryRisk.activeProducts > 0
+              ? ((inventoryRisk.activeProducts - inventoryRisk.lowStockCount) / inventoryRisk.activeProducts) * 100
+              : 100,
+          ],
+        },
       },
       {
         label: "Action queue",
         value: formatNumber(actionCount),
         detail: `${operational.failedFeeds + inventoryRisk.stockoutRiskCount} urgent blockers`,
         tone: actionCount > 0 ? "critical" : "positive",
+        chart: {
+          type: "stacked",
+          data: [
+            operational.failedFeeds + inventoryRisk.stockoutRiskCount, // Urgent
+            inventoryRisk.lowStockCount + operational.unmappedListings, // Warning
+            pendingStockSyncProducts + operational.returnsAwaitingAction, // Normal
+          ],
+        },
       },
     ],
     actions: buildActions(operational, inventoryRisk, pendingStockSyncProducts),
