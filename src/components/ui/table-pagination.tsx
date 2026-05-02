@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PAGINATION_LIMITS } from "@/lib/utils/pagination";
 
 interface TablePaginationProps {
   totalItems: number;
@@ -96,7 +97,7 @@ export function TablePagination({ totalItems, itemsPerPage, currentPage }: Table
               <SelectValue placeholder={itemsPerPage.toString()} />
             </SelectTrigger>
             <SelectContent side="top">
-              {[25, 50, 100, 200, 500].map((pageSize) => (
+              {PAGINATION_LIMITS.map((pageSize) => (
                 <SelectItem key={pageSize} value={`${pageSize}`}>
                   {pageSize}
                 </SelectItem>

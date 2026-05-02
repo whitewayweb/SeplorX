@@ -67,6 +67,15 @@ The `.agent/` directory contains broader Claude/ECC-oriented rules, skills, and 
 - Concurrent job processing must atomically claim work before external side effects.
 - Stock quantities pushed externally must use the canonical available-stock definition: `Math.max(0, quantityOnHand - reservedQuantity)`.
 
+## Bundle and Inventory Logic
+
+- **Bundle Definition**: A bundle is a virtual product composed of one or more "Simple" products.
+- **Derived Stock**: Bundled product availability must always be derived dynamically from its component parts using the "weakest link" calculation: `Math.floor(componentAvailable / quantityInBundle)`.
+- **Immutability**: Once a product is established as a bundle, do not allow conversion back to a simple product to preserve inventory audit trails.
+- **Atomic Operations**: Updating bundle components must be handled within a database transaction, ensuring the join table (`product_bundles`) is always in sync with the parent product.
+- **Hidden Derived Fields**: Do not allow manual editing of `purchasePrice` or `quantityOnHand` for bundle products; these should be treated as read-only or derived in the UI.
+- **Recursive Resolution**: When processing orders or returns, always "explode" bundles into their constituent simple products for stock deduction and reconciliation.
+
 ## Frontend Work
 
 - Match the existing visual system and component conventions.
