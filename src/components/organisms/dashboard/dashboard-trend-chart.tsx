@@ -3,7 +3,7 @@
 import ReactECharts from "echarts-for-react";
 import type { EChartsOption } from "echarts";
 import type { DashboardTrendPoint } from "@/data/dashboard";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatNumber } from "@/lib/utils";
 
 interface DashboardTrendChartProps {
   points: DashboardTrendPoint[];
@@ -29,6 +29,7 @@ const CHART_COLORS = {
   revenue: "var(--chart-1)",
   profit: "var(--chart-2)",
   warning: "var(--chart-3)",
+  orders: "var(--chart-4)",
   border: "var(--border)",
   foreground: "var(--foreground)",
   mutedForeground: "var(--muted-foreground)",
@@ -49,6 +50,7 @@ function getChartColors(): ChartColors {
     revenue: readCssToken(styles, "--chart-1", CHART_COLORS.revenue),
     profit: readCssToken(styles, "--chart-2", CHART_COLORS.profit),
     warning: readCssToken(styles, "--chart-3", CHART_COLORS.warning),
+    orders: readCssToken(styles, "--chart-4", CHART_COLORS.orders),
     border: readCssToken(styles, "--border", CHART_COLORS.border),
     foreground: readCssToken(styles, "--foreground", CHART_COLORS.foreground),
     mutedForeground: readCssToken(styles, "--muted-foreground", CHART_COLORS.mutedForeground),
@@ -63,10 +65,10 @@ export function DashboardTrendChart({ points }: DashboardTrendChartProps) {
 
   const option: EChartsOption = {
     animationDuration: 220,
-    color: [colors.revenue, colors.profit],
+    color: [colors.revenue, colors.profit, colors.orders],
     grid: {
       top: 20,
-      right: 18,
+      right: 40,
       bottom: 34,
       left: 76,
     },
@@ -92,19 +94,25 @@ export function DashboardTrendChart({ points }: DashboardTrendChartProps) {
           : "";
         const rows = tooltipParams.map((item) => {
           const value = typeof item.value === "number" ? item.value : Number(item.value ?? 0);
+          const isOrders = item.seriesName === "Order volume";
           return `
             <div style="display:flex;align-items:center;justify-content:space-between;gap:24px;margin-top:6px">
               <span>${item.marker ?? ""}${item.seriesName ?? ""}</span>
-              <strong style="font-family:monospace">${formatCurrency(value)}</strong>
+              <strong style="font-family:monospace">${isOrders ? formatNumber(value) : formatCurrency(value)}</strong>
             </div>
           `;
         }).join("");
 
+        const pendingOrdersLabel = point.orders > 0 && point.revenue === 0
+          ? `<div style="margin-top:6px;font-size:12px;color:${colors.mutedForeground}">Prices pending channel sync</div>`
+          : "";
+
         return `
           <div>
-            <div style="font-weight:600;margin-bottom:6px">${point.label} · ${point.orders} orders</div>
+            <div style="font-weight:600;margin-bottom:6px">${point.label}</div>
             ${rows}
             ${missingCost}
+            ${pendingOrdersLabel}
           </div>
         `;
       },
@@ -120,19 +128,43 @@ export function DashboardTrendChart({ points }: DashboardTrendChartProps) {
         hideOverlap: true,
       },
     },
-    yAxis: {
-      type: "value",
-      axisLabel: {
-        color: colors.mutedForeground,
-        fontFamily: "inherit",
-        formatter: (value: number) => formatCurrency(value).replace("INR ", ""),
-      },
-      splitLine: {
-        lineStyle: {
-          color: colors.border,
+    yAxis: [
+      {
+        type: "value",
+        name: "Revenue",
+        nameLocation: "end",
+        nameTextStyle: {
+          color: "transparent",
+        },
+        axisLabel: {
+          color: colors.mutedForeground,
+          fontFamily: "inherit",
+          formatter: (value: number) => formatCurrency(value).replace("INR ", ""),
+        },
+        splitLine: {
+          lineStyle: {
+            color: colors.border,
+          },
         },
       },
-    },
+      {
+        type: "value",
+        name: "Orders",
+        nameLocation: "end",
+        nameTextStyle: {
+          color: "transparent",
+        },
+        position: "right",
+        minInterval: 1,
+        axisLabel: {
+          color: colors.mutedForeground,
+          fontFamily: "inherit",
+        },
+        splitLine: {
+          show: false,
+        },
+      },
+    ],
     series: [
       {
         name: "Revenue",
@@ -140,6 +172,7 @@ export function DashboardTrendChart({ points }: DashboardTrendChartProps) {
         data: visiblePoints.map((point) => point.revenue),
         barGap: "12%",
         barMaxWidth: 42,
+        yAxisIndex: 0,
         itemStyle: {
           borderRadius: [5, 5, 0, 0],
         },
@@ -149,8 +182,24 @@ export function DashboardTrendChart({ points }: DashboardTrendChartProps) {
         type: "bar",
         data: visiblePoints.map((point) => point.profit),
         barMaxWidth: 42,
+        yAxisIndex: 0,
         itemStyle: {
           borderRadius: [5, 5, 0, 0],
+        },
+      },
+      {
+        name: "Order volume",
+        type: "line",
+        data: visiblePoints.map((point) => point.orders),
+        yAxisIndex: 1,
+        smooth: true,
+        symbol: "circle",
+        symbolSize: 8,
+        lineStyle: {
+          width: 3,
+        },
+        itemStyle: {
+          borderWidth: 2,
         },
       },
     ],
