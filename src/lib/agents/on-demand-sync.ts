@@ -15,7 +15,6 @@ const SYNC_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
  * the agent whenever the user is active in the portal.
  */
 export async function triggerOnDemandSync(userId: number) {
-    const startedAt = Date.now();
     const staleTime = new Date(Date.now() - SYNC_INTERVAL_MS);
     
     // 1. Check for stale connected channels
@@ -33,22 +32,12 @@ export async function triggerOnDemandSync(userId: number) {
         )
         .limit(1);
 
-    logger.info("[on-demand-sync] stale channel check complete", {
-        durationMs: Date.now() - startedAt,
-        staleChannelCount: staleChannels.length,
-    });
-
     if (staleChannels.length === 0) return;
 
     // 2. Trigger the scheduler in the background
     const headerList = await headers();
     const baseUrl = getBaseUrl(headerList);
     const url = `${baseUrl}/api/cron/order-sync?userId=${userId}`;
-
-    logger.info("[on-demand-sync] triggering background order sync", {
-        durationMs: Date.now() - startedAt,
-        baseUrl,
-    });
 
     // Fire and forget (don't await)
     fetch(url, {

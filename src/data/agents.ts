@@ -2,14 +2,9 @@ import { db } from "@/db";
 import { agentActions, settings, channelProductMappings } from "@/db/schema";
 import type { ChannelMappingPlan, ChannelMappingProposal } from "@/lib/agents/tools/channel-mapping-tools";
 import { and, desc, eq, inArray, like } from "drizzle-orm";
-import { durationMs, startTimer } from "@/lib/debug-timing";
-import { logger } from "@/lib/logger";
 
 export async function getPendingAgentTasks(agentType: string) {
-  const startedAt = startTimer();
-  logger.info("[agents-data] getPendingAgentTasks start", { agentType });
-
-  const rows = await db
+  return await db
     .select({
       id: agentActions.id,
       plan: agentActions.plan,
@@ -23,14 +18,6 @@ export async function getPendingAgentTasks(agentType: string) {
       )
     )
     .orderBy(desc(agentActions.createdAt));
-
-  logger.info("[agents-data] getPendingAgentTasks complete", {
-    agentType,
-    durationMs: durationMs(startedAt),
-    rowCount: rows.length,
-  });
-
-  return rows;
 }
 
 export async function getAgentActiveSettings() {
