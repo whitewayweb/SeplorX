@@ -25,14 +25,45 @@ function getTooltipParams(params: unknown): TooltipParam[] {
   return params.filter(isTooltipParam);
 }
 
+const CHART_COLORS = {
+  revenue: "var(--chart-1)",
+  profit: "var(--chart-2)",
+  warning: "var(--chart-3)",
+  border: "var(--border)",
+  foreground: "var(--foreground)",
+  mutedForeground: "var(--muted-foreground)",
+};
+
+type ChartColors = typeof CHART_COLORS;
+
+function readCssToken(styles: CSSStyleDeclaration, name: string, fallback: string): string {
+  return styles.getPropertyValue(name).trim() || fallback;
+}
+
+function getChartColors(): ChartColors {
+  if (typeof document === "undefined") return CHART_COLORS;
+
+  const styles = getComputedStyle(document.documentElement);
+
+  return {
+    revenue: readCssToken(styles, "--chart-1", CHART_COLORS.revenue),
+    profit: readCssToken(styles, "--chart-2", CHART_COLORS.profit),
+    warning: readCssToken(styles, "--chart-3", CHART_COLORS.warning),
+    border: readCssToken(styles, "--border", CHART_COLORS.border),
+    foreground: readCssToken(styles, "--foreground", CHART_COLORS.foreground),
+    mutedForeground: readCssToken(styles, "--muted-foreground", CHART_COLORS.mutedForeground),
+  };
+}
+
 export function DashboardTrendChart({ points }: DashboardTrendChartProps) {
+  const colors = getChartColors();
   const visiblePoints = points.length > 0
     ? points
     : [{ id: "empty", label: "No sales", date: "", revenue: 0, profit: 0, missingCostRevenue: 0, orders: 0 }];
 
   const option: EChartsOption = {
     animationDuration: 220,
-    color: ["#2563eb", "#10b981"],
+    color: [colors.revenue, colors.profit],
     grid: {
       top: 20,
       right: 18,
@@ -44,11 +75,11 @@ export function DashboardTrendChart({ points }: DashboardTrendChartProps) {
       axisPointer: {
         type: "shadow",
       },
-      borderColor: "#e5e7eb",
+      borderColor: colors.border,
       borderWidth: 1,
       padding: 12,
       textStyle: {
-        color: "#020617",
+        color: colors.foreground,
         fontFamily: "inherit",
       },
       formatter: (params: unknown) => {
@@ -57,7 +88,7 @@ export function DashboardTrendChart({ points }: DashboardTrendChartProps) {
         if (!point) return "";
 
         const missingCost = point.missingCostRevenue > 0
-          ? `<div style="margin-top:4px;color:#92400e">${formatCurrency(point.missingCostRevenue)} missing product cost</div>`
+          ? `<div style="margin-top:4px;color:${colors.warning}">${formatCurrency(point.missingCostRevenue)} missing product cost</div>`
           : "";
         const rows = tooltipParams.map((item) => {
           const value = typeof item.value === "number" ? item.value : Number(item.value ?? 0);
@@ -82,9 +113,9 @@ export function DashboardTrendChart({ points }: DashboardTrendChartProps) {
       type: "category",
       data: visiblePoints.map((point) => point.label),
       axisTick: { show: false },
-      axisLine: { lineStyle: { color: "#e5e7eb" } },
+      axisLine: { lineStyle: { color: colors.border } },
       axisLabel: {
-        color: "#64748b",
+        color: colors.mutedForeground,
         fontFamily: "inherit",
         hideOverlap: true,
       },
@@ -92,13 +123,13 @@ export function DashboardTrendChart({ points }: DashboardTrendChartProps) {
     yAxis: {
       type: "value",
       axisLabel: {
-        color: "#64748b",
+        color: colors.mutedForeground,
         fontFamily: "inherit",
         formatter: (value: number) => formatCurrency(value).replace("INR ", ""),
       },
       splitLine: {
         lineStyle: {
-          color: "#e5e7eb",
+          color: colors.border,
         },
       },
     },

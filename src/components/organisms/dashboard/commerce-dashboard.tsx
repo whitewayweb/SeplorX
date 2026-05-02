@@ -16,10 +16,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  DashboardMetricVisual,
-  type MetricVisualType,
-} from "@/components/organisms/dashboard/dashboard-metric-visual";
 import { DashboardTrendChart } from "@/components/organisms/dashboard/dashboard-trend-chart";
 import { PageHeader } from "@/components/molecules/layout/page-header";
 import {
@@ -63,14 +59,11 @@ function getActionToneClass(tone: DashboardAction["tone"]): string {
 function MetricCard({
   metric,
   index,
-  sparkValues,
 }: {
   metric: DashboardMetric;
   index: number;
-  sparkValues: number[];
 }) {
   const Icon = METRIC_ICONS[index] ?? BarChart3;
-  const visualTypes: MetricVisualType[] = ["line", "bars", "comparison", "inventory", "health", "queue"];
   const card = (
     <Card className="h-full transition-colors hover:bg-muted/30">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -82,12 +75,6 @@ function MetricCard({
         <p className={cn("mt-1 text-xs", getMetricToneClass(metric.tone))}>
           {metric.detail}
         </p>
-        <DashboardMetricVisual
-          values={sparkValues}
-          tone={metric.tone}
-          type={visualTypes[index] ?? "bars"}
-          valueText={metric.value}
-        />
       </CardContent>
     </Card>
   );
@@ -227,22 +214,13 @@ export function CommerceDashboard({ dashboard }: { dashboard: CommerceDashboardD
           description="The current pulse across revenue, orders, stock, and work queues."
         />
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-          {dashboard.metrics.map((metric, index) => {
-            const sparkValues = index === 1
-              ? dashboard.trend.map((point) => point.orders)
-              : index === 2
-                ? dashboard.trend.map((point) => point.profit)
-                : dashboard.trend.map((point) => point.revenue);
-
-            return (
-              <MetricCard
-                key={metric.label}
-                metric={metric}
-                index={index}
-                sparkValues={sparkValues.length > 0 ? sparkValues : [0]}
-              />
-            );
-          })}
+          {dashboard.metrics.map((metric, index) => (
+            <MetricCard
+              key={metric.label}
+              metric={metric}
+              index={index}
+            />
+          ))}
         </div>
       </section>
 
