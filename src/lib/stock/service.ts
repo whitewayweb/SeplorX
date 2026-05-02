@@ -139,26 +139,62 @@ async function reserveStock(orderId: number, userId: number): Promise<void> {
     for (const item of items) {
       if (!item.productId || item.quantity <= 0) continue;
 
-      // Atomic Upsert: create or update reservation and calculate delta in one go
-      const [existing] = await tx
-        .select({ quantity: stockReservations.quantity })
-        .from(stockReservations)
-        .where(and(eq(stockReservations.orderItemId, item.id), eq(stockReservations.status, "active")))
+      const [productInfo] = await tx
+        .select({ isBundle: products.isBundle })
+        .from(products)
+        .where(eq(products.id, item.productId))
         .limit(1);
 
-      await tx
-        .insert(stockReservations)
-        .values({ orderId, orderItemId: item.id, productId: item.productId, quantity: item.quantity, status: "active" })
-        .onConflictDoUpdate({
-          target: [stockReservations.orderItemId, stockReservations.productId],
-          set: { quantity: item.quantity, updatedAt: new Date() },
-        });
+      const componentsToProcess: { componentProductId: number; quantity: number; bundleId?: number }[] = [];
 
-      if (!existing) {
-        await adjustReservedStock(tx, item.productId, item.quantity, orderId, userId, `Stock reserved for order #${orderId}`);
-      } else if (existing.quantity !== item.quantity) {
-        const delta = item.quantity - existing.quantity;
-        await adjustReservedStock(tx, item.productId, delta, orderId, userId, `Reservation adjusted (delta: ${delta > 0 ? "+" : ""}${delta}) — order #${orderId}`);
+      if (productInfo?.isBundle) {
+        const { productBundles } = await import("@/db/schema");
+        const bundles = await tx
+          .select({
+            componentProductId: productBundles.componentProductId,
+            quantity: productBundles.quantity,
+          })
+          .from(productBundles)
+          .where(eq(productBundles.bundleProductId, item.productId));
+
+        for (const bundle of bundles) {
+          componentsToProcess.push({
+            componentProductId: bundle.componentProductId,
+            quantity: item.quantity * bundle.quantity,
+            bundleId: item.productId,
+          });
+        }
+      } else {
+        componentsToProcess.push({
+          componentProductId: item.productId,
+          quantity: item.quantity,
+        });
+      }
+
+      for (const component of componentsToProcess) {
+        // Atomic Upsert: create or update reservation and calculate delta in one go
+        const [existing] = await tx
+          .select({ quantity: stockReservations.quantity })
+          .from(stockReservations)
+          .where(and(eq(stockReservations.orderItemId, item.id), eq(stockReservations.status, "active"), eq(stockReservations.productId, component.componentProductId)))
+          .limit(1);
+
+        await tx
+          .insert(stockReservations)
+          .values({ orderId, orderItemId: item.id, productId: component.componentProductId, quantity: component.quantity, status: "active" })
+          .onConflictDoUpdate({
+            target: [stockReservations.orderItemId, stockReservations.productId],
+            set: { quantity: component.quantity, updatedAt: new Date() },
+          });
+
+        const notesSuffix = component.bundleId ? ` (via bundle #${component.bundleId})` : "";
+
+        if (!existing) {
+          await adjustReservedStock(tx, component.componentProductId, component.quantity, orderId, userId, `Stock reserved for order #${orderId}${notesSuffix}`);
+        } else if (existing.quantity !== component.quantity) {
+          const delta = component.quantity - existing.quantity;
+          await adjustReservedStock(tx, component.componentProductId, delta, orderId, userId, `Reservation adjusted (delta: ${delta > 0 ? "+" : ""}${delta}) — order #${orderId}${notesSuffix}`);
+        }
       }
     }
 
@@ -279,38 +315,73 @@ async function commitStockDirect(orderId: number, userId: number): Promise<void>
     for (const item of items) {
       if (!item.productId || item.quantity <= 0) continue;
 
-      const [inserted] = await tx.insert(stockReservations).values({
-        orderId,
-        orderItemId: item.id,
-        productId: item.productId,
-        quantity: item.quantity,
-        status: "committed",
-        resolvedAt: new Date(),
-      }).onConflictDoNothing().returning({ id: stockReservations.id });
+      const [productInfo] = await tx
+        .select({ isBundle: products.isBundle })
+        .from(products)
+        .where(eq(products.id, item.productId))
+        .limit(1);
 
-      // If this was a NEW commit, update stock and ledger
-      if (inserted) {
-        await tx
-          .update(products)
-          .set({
-            quantityOnHand: sql`GREATEST(0, ${products.quantityOnHand} - ${item.quantity})`,
-            updatedAt: new Date(),
+      const componentsToProcess: { componentProductId: number; quantity: number; bundleId?: number }[] = [];
+
+      if (productInfo?.isBundle) {
+        const { productBundles } = await import("@/db/schema");
+        const bundles = await tx
+          .select({
+            componentProductId: productBundles.componentProductId,
+            quantity: productBundles.quantity,
           })
-          .where(eq(products.id, item.productId));
+          .from(productBundles)
+          .where(eq(productBundles.bundleProductId, item.productId));
 
-        // Log the transaction
-        await tx.insert(inventoryTransactions).values({
-          productId: item.productId,
-          type: "sale_out",
-          quantity: -item.quantity,
-          referenceType: "sales_order",
-          referenceId: orderId,
-          createdBy: userId,
-          notes: `Stock committed directly — order #${orderId} fetched as delivered`,
+        for (const bundle of bundles) {
+          componentsToProcess.push({
+            componentProductId: bundle.componentProductId,
+            quantity: item.quantity * bundle.quantity,
+            bundleId: item.productId,
+          });
+        }
+      } else {
+        componentsToProcess.push({
+          componentProductId: item.productId,
+          quantity: item.quantity,
         });
+      }
 
-        // Trigger sync
-        await triggerChannelSync(item.productId, tx);
+      for (const component of componentsToProcess) {
+        const [inserted] = await tx.insert(stockReservations).values({
+          orderId,
+          orderItemId: item.id,
+          productId: component.componentProductId,
+          quantity: component.quantity,
+          status: "committed",
+          resolvedAt: new Date(),
+        }).onConflictDoNothing().returning({ id: stockReservations.id });
+
+        // If this was a NEW commit, update stock and ledger
+        if (inserted) {
+          await tx
+            .update(products)
+            .set({
+              quantityOnHand: sql`GREATEST(0, ${products.quantityOnHand} - ${component.quantity})`,
+              updatedAt: new Date(),
+            })
+            .where(eq(products.id, component.componentProductId));
+
+          const notesSuffix = component.bundleId ? ` (via bundle #${component.bundleId})` : "";
+          // Log the transaction
+          await tx.insert(inventoryTransactions).values({
+            productId: component.componentProductId,
+            type: "sale_out",
+            quantity: -component.quantity,
+            referenceType: "sales_order",
+            referenceId: orderId,
+            createdBy: userId,
+            notes: `Stock committed directly — order #${orderId} fetched as delivered${notesSuffix}`,
+          });
+
+          // Trigger sync
+          await triggerChannelSync(component.componentProductId, tx);
+        }
       }
     }
 
@@ -462,36 +533,74 @@ export async function processReturnItem(
       throw new Error(`Cannot return ${quantity} — only ${maxReturnable} returnable`);
     }
 
-    if (action === "restock") {
-      // Add back to on-hand stock
-      await tx
-        .update(products)
-        .set({
-          quantityOnHand: sql`${products.quantityOnHand} + ${quantity}`,
-          updatedAt: new Date(),
-        })
-        .where(eq(products.id, item.productId));
+    const [productInfo] = await tx
+      .select({ isBundle: products.isBundle })
+      .from(products)
+      .where(eq(products.id, item.productId))
+      .limit(1);
 
-      await tx.insert(inventoryTransactions).values({
-        productId: item.productId,
-        type: "return_restock",
-        quantity, // Positive = stock added back
-        referenceType: "sales_order",
-        referenceId: item.orderId,
-        createdBy: userId,
-        notes: notes || `Restocked ${quantity} unit(s) from return`,
-      });
+    const componentsToProcess: { componentProductId: number; quantity: number; bundleId?: number }[] = [];
+
+    if (productInfo?.isBundle) {
+      const { productBundles } = await import("@/db/schema");
+      const bundles = await tx
+        .select({
+          componentProductId: productBundles.componentProductId,
+          quantity: productBundles.quantity,
+        })
+        .from(productBundles)
+        .where(eq(productBundles.bundleProductId, item.productId));
+
+      for (const bundle of bundles) {
+        componentsToProcess.push({
+          componentProductId: bundle.componentProductId,
+          quantity: quantity * bundle.quantity,
+          bundleId: item.productId,
+        });
+      }
     } else {
-      // Discard — stock is lost, record as negative for audit trail
-      await tx.insert(inventoryTransactions).values({
-        productId: item.productId,
-        type: "return_discard",
-        quantity: -quantity, // Negative = units lost/written off
-        referenceType: "sales_order",
-        referenceId: item.orderId,
-        createdBy: userId,
-        notes: notes || `Discarded ${quantity} unit(s) from return`,
+      componentsToProcess.push({
+        componentProductId: item.productId,
+        quantity: quantity,
       });
+    }
+
+    for (const component of componentsToProcess) {
+      const notesSuffix = component.bundleId ? ` (via bundle #${component.bundleId})` : "";
+      
+      if (action === "restock") {
+        // Add back to on-hand stock
+        await tx
+          .update(products)
+          .set({
+            quantityOnHand: sql`${products.quantityOnHand} + ${component.quantity}`,
+            updatedAt: new Date(),
+          })
+          .where(eq(products.id, component.componentProductId));
+
+        await tx.insert(inventoryTransactions).values({
+          productId: component.componentProductId,
+          type: "return_restock",
+          quantity: component.quantity, // Positive = stock added back
+          referenceType: "sales_order",
+          referenceId: item.orderId,
+          createdBy: userId,
+          notes: notes || `Restocked ${component.quantity} unit(s) from return${notesSuffix}`,
+        });
+      } else {
+        // Discard — stock is lost, record as negative for audit trail
+        await tx.insert(inventoryTransactions).values({
+          productId: component.componentProductId,
+          type: "return_discard",
+          quantity: -component.quantity, // Negative = units lost/written off
+          referenceType: "sales_order",
+          referenceId: item.orderId,
+          createdBy: userId,
+          notes: notes || `Discarded ${component.quantity} unit(s) from return${notesSuffix}`,
+        });
+      }
+      
+      await triggerChannelSync(component.componentProductId, tx);
     }
 
     // Update the return tracking on the order item

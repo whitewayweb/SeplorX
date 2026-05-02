@@ -91,8 +91,10 @@ describe("Stock Service — processOrderStockChange", () => {
 
     (db.transaction as ReturnType<typeof vi.fn>).mockImplementation(async (cb) => {
       const tx = createTxMock();
-      // First select per item: reservation idempotency check → no existing
+      // First select per item: isBundle check, then reservation idempotency check
+      tx._pushSelectResult([{ isBundle: false }]); // item 1: isBundle
       tx._pushSelectResult([]); // item 1: no existing reservation
+      tx._pushSelectResult([{ isBundle: false }]); // item 2: isBundle
       tx._pushSelectResult([]); // item 2: no existing reservation
 
       tx.insert = vi.fn().mockReturnValue(createChainMock());
@@ -303,6 +305,7 @@ describe("Stock Service — processOrderStockChange", () => {
 
     (db.transaction as ReturnType<typeof vi.fn>).mockImplementation(async (cb) => {
       const tx = createTxMock();
+      tx._pushSelectResult([{ isBundle: false }]); // isBundle check
       tx._pushSelectResult([{ quantity: 5 }]); // Existing reservation found with same quantity
       tx.insert = vi.fn().mockImplementation(() => { txInsertCount++; return createChainMock(); });
       tx.update = vi.fn().mockReturnValue(createChainMock());
@@ -333,7 +336,9 @@ describe("Stock Service — processOrderStockChange", () => {
 
     (db.transaction as ReturnType<typeof vi.fn>).mockImplementation(async (cb) => {
       const tx = createTxMock();
+      tx._pushSelectResult([{ isBundle: false }]); // item 1: isBundle
       tx._pushSelectResult([]); // item 1: no existing reservation
+      tx._pushSelectResult([{ isBundle: false }]); // item 3: isBundle
       tx._pushSelectResult([]); // item 3: no existing reservation (item 2 skipped)
       tx.insert = vi.fn().mockImplementation(() => { txInsertCount++; return createChainMock(); });
       tx.update = vi.fn().mockReturnValue(createChainMock());
@@ -361,6 +366,7 @@ describe("Stock Service — processReturnItem", () => {
       tx._pushSelectResult([{
         id: 1, orderId: 100, productId: 10, orderQty: 5, returnQuantity: 0,
       }]);
+      tx._pushSelectResult([{ isBundle: false }]); // isBundle check
       tx._pushSelectResult([]); // No more pending items after this one
 
       tx.update = vi.fn().mockImplementation(() => { txUpdateCount++; return createChainMock(); });
@@ -381,6 +387,7 @@ describe("Stock Service — processReturnItem", () => {
       tx._pushSelectResult([{
         id: 1, orderId: 100, productId: 10, orderQty: 5, returnQuantity: 0,
       }]);
+      tx._pushSelectResult([{ isBundle: false }]); // isBundle check
       tx._pushSelectResult([]);
       tx.update = vi.fn().mockReturnValue(createChainMock());
       tx.insert = vi.fn().mockReturnValue(createChainMock());
@@ -398,6 +405,7 @@ describe("Stock Service — processReturnItem", () => {
       tx._pushSelectResult([{
         id: 1, orderId: 100, productId: 10, orderQty: 5, returnQuantity: 0,
       }]);
+      tx._pushSelectResult([{ isBundle: false }]); // isBundle check
       tx._pushSelectResult([{ id: 1 }]); // Still pending items (partial)
       tx.update = vi.fn().mockReturnValue(createChainMock());
       tx.insert = vi.fn().mockReturnValue(createChainMock());
