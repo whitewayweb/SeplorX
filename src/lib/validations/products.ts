@@ -10,6 +10,11 @@ export const CreateProductSchema = z.object({
   purchasePrice: z.coerce.number().min(0, "Must be ≥ 0").optional().or(z.literal("")),
   sellingPrice: z.coerce.number().min(0, "Must be ≥ 0").optional().or(z.literal("")),
   reorderLevel: z.coerce.number().int().min(0, "Must be ≥ 0"),
+  isBundle: z.coerce.boolean().default(false).optional(),
+  components: z.array(z.object({
+    componentProductId: z.coerce.number().int().positive(),
+    quantity: z.coerce.number().int().positive()
+  })).optional().default([]),
 });
 
 export const UpdateProductSchema = CreateProductSchema.extend({

@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/db";
-import { products, inventoryTransactions, channels, channelProductMappings } from "@/db/schema";
+import { products, inventoryTransactions, channels, channelProductMappings, productBundles } from "@/db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import {
@@ -41,6 +41,12 @@ export async function createProduct(_prevState: unknown, formData: FormData) {
     try { parsedAttrs = JSON.parse(rawAttrs); } catch { /* ignore invalid JSON */ }
   }
 
+  const rawComponents = formData.get("components");
+  let parsedComponents: { componentProductId: number; quantity: number }[] = [];
+  if (rawComponents && typeof rawComponents === "string" && rawComponents.trim()) {
+    try { parsedComponents = JSON.parse(rawComponents); } catch { /* ignore */ }
+  }
+
   const parsed = CreateProductSchema.safeParse({
     name: formData.get("name"),
     sku: formData.get("sku"),
@@ -51,6 +57,8 @@ export async function createProduct(_prevState: unknown, formData: FormData) {
     purchasePrice: formData.get("purchasePrice"),
     sellingPrice: formData.get("sellingPrice"),
     reorderLevel: formData.get("reorderLevel"),
+    isBundle: formData.get("isBundle") === "true",
+    components: parsedComponents,
   });
 
   if (!parsed.success) {
@@ -60,13 +68,25 @@ export async function createProduct(_prevState: unknown, formData: FormData) {
     };
   }
 
-  const { purchasePrice, sellingPrice, ...rest } = parsed.data;
+  const { purchasePrice, sellingPrice, isBundle, components, ...rest } = parsed.data;
 
   try {
-    await db.insert(products).values({
-      ...rest,
-      purchasePrice: purchasePrice != null && purchasePrice !== "" ? String(purchasePrice) : null,
-      sellingPrice: sellingPrice != null && sellingPrice !== "" ? String(sellingPrice) : null,
+    await db.transaction(async (tx) => {
+      const [newProduct] = await tx.insert(products).values({
+        ...rest,
+        isBundle,
+        purchasePrice: purchasePrice != null && purchasePrice !== "" ? String(purchasePrice) : null,
+        sellingPrice: sellingPrice != null && sellingPrice !== "" ? String(sellingPrice) : null,
+      }).returning({ id: products.id });
+
+      if (isBundle && components.length > 0) {
+        await tx.insert(productBundles).values(components.map((c, i) => ({
+          bundleProductId: newProduct.id,
+          componentProductId: c.componentProductId,
+          quantity: c.quantity,
+          sortOrder: i,
+        })));
+      }
     });
   } catch (err) {
     console.error("[createProduct]", { error: String(err) });
@@ -107,6 +127,12 @@ export async function updateProduct(_prevState: unknown, formData: FormData) {
     try { parsedAttrs = JSON.parse(rawAttrs); } catch { /* ignore invalid JSON */ }
   }
 
+  const rawComponents = formData.get("components");
+  let parsedComponents: { componentProductId: number; quantity: number }[] = [];
+  if (rawComponents && typeof rawComponents === "string" && rawComponents.trim()) {
+    try { parsedComponents = JSON.parse(rawComponents); } catch { /* ignore */ }
+  }
+
   const parsed = UpdateProductSchema.safeParse({
     id: formData.get("id"),
     name: formData.get("name"),
@@ -118,6 +144,8 @@ export async function updateProduct(_prevState: unknown, formData: FormData) {
     purchasePrice: formData.get("purchasePrice"),
     sellingPrice: formData.get("sellingPrice"),
     reorderLevel: formData.get("reorderLevel"),
+    isBundle: formData.get("isBundle") === "true",
+    components: parsedComponents,
   });
 
   if (!parsed.success) {
@@ -127,7 +155,7 @@ export async function updateProduct(_prevState: unknown, formData: FormData) {
     };
   }
 
-  const { id, purchasePrice, sellingPrice, ...rest } = parsed.data;
+  const { id, purchasePrice, sellingPrice, isBundle, components, ...rest } = parsed.data;
 
   try {
     await db.transaction(async (tx) => {
@@ -145,11 +173,23 @@ export async function updateProduct(_prevState: unknown, formData: FormData) {
         .update(products)
         .set({
           ...rest,
+          isBundle,
           purchasePrice: purchasePrice != null && purchasePrice !== "" ? String(purchasePrice) : null,
           sellingPrice: sellingPrice != null && sellingPrice !== "" ? String(sellingPrice) : null,
           updatedAt: new Date(),
         })
         .where(eq(products.id, id));
+
+      // Handle bundles update
+      await tx.delete(productBundles).where(eq(productBundles.bundleProductId, id));
+      if (isBundle && components.length > 0) {
+        await tx.insert(productBundles).values(components.map((c, i) => ({
+          bundleProductId: id,
+          componentProductId: c.componentProductId,
+          quantity: c.quantity,
+          sortOrder: i,
+        })));
+      }
 
       // Flag all channel mappings for this product as pending_update
       // so the Amazon Uploads dashboard picks them up for template generation.
@@ -557,5 +597,33 @@ export async function getAttributeValuesAction(key: string) {
   } catch (err) {
     console.error("[getAttributeValuesAction]", err);
     return [];
+  }
+}
+
+export async function getSimpleProductsAction() {
+  try {
+    await getAuthenticatedUserId();
+    return await db
+      .select({
+        id: products.id,
+        name: products.name,
+        sku: products.sku,
+      })
+      .from(products)
+      .where(eq(products.isBundle, false))
+      .orderBy(products.name);
+  } catch (err) {
+    console.error("[getSimpleProductsAction]", err);
+    return [];
+  }
+}
+
+export async function getProductWithComponentsAction(id: number) {
+  try {
+    await getAuthenticatedUserId();
+    return await getProductById(id, db);
+  } catch (err) {
+    console.error("[getProductWithComponentsAction]", err);
+    return null;
   }
 }

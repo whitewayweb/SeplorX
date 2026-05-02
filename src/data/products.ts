@@ -8,6 +8,7 @@ import {
   companies,
   channels,
   channelProducts,
+  productBundles,
 } from "@/db/schema";
 import { and, desc, eq, inArray, ne, sql, count } from "drizzle-orm";
 import { channelRegistry } from "@/lib/channels/registry";
@@ -43,12 +44,30 @@ export async function getProductById(productId: number, tx: QueryClient = db) {
       description: products.description,
       attributes: products.attributes,
       createdAt: products.createdAt,
+      isBundle: products.isBundle,
     })
     .from(products)
     .where(eq(products.id, productId))
     .limit(1);
 
-  return result[0];
+  if (!result[0]) return result[0];
+
+  const product = result[0];
+
+  if (product.isBundle) {
+    const components = await tx
+      .select({
+        componentProductId: productBundles.componentProductId,
+        quantity: productBundles.quantity,
+      })
+      .from(productBundles)
+      .where(eq(productBundles.bundleProductId, productId))
+      .orderBy(productBundles.sortOrder);
+      
+    return { ...product, components };
+  }
+
+  return { ...product, components: [] };
 }
 
 export async function getProductMappings(productId: number, tx: QueryClient = db) {
@@ -479,6 +498,7 @@ export async function getProductsList(tx: QueryClient = db) {
       quantityOnHand: products.quantityOnHand,
       reservedQuantity: products.reservedQuantity,
       isActive: products.isActive,
+      isBundle: products.isBundle,
       description: products.description,
       attributes: products.attributes,
     })
