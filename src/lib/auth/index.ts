@@ -8,12 +8,35 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 import { env } from "@/lib/env";
 
+function toOrigin(url: string | undefined): string | null {
+    if (!url) return null;
+
+    const normalizedUrl = url.includes("://") ? url : `https://${url}`;
+
+    try {
+        return new URL(normalizedUrl).origin;
+    } catch {
+        return null;
+    }
+}
+
+const trustedOrigins = Array.from(
+    new Set(
+        [
+            env.BETTER_AUTH_URL,
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            process.env.VERCEL_URL,
+            process.env.VERCEL_BRANCH_URL,
+        ]
+            .map(toOrigin)
+            .filter((origin): origin is string => Boolean(origin))
+    )
+);
+
 export const auth = betterAuth({
     baseURL: env.BETTER_AUTH_URL,
-    trustedOrigins: [
-        env.BETTER_AUTH_URL,
-        "http://localhost:3000"
-    ],
+    trustedOrigins,
     database: drizzleAdapter(db, {
         provider: "pg",
         schema: {

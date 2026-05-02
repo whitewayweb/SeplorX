@@ -3,6 +3,7 @@ import { channels } from "@/db/schema";
 import { and, eq, or, lte, isNull } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getBaseUrl } from "@/lib/utils";
+import { logger } from "@/lib/logger";
 
 const SYNC_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -38,8 +39,6 @@ export async function triggerOnDemandSync(userId: number) {
     const baseUrl = getBaseUrl(headerList);
     const url = `${baseUrl}/api/cron/order-sync?userId=${userId}`;
 
-    console.log(`[on-demand-sync] User ${userId} active. Triggering sync for stale channels.`);
-
     // Fire and forget (don't await)
     fetch(url, {
         method: "GET",
@@ -47,5 +46,5 @@ export async function triggerOnDemandSync(userId: number) {
             "x-vercel-cron": "1",
         },
         cache: "no-store",
-    }).catch(err => console.error("[on-demand-sync] Background trigger failed:", err));
+    }).catch(err => logger.error("[on-demand-sync] background trigger failed", err));
 }

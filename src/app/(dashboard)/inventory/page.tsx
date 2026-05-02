@@ -19,11 +19,10 @@ import { AGENT_REGISTRY } from "@/lib/agents/registry";
 import { ReorderTrigger } from "@/components/organisms/agents/reorder-trigger";
 import { ReorderApprovalCard } from "@/components/organisms/agents/reorder-approval-card";
 import type { ReorderPlan } from "@/lib/agents/tools/inventory-tools";
-import { 
-  getTotalActiveProductsCount, 
-  getLowStockProducts, 
-  getTotalStockValue, 
-  getInventoryTransactions 
+import {
+  getInventoryStats,
+  getLowStockProducts,
+  getInventoryTransactions,
 } from "@/data/inventory";
 import { getPendingAgentTasks } from "@/data/agents";
 import { getPendingStockSyncProductCount } from "@/data/products";
@@ -40,19 +39,23 @@ export default async function InventoryPage({
   const resolvedSearchParams = await searchParams;
   const { page, limit, offset } = parsePaginationParams(resolvedSearchParams);
 
-  // Run all 5 independent queries in parallel
+  // Keep DB concurrency below the configured pool size. The page already shares
+  // the request with layout/sidebar queries, so load the core inventory data
+  // first, then fetch secondary badges/approval cards in a smaller second wave.
   const [
-    { count: totalProductsCount },
+    { totalProductsCount, totalValue },
     lowStockProducts,
-    { totalValue },
     { transactions, totalCount: transactionCount },
+  ] = await Promise.all([
+    getInventoryStats(),
+    getLowStockProducts(),
+    getInventoryTransactions({ limit, offset }),
+  ]);
+
+  const [
     pendingReorderTasks,
     pendingStockSyncCount,
   ] = await Promise.all([
-    getTotalActiveProductsCount(),
-    getLowStockProducts(),
-    getTotalStockValue(),
-    getInventoryTransactions({ limit, offset }),
     getPendingAgentTasks("reorder"),
     getPendingStockSyncProductCount(userId),
   ]);
