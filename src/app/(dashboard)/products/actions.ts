@@ -2,7 +2,7 @@
 
 import { db } from "@/db";
 import { products, inventoryTransactions, channels, channelProductMappings, productBundles } from "@/db/schema";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, sql, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import {
   CreateProductSchema,
@@ -73,7 +73,8 @@ export async function createProduct(_prevState: unknown, formData: FormData): Pr
     };
   }
 
-  let { purchasePrice, sellingPrice, isBundle, components, ...rest } = parsed.data;
+  const { sellingPrice, components, isBundle, ...rest } = parsed.data;
+  let { purchasePrice } = parsed.data;
 
   // For bundle products, force purchasePrice to null and quantityOnHand to 0
   if (isBundle) {
@@ -178,7 +179,8 @@ export async function updateProduct(_prevState: unknown, formData: FormData): Pr
     };
   }
 
-  let { id, purchasePrice, sellingPrice, isBundle, components, ...rest } = parsed.data;
+  const { id, sellingPrice, components, ...rest } = parsed.data;
+  let { purchasePrice, isBundle } = parsed.data;
 
   try {
     return await db.transaction(async (tx) => {
@@ -500,7 +502,7 @@ export async function deleteChannelMapping(_prevState: unknown, formData: FormDa
  * for the given product. Returns per-channel results.
  * Called from the "Push to All Channels" button on the product detail page.
  */
-export async function pushProductStockToChannels(productId: number): Promise<{ success?: boolean; error?: string } & Record<string, any>> {
+export async function pushProductStockToChannels(productId: number): Promise<{ success?: boolean; error?: string } & Record<string, unknown>> {
   try {
     const userId = await getAuthenticatedUserId();
     const result = await pushProductStockToChannelsService(userId, productId);
@@ -684,7 +686,7 @@ export async function getSimpleProductsAction(): Promise<SimpleProduct[]> {
   }
 }
 
-export async function getProductWithComponentsAction(id: number): Promise<any | null> {
+export async function getProductWithComponentsAction(id: number): Promise<unknown | null> {
   try {
     await getAuthenticatedUserId();
     return await getProductById(id, db);

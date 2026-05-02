@@ -599,7 +599,7 @@ export async function getProductQuantity(
       WHERE pb.bundle_product_id = ${productId}
     `);
 
-    const available = (results[0] as any)?.available;
+    const available = (results[0] as Record<string, unknown>)?.available;
     return available != null ? Number(available) : 0;
   }
 
