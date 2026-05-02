@@ -4,12 +4,20 @@ import { desc, eq, lte, sql } from "drizzle-orm";
 import { durationMs, startTimer } from "@/lib/debug-timing";
 import { logger } from "@/lib/logger";
 
-export async function getTotalActiveProductsCount() {
+export async function getInventoryStats() {
   const result = await db
-    .select({ count: sql<number>`count(*)::int` })
+    .select({
+      totalProductsCount: sql<number>`count(*)::int`,
+      totalValue: sql<string>`coalesce(sum(${products.quantityOnHand}::numeric * ${products.purchasePrice}), 0)`,
+    })
     .from(products)
     .where(eq(products.isActive, true));
   return result[0];
+}
+
+export async function getTotalActiveProductsCount() {
+  const stats = await getInventoryStats();
+  return { count: stats.totalProductsCount };
 }
 
 export async function getLowStockProducts() {
@@ -29,13 +37,8 @@ export async function getLowStockProducts() {
 }
 
 export async function getTotalStockValue() {
-  const result = await db
-    .select({
-      totalValue: sql<string>`coalesce(sum(${products.quantityOnHand}::numeric * ${products.purchasePrice}), 0)`,
-    })
-    .from(products)
-    .where(eq(products.isActive, true));
-  return result[0];
+  const stats = await getInventoryStats();
+  return { totalValue: stats.totalValue };
 }
 
 export async function getInventoryTransactions(options: {
@@ -50,7 +53,7 @@ export async function getInventoryTransactions(options: {
     offset: safeOffset,
   });
 
-  const transactionsPromise = db
+  const transactions = await db
     .select({
       id: inventoryTransactions.id,
       productId: inventoryTransactions.productId,
@@ -77,7 +80,7 @@ export async function getInventoryTransactions(options: {
       return rows;
     });
 
-  const countPromise = db
+  const [{ count }] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(inventoryTransactions)
     .then((rows) => {
@@ -87,11 +90,6 @@ export async function getInventoryTransactions(options: {
       });
       return rows;
     });
-
-  const [transactions, [{ count }]] = await Promise.all([
-    transactionsPromise,
-    countPromise,
-  ]);
 
   logger.info("[inventory-data] getInventoryTransactions complete", {
     durationMs: durationMs(startedAt),

@@ -20,11 +20,10 @@ import { ReorderTrigger } from "@/components/organisms/agents/reorder-trigger";
 import { ReorderApprovalCard } from "@/components/organisms/agents/reorder-approval-card";
 import type { ReorderPlan } from "@/lib/agents/tools/inventory-tools";
 import { logger } from "@/lib/logger";
-import { 
-  getTotalActiveProductsCount, 
-  getLowStockProducts, 
-  getTotalStockValue, 
-  getInventoryTransactions 
+import {
+  getInventoryStats,
+  getLowStockProducts,
+  getInventoryTransactions,
 } from "@/data/inventory";
 import { getPendingAgentTasks } from "@/data/agents";
 import { getPendingStockSyncProductCount } from "@/data/products";
@@ -80,21 +79,25 @@ export default async function InventoryPage({
 
   logger.info("[inventory] pagination parsed", { requestId, page, limit, offset });
 
-  // Run independent queries in parallel; each step logs its own duration.
+  // Keep DB concurrency below the configured pool size. The page already shares
+  // the request with layout/sidebar queries, so load the core inventory data
+  // first, then fetch secondary badges/approval cards in a smaller second wave.
   const [
-    { count: totalProductsCount },
+    { totalProductsCount, totalValue },
     lowStockProducts,
-    { totalValue },
     { transactions, totalCount: transactionCount },
-    pendingReorderTasks,
-    pendingStockSyncCount,
   ] = await Promise.all([
-    timedInventoryStep(requestId, "total-active-products-count", getTotalActiveProductsCount),
+    timedInventoryStep(requestId, "inventory-stats", getInventoryStats),
     timedInventoryStep(requestId, "low-stock-products", getLowStockProducts),
-    timedInventoryStep(requestId, "total-stock-value", getTotalStockValue),
     timedInventoryStep(requestId, "inventory-transactions", () =>
       getInventoryTransactions({ limit, offset })
     ),
+  ]);
+
+  const [
+    pendingReorderTasks,
+    pendingStockSyncCount,
+  ] = await Promise.all([
     timedInventoryStep(requestId, "pending-reorder-tasks", () =>
       getPendingAgentTasks("reorder")
     ),
