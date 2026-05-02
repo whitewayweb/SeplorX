@@ -36,7 +36,7 @@ import type {
   DashboardMetric,
 } from "@/data/dashboard";
 import { getOrderStatusBadgeClass } from "@/lib/utils/order-status";
-import { cn, formatCurrency, formatPercent } from "@/lib/utils";
+import { cn, formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
 
 const METRIC_ICONS = [
   CircleDollarSign,
@@ -136,6 +136,11 @@ function ProfitAndLossCard({ dashboard }: { dashboard: CommerceDashboardData }) 
       tone: "text-foreground",
     },
     {
+      label: "Known-cost sales",
+      value: formatCurrency(dashboard.profitAndLoss.knownCostRevenue),
+      tone: "text-foreground",
+    },
+    {
       label: "Known cost of goods",
       value: `-${formatCurrency(dashboard.profitAndLoss.estimatedCost)}`,
       tone: "text-muted-foreground",
@@ -185,7 +190,7 @@ function ProfitAndLossCard({ dashboard }: { dashboard: CommerceDashboardData }) 
           <div className="col-span-2">
             <p className="text-muted-foreground">Included orders</p>
             <p className="mt-1 font-semibold">
-              {dashboard.profitAndLoss.orderCount.toLocaleString("en-IN")}
+              {formatNumber(dashboard.profitAndLoss.orderCount)}
             </p>
           </div>
         </div>
@@ -321,7 +326,7 @@ export function CommerceDashboard({ dashboard }: { dashboard: CommerceDashboardD
                       </div>
                       <p className="mt-2 text-sm leading-5 opacity-85">{action.description}</p>
                     </div>
-                    <span className="text-2xl font-bold">{action.count.toLocaleString("en-IN")}</span>
+                    <span className="text-2xl font-bold">{formatNumber(action.count)}</span>
                   </div>
                   <Button variant="link" className="mt-2 h-auto p-0 font-semibold" asChild>
                     <Link href={action.href}>
@@ -420,8 +425,8 @@ export function CommerceDashboard({ dashboard }: { dashboard: CommerceDashboardD
                     />
                   </div>
                   <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
-                    <span>{channel.totalListings.toLocaleString("en-IN")} listings</span>
-                    <span>{channel.pendingSyncCount.toLocaleString("en-IN")} sync reviews</span>
+                    <span>{formatNumber(channel.totalListings)} listings</span>
+                    <span>{formatNumber(channel.pendingSyncCount)} sync reviews</span>
                     <span>{channel.failedFeedCount + channel.failedSyncCount} failures</span>
                   </div>
                 </div>
