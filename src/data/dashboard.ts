@@ -857,6 +857,7 @@ export async function getCommerceDashboardData(
             inventoryRisk.lowStockCount + operational.unmappedListings, // Warning
             pendingStockSyncProducts + operational.returnsAwaitingAction, // Normal
           ],
+          colors: ["var(--destructive)", "var(--chart-3)", "var(--chart-1)"],
         },
       },
     ],
