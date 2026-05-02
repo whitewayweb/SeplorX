@@ -208,7 +208,7 @@ export function ProductDialog({ product }: ProductDialogProps) {
           <input type="hidden" name="isBundle" value={isBundle ? "true" : "false"} />
 
           <div className="flex items-center space-x-2 pb-2">
-            <Switch id="is-bundle" checked={isBundle} onCheckedChange={setIsBundle} disabled={isEdit} />
+            <Switch id="is-bundle" checked={isBundle} onCheckedChange={setIsBundle} />
             <Label htmlFor="is-bundle" className="font-semibold text-primary">Is Bundle / Combo</Label>
           </div>
 
@@ -247,6 +247,9 @@ export function ProductDialog({ product }: ProductDialogProps) {
                   </Button>
                 </div>
               ))}
+              {state?.fieldErrors?.components && (
+                <p className="text-xs font-medium text-destructive mt-1">{state.fieldErrors.components[0]}</p>
+              )}
             </div>
           )}
 

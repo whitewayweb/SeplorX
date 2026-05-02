@@ -484,8 +484,8 @@ async function getTrend(userId: number, window: DashboardWindow): Promise<Dashbo
   const [ordersRows, profitRows] = await Promise.all([
     db
       .select({
-        day: sql<string>`trim(to_char(${salesOrders.purchasedAt}, 'Dy'))`,
-        sortDay: sql<string>`to_char(${salesOrders.purchasedAt}, 'YYYY-MM-DD')`,
+        day: sql<string>`trim(to_char(date_trunc('day', ${salesOrders.purchasedAt}), 'Dy'))`,
+        sortDay: sql<string>`to_char(date_trunc('day', ${salesOrders.purchasedAt}), 'YYYY-MM-DD')`,
         revenue: sql<string>`coalesce(sum(${salesOrders.totalAmount}), 0)`,
         orders: sql<number>`count(*)::int`,
       })
@@ -498,11 +498,11 @@ async function getTrend(userId: number, window: DashboardWindow): Promise<Dashbo
           inArray(salesOrders.status, ACTIVE_REVENUE_STATUSES),
         ),
       )
-      .groupBy(sql`trim(to_char(${salesOrders.purchasedAt}, 'Dy'))`, sql`to_char(${salesOrders.purchasedAt}, 'YYYY-MM-DD')`),
+      .groupBy(sql`date_trunc('day', ${salesOrders.purchasedAt})`),
 
     db
       .select({
-        sortDay: sql<string>`to_char(${salesOrders.purchasedAt}, 'YYYY-MM-DD')`,
+        sortDay: sql<string>`to_char(date_trunc('day', ${salesOrders.purchasedAt}), 'YYYY-MM-DD')`,
         profit: sql<string>`coalesce(sum(
           (${salesOrderItems.price}::numeric - ${products.purchasePrice}) * ${salesOrderItems.quantity}
         ) filter (where ${products.purchasePrice} is not null), 0)`,
@@ -521,7 +521,7 @@ async function getTrend(userId: number, window: DashboardWindow): Promise<Dashbo
           inArray(salesOrders.status, ACTIVE_REVENUE_STATUSES),
         ),
       )
-      .groupBy(sql`to_char(${salesOrders.purchasedAt}, 'YYYY-MM-DD')`),
+      .groupBy(sql`date_trunc('day', ${salesOrders.purchasedAt})`),
   ]);
 
   const map = new Map<string, DashboardTrendPoint>();

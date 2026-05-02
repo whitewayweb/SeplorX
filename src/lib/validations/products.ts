@@ -15,6 +15,9 @@ export const CreateProductSchema = z.object({
     componentProductId: z.coerce.number().int().positive(),
     quantity: z.coerce.number().int().positive()
   })).optional().default([]),
+}).refine(data => !data.isBundle || data.components.length > 0, {
+  message: "A bundle must have at least one valid component",
+  path: ["components"]
 });
 
 export const UpdateProductSchema = CreateProductSchema.extend({
