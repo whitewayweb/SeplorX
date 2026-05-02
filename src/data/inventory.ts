@@ -13,11 +13,6 @@ export async function getInventoryStats() {
   return result[0];
 }
 
-export async function getTotalActiveProductsCount() {
-  const stats = await getInventoryStats();
-  return { count: stats.totalProductsCount };
-}
-
 export async function getLowStockProducts() {
   return await db
     .select({
@@ -32,11 +27,6 @@ export async function getLowStockProducts() {
     .from(products)
     .where(lte(products.quantityOnHand, products.reorderLevel))
     .orderBy(products.quantityOnHand);
-}
-
-export async function getTotalStockValue() {
-  const stats = await getInventoryStats();
-  return { totalValue: stats.totalValue };
 }
 
 export async function getInventoryTransactions(options: {

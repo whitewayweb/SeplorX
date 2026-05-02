@@ -24,11 +24,10 @@ const trustedOrigins = Array.from(
     new Set(
         [
             env.BETTER_AUTH_URL,
-            env.NEXT_PUBLIC_APP_URL,
-            env.VERCEL_URL,
-            env.VERCEL_BRANCH_URL,
             "http://localhost:3000",
             "http://127.0.0.1:3000",
+            process.env.VERCEL_URL,
+            process.env.VERCEL_BRANCH_URL,
         ]
             .map(toOrigin)
             .filter((origin): origin is string => Boolean(origin))

@@ -28,9 +28,6 @@ function getEnv() {
   // NEXT_PUBLIC_APP_URL: public base URL for building webhook callback URLs (optional)
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || betterAuthUrl;
 
-  const vercelUrl = process.env.VERCEL_URL;
-  const vercelBranchUrl = process.env.VERCEL_BRANCH_URL;
-
   const optionalEnvVars = {
     NODE_ENV: process.env.NODE_ENV || 'development',
   } as const;
@@ -69,8 +66,6 @@ function getEnv() {
     BETTER_AUTH_URL: betterAuthUrl,
     GOOGLE_GENERATIVE_AI_API_KEY: googleAiKey,
     NEXT_PUBLIC_APP_URL: appUrl,
-    VERCEL_URL: vercelUrl,
-    VERCEL_BRANCH_URL: vercelBranchUrl,
     AWS_REGION: awsRegion,
     AWS_ACCESS_KEY_ID: awsAccessKeyId,
     AWS_SECRET_ACCESS_KEY: awsSecretAccessKey,

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import * as React from "react";
 import { usePathname } from "next/navigation";
 import { signOut } from "@/lib/auth/client";
 import {
@@ -50,21 +51,12 @@ const aiNavItems = [
   { title: "Agents", href: "/ai/agents", icon: Bot },
 ];
 
-function SidebarLink({
-  href,
-  children,
-  className,
-}: {
-  href: string;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <Link href={href} prefetch={false} className={className}>
-      {children}
-    </Link>
-  );
-}
+const SidebarLink = React.forwardRef<
+  HTMLAnchorElement,
+  React.ComponentProps<typeof Link>
+>(function SidebarLink({ prefetch = false, ...props }, ref) {
+  return <Link ref={ref} prefetch={prefetch} {...props} />;
+});
 
 export function AppSidebarClient({
   userChannels = [],
