@@ -483,8 +483,8 @@ async function getInventoryRisk(window: DashboardWindow): Promise<DashboardInven
 async function getTrend(userId: number, window: DashboardWindow): Promise<DashboardTrendPoint[]> {
   const rows = await db
     .select({
-      day: sql<string>`to_char(${salesOrders.purchasedAt}, 'Dy')`,
-      sortDay: sql<string>`to_char(${salesOrders.purchasedAt}, 'YYYY-MM-DD')`,
+      day: sql<string>`to_char(date_trunc('day', ${salesOrders.purchasedAt}), 'Dy')`,
+      sortDay: sql<string>`to_char(date_trunc('day', ${salesOrders.purchasedAt}), 'YYYY-MM-DD')`,
       revenue: sql<string>`coalesce(sum(${salesOrders.totalAmount}), 0)`,
       orders: sql<number>`count(*)::int`,
     })

@@ -180,7 +180,7 @@ export async function processStockPushJobBatchService(
   return getStockPushJobStatus(userId, jobId);
 }
 
-export async function getStockPushJobStatus(userId: number, jobId: number): Promise<StockPushJobView> {
+async function getStockPushJobStatus(userId: number, jobId: number): Promise<StockPushJobView> {
   const [job] = await db
     .select({
       id: stockSyncJobs.id,
