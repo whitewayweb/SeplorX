@@ -194,7 +194,7 @@ export function ChannelSyncCard({
   function handlePushStock() {
     startPush(async () => {
       const result = await pushProductStockToChannels(productId);
-      if ("error" in result) {
+      if (!result.success) {
         toast.error(result.error ?? "Failed to push stock");
         return;
       }

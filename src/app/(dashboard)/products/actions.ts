@@ -99,8 +99,8 @@ export async function createProduct(_prevState: unknown, formData: FormData): Pr
       const [newProduct] = await tx.insert(products).values({
         ...rest,
         isBundle,
-        purchasePrice: purchasePrice != null && purchasePrice !== "" ? String(purchasePrice) : null,
-        sellingPrice: sellingPrice != null && sellingPrice !== "" ? String(sellingPrice) : null,
+        purchasePrice: purchasePrice != null ? String(purchasePrice) : null,
+        sellingPrice: sellingPrice != null ? String(sellingPrice) : null,
         quantityOnHand: isBundle ? 0 : 0, // Bundles always have 0 on-hand, they are virtual
       }).returning({ id: products.id });
 
@@ -224,8 +224,8 @@ export async function updateProduct(_prevState: unknown, formData: FormData): Pr
         .set({
           ...rest,
           isBundle,
-          purchasePrice: purchasePrice != null && purchasePrice !== "" ? String(purchasePrice) : null,
-          sellingPrice: sellingPrice != null && sellingPrice !== "" ? String(sellingPrice) : null,
+          purchasePrice: purchasePrice != null ? String(purchasePrice) : null,
+          sellingPrice: sellingPrice != null ? String(sellingPrice) : null,
           updatedAt: new Date(),
           // If it's a bundle, we ensure quantityOnHand is 0 (virtual)
           ...(isBundle ? { quantityOnHand: 0 } : {}),
@@ -497,12 +497,14 @@ export async function deleteChannelMapping(_prevState: unknown, formData: FormDa
   return { success: true };
 }
 
+import { type StockPushProductResult } from "@/lib/stock/channel-sync";
+
 /**
  * Push the current SeplorX stock quantity to all mapped WooCommerce products
  * for the given product. Returns per-channel results.
  * Called from the "Push to All Channels" button on the product detail page.
  */
-export async function pushProductStockToChannels(productId: number): Promise<{ success?: boolean; error?: string } & Record<string, unknown>> {
+export async function pushProductStockToChannels(productId: number): Promise<{ success: false; error: string } | ({ success: true } & StockPushProductResult)> {
   try {
     const userId = await getAuthenticatedUserId();
     const result = await pushProductStockToChannelsService(userId, productId);
@@ -511,7 +513,7 @@ export async function pushProductStockToChannels(productId: number): Promise<{ s
     return { success: true, ...result };
   } catch (err) {
     console.error("[pushProductStockToChannels]", { productId, error: String(err) });
-    return { error: String(err).replace(/^Error:\s*/, "") || "Failed to push stock to channels." };
+    return { success: false, error: String(err).replace(/^Error:\s*/, "") || "Failed to push stock to channels." };
   }
 }
 
@@ -686,7 +688,7 @@ export async function getSimpleProductsAction(): Promise<SimpleProduct[]> {
   }
 }
 
-export async function getProductWithComponentsAction(id: number): Promise<unknown | null> {
+export async function getProductWithComponentsAction(id: number): Promise<Awaited<ReturnType<typeof getProductById>> | null> {
   try {
     await getAuthenticatedUserId();
     return await getProductById(id, db);
