@@ -147,35 +147,35 @@ describe("Stock Service — processOrderStockChange", () => {
     expect(db.select).not.toHaveBeenCalled();
   });
 
-  // ─── Test 4: processing → shipped → no stock change ───────────────────────
-  it("should be a no-op for processing → shipped", async () => {
-    await processOrderStockChange(1, "shipped", "processing", 100);
-    expect(db.transaction).not.toHaveBeenCalled();
-  });
-
-  // ─── Test 5: shipped → delivered → commit stock ────────────────────────────
-  it("should commit stock when order transitions to delivered", async () => {
+  // ─── Test 4: processing → shipped → commit stock (reserved → committed) ──
+  it("should commit stock when order transitions to shipped", async () => {
     let txUpdateCount = 0;
     let txInsertCount = 0;
 
     (db.transaction as ReturnType<typeof vi.fn>).mockImplementation(async (cb) => {
       const tx = createTxMock();
-      // Select returns active reservations
-      tx._pushSelectResult([
-        { id: 1, productId: 10, quantity: 5, orderItemId: 1 },
-      ]);
-
+      tx._pushSelectResult([{ id: 1, productId: 10, quantity: 5, orderItemId: 1 }]);
       tx.update = vi.fn().mockImplementation(() => { txUpdateCount++; return createChainMock(); });
       tx.insert = vi.fn().mockImplementation(() => { txInsertCount++; return createChainMock(); });
       await cb(tx);
     });
 
+    await processOrderStockChange(1, "shipped", "processing", 100);
+    expect(db.transaction).toHaveBeenCalledOnce();
+    expect(txUpdateCount).toBe(3); // product + reservation + mapping
+    expect(txInsertCount).toBe(1); // inventory transaction
+  });
+
+  // ─── Test 5: shipped → delivered → safety check (committed → committed) ──
+  it("should perform a safety check transaction when transitioning from shipped to delivered", async () => {
+    (db.transaction as ReturnType<typeof vi.fn>).mockImplementation(async (cb) => {
+      const tx = createTxMock();
+      tx._pushSelectResult([]); // No active reservations found (already committed)
+      await cb(tx);
+    });
+
     await processOrderStockChange(1, "delivered", "shipped", 100);
     expect(db.transaction).toHaveBeenCalledOnce();
-    // 1 update product + 1 update reservation status + 1 channel mapping = 3 updates
-    expect(txUpdateCount).toBe(3);
-    // 1 insert inventory transaction
-    expect(txInsertCount).toBe(1);
   });
 
   // ─── Test 6: pending → cancelled → release reservation ────────────────────
@@ -296,6 +296,24 @@ describe("Stock Service — processOrderStockChange", () => {
     expect(db.transaction).toHaveBeenCalledOnce();
     // 1 update product + 1 update stockProcessed + 1 channel mapping = 3
     expect(txUpdateCount).toBe(3);
+    // 1 insert reservation + 1 insert txn = 2
+    expect(txInsertCount).toBe(2);
+  });
+
+  // ─── Test: New shipped order → commit directly ────────────────────────────
+  it("should commit stock directly for a new shipped order", async () => {
+    mockDbSelect([{ id: 1, productId: 10, quantity: 3 }]);
+
+    let txInsertCount = 0;
+    (db.transaction as ReturnType<typeof vi.fn>).mockImplementation(async (cb) => {
+      const tx = createTxMock();
+      tx.update = vi.fn().mockReturnValue(createChainMock());
+      tx.insert = vi.fn().mockImplementation(() => { txInsertCount++; return createChainMock([{ id: 1 }]); });
+      await cb(tx);
+    });
+
+    await processOrderStockChange(1, "shipped", null, 100);
+    expect(db.transaction).toHaveBeenCalledOnce();
     // 1 insert reservation + 1 insert txn = 2
     expect(txInsertCount).toBe(2);
   });
