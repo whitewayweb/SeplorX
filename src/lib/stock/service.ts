@@ -59,14 +59,13 @@ const RESERVED_STATUSES: SalesOrderStatus[] = [
   "processing",
   "on-hold",
   "packed",
-  "shipped",
 ];
 
 /** Statuses where the reservation should be released (order was cancelled/denied) */
 const RELEASE_STATUSES: SalesOrderStatus[] = ["cancelled", "refunded", "failed"];
 
-/** Status where stock is committed (delivered to customer) */
-const COMMIT_STATUS: SalesOrderStatus = "delivered";
+/** Statuses where stock is committed (delivered to customer or shipped) */
+const COMMITTED_STATUSES: SalesOrderStatus[] = ["shipped", "delivered"];
 
 /** Status where the customer returned the order (admin action needed) */
 const RETURN_STATUS: SalesOrderStatus = "returned";
@@ -96,7 +95,7 @@ export async function processOrderStockChange(
   // Determine the action
   const wasReserved = oldStatus && RESERVED_STATUSES.includes(oldStatus);
   const isNowReserved = RESERVED_STATUSES.includes(newStatus);
-  const isNowCommitted = newStatus === COMMIT_STATUS;
+  const isNowCommitted = COMMITTED_STATUSES.includes(newStatus);
   const isNowReleased = RELEASE_STATUSES.includes(newStatus);
   const isNowReturned = newStatus === RETURN_STATUS;
 
@@ -106,20 +105,21 @@ export async function processOrderStockChange(
     return;
   }
 
-  // New order arriving already delivered → commit directly (no intermediate reservation)
-  if (!oldStatus && isNowCommitted) {
-    await commitStockDirect(orderId, userId);
+  // Transition: ANY → committed = commit (deduct from on-hand, clear reservation)
+  // This handles both normal transitions and migration of legacy orders
+  if (isNowCommitted) {
+    if (oldStatus) {
+      // For existing orders, commit any active reservations
+      await commitStock(orderId, userId);
+    } else {
+      // For new orders arriving already committed, use the direct path
+      await commitStockDirect(orderId, userId);
+    }
     return;
   }
 
   // New order arriving already cancelled/refunded → no stock action
   if (!oldStatus && isNowReleased) {
-    return;
-  }
-
-  // Transition: reserved → delivered = commit (deduct from on-hand, clear reservation)
-  if (wasReserved && isNowCommitted) {
-    await commitStock(orderId, userId);
     return;
   }
 
@@ -129,8 +129,8 @@ export async function processOrderStockChange(
     return;
   }
 
-  // Transition: delivered → returned = mark for admin inspection
-  if (oldStatus === COMMIT_STATUS && isNowReturned) {
+  // Transition: committed → returned = mark for admin inspection
+  if (oldStatus && COMMITTED_STATUSES.includes(oldStatus) && isNowReturned) {
     await markReturned(orderId);
     return;
   }
@@ -256,7 +256,8 @@ async function adjustReservedStock(
  * Commit stock for a delivered order: deduct from quantityOnHand + release reservation.
  * Called when an order transitions from reserved → delivered.
  */
-async function commitStock(orderId: number, userId: number): Promise<void> {
+/** Commit active reservations for an order (moving stock from Reserved to Deducted) */
+export async function commitStock(orderId: number, userId: number): Promise<void> {
   await db.transaction(async (tx) => {
     // Get active reservations for this order
     const reservations = await tx
