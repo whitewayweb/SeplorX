@@ -82,6 +82,36 @@ describe("CreateProductSchema", () => {
     const result = CreateProductSchema.safeParse({ ...validBase, sku: "" });
     expect(result.success).toBe(true);
   });
+
+  describe("Bundle Validation", () => {
+    it("fails when isBundle is true but components list is empty", () => {
+      const result = CreateProductSchema.safeParse({
+        ...validBase,
+        isBundle: true,
+        components: []
+      });
+      expect(result.success).toBe(false);
+      expect(result.error?.issues[0].message).toMatch(/at least one valid component/i);
+    });
+
+    it("passes when isBundle is true and has valid components", () => {
+      const result = CreateProductSchema.safeParse({
+        ...validBase,
+        isBundle: true,
+        components: [{ componentProductId: 10, quantity: 2 }]
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it("passes when isBundle is false even if components are empty (default)", () => {
+      const result = CreateProductSchema.safeParse({
+        ...validBase,
+        isBundle: false,
+        components: []
+      });
+      expect(result.success).toBe(true);
+    });
+  });
 });
 
 // ─── UpdateProductSchema ──────────────────────────────────────────────────────

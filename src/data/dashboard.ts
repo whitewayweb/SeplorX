@@ -481,72 +481,34 @@ async function getInventoryRisk(window: DashboardWindow): Promise<DashboardInven
 }
 
 async function getTrend(userId: number, window: DashboardWindow): Promise<DashboardTrendPoint[]> {
-  const [ordersRows, profitRows] = await Promise.all([
-    db
-      .select({
-        day: sql<string>`trim(to_char(${salesOrders.purchasedAt}, 'Dy'))`,
-        sortDay: sql<string>`to_char(${salesOrders.purchasedAt}, 'YYYY-MM-DD')`,
-        revenue: sql<string>`coalesce(sum(${salesOrders.totalAmount}), 0)`,
-        orders: sql<number>`count(*)::int`,
-      })
-      .from(salesOrders)
-      .innerJoin(channels, eq(salesOrders.channelId, channels.id))
-      .where(
-        and(
-          eq(channels.userId, userId),
-          sql`${salesOrders.purchasedAt} >= ${window.periodStart}`,
-          inArray(salesOrders.status, ACTIVE_REVENUE_STATUSES),
-        ),
-      )
-      .groupBy(sql`trim(to_char(${salesOrders.purchasedAt}, 'Dy'))`, sql`to_char(${salesOrders.purchasedAt}, 'YYYY-MM-DD')`),
+  const rows = await db
+    .select({
+      day: sql<string>`to_char(date_trunc('day', ${salesOrders.purchasedAt}), 'Dy')`,
+      sortDay: sql<string>`to_char(date_trunc('day', ${salesOrders.purchasedAt}), 'YYYY-MM-DD')`,
+      revenue: sql<string>`coalesce(sum(${salesOrders.totalAmount}), 0)`,
+      orders: sql<number>`count(*)::int`,
+    })
+    .from(salesOrders)
+    .innerJoin(channels, eq(salesOrders.channelId, channels.id))
+    .where(
+      and(
+        eq(channels.userId, userId),
+        sql`${salesOrders.purchasedAt} >= ${window.periodStart}`,
+        inArray(salesOrders.status, ACTIVE_REVENUE_STATUSES),
+      ),
+    )
+    .groupBy(sql`date_trunc('day', ${salesOrders.purchasedAt})`)
+    .orderBy(sql`date_trunc('day', ${salesOrders.purchasedAt})`);
 
-    db
-      .select({
-        sortDay: sql<string>`to_char(${salesOrders.purchasedAt}, 'YYYY-MM-DD')`,
-        profit: sql<string>`coalesce(sum(
-          (${salesOrderItems.price}::numeric - ${products.purchasePrice}) * ${salesOrderItems.quantity}
-        ) filter (where ${products.purchasePrice} is not null), 0)`,
-        missingCostRevenue: sql<string>`coalesce(sum(
-          ${salesOrderItems.price}::numeric * ${salesOrderItems.quantity}
-        ) filter (where ${products.purchasePrice} is null), 0)`,
-      })
-      .from(salesOrderItems)
-      .innerJoin(salesOrders, eq(salesOrderItems.orderId, salesOrders.id))
-      .innerJoin(channels, eq(salesOrders.channelId, channels.id))
-      .leftJoin(products, eq(salesOrderItems.productId, products.id))
-      .where(
-        and(
-          eq(channels.userId, userId),
-          sql`${salesOrders.purchasedAt} >= ${window.periodStart}`,
-          inArray(salesOrders.status, ACTIVE_REVENUE_STATUSES),
-        ),
-      )
-      .groupBy(sql`to_char(${salesOrders.purchasedAt}, 'YYYY-MM-DD')`),
-  ]);
-
-  const map = new Map<string, DashboardTrendPoint>();
-
-  for (const row of ordersRows) {
-    map.set(row.sortDay, {
-      id: row.sortDay,
-      label: `${row.day} ${row.sortDay.slice(5).replace("-", "/")}`,
-      date: row.sortDay,
-      revenue: toNumber(row.revenue),
-      profit: 0,
-      missingCostRevenue: 0,
-      orders: toNumber(row.orders),
-    });
-  }
-
-  for (const row of profitRows) {
-    const existing = map.get(row.sortDay);
-    if (existing) {
-      existing.profit = toNumber(row.profit);
-      existing.missingCostRevenue = toNumber(row.missingCostRevenue);
-    }
-  }
-
-  return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+  return rows.map((row) => ({
+    id: row.sortDay,
+    label: `${row.day} ${row.sortDay.slice(5).replace("-", "/")}`,
+    date: row.sortDay,
+    revenue: toNumber(row.revenue),
+    profit: 0,
+    missingCostRevenue: 0,
+    orders: toNumber(row.orders),
+  }));
 }
 
 async function getOrderWork(userId: number): Promise<DashboardOrderWorkItem[]> {

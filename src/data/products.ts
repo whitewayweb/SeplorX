@@ -8,6 +8,7 @@ import {
   companies,
   channels,
   channelProducts,
+  productBundles,
 } from "@/db/schema";
 import { and, desc, eq, inArray, ne, sql, count } from "drizzle-orm";
 import { channelRegistry } from "@/lib/channels/registry";
@@ -43,12 +44,30 @@ export async function getProductById(productId: number, tx: QueryClient = db) {
       description: products.description,
       attributes: products.attributes,
       createdAt: products.createdAt,
+      isBundle: products.isBundle,
     })
     .from(products)
     .where(eq(products.id, productId))
     .limit(1);
 
-  return result[0];
+  if (!result[0]) return result[0];
+
+  const product = result[0];
+
+  if (product.isBundle) {
+    const components = await tx
+      .select({
+        componentProductId: productBundles.componentProductId,
+        quantity: productBundles.quantity,
+      })
+      .from(productBundles)
+      .where(eq(productBundles.bundleProductId, productId))
+      .orderBy(productBundles.sortOrder);
+      
+    return { ...product, components };
+  }
+
+  return { ...product, components: [] };
 }
 
 export async function getProductMappings(productId: number, tx: QueryClient = db) {
@@ -135,6 +154,7 @@ interface PendingStockSyncProductSummaryRow {
   lastTransactionAt: Date | null;
   lastTransactionNotes: string | null;
   totalCount: number;
+  availableQuantity: number;
 }
 
 export interface PendingStockSyncProductSummaryResult {
@@ -180,13 +200,32 @@ export async function getPendingStockSyncProductSummaries(
   const filterSql = filters.length > 0 ? sql`WHERE ${sql.join(filters, sql` AND `)}` : sql``;
 
   const rows = await tx.execute(sql`
-    WITH summaries AS (
+    WITH bundle_stocks AS (
+      SELECT
+        pb.bundle_product_id AS "productId",
+        MIN(FLOOR(GREATEST(0, p.quantity_on_hand - p.reserved_quantity) / pb.quantity)) AS "bundleAvailable"
+      FROM product_bundles pb
+      JOIN products p ON p.id = pb.component_product_id
+      GROUP BY pb.bundle_product_id
+    ),
+    product_stocks AS (
+      SELECT
+        p.id,
+        CASE
+          WHEN p.is_bundle THEN COALESCE(bs."bundleAvailable", 0)
+          ELSE GREATEST(0, p.quantity_on_hand - p.reserved_quantity)
+        END AS "availableQuantity"
+      FROM products p
+      LEFT JOIN bundle_stocks bs ON bs."productId" = p.id
+    ),
+    summaries AS (
       SELECT
         ${products.id} AS "productId",
         ${products.name} AS "productName",
         ${products.sku} AS "sku",
         ${products.quantityOnHand} AS "quantityOnHand",
         ${products.reservedQuantity} AS "reservedQuantity",
+        ps."availableQuantity" AS "availableQuantity",
         ${products.reorderLevel} AS "reorderLevel",
         ${products.updatedAt} AS "productUpdatedAt",
         COUNT(${channelProductMappings.id})::int AS "mappingCount",
@@ -201,7 +240,7 @@ export async function getPendingStockSyncProductSummaries(
         )::int AS "unknownStockCount",
         COUNT(${channelProductMappings.id}) FILTER (
           WHERE ${channelProducts.stockQuantity} IS NOT NULL
-          AND ${channelProducts.stockQuantity} != GREATEST(0, ${products.quantityOnHand} - ${products.reservedQuantity})
+          AND ${channelProducts.stockQuantity} != ps."availableQuantity"
         )::int AS "mismatchCount",
         MIN(${channelProducts.stockQuantity}) AS "channelStockMin",
         MAX(${channelProducts.stockQuantity}) AS "channelStockMax",
@@ -222,6 +261,7 @@ export async function getPendingStockSyncProductSummaries(
         ) AS "lastTransactionNotes"
       FROM ${channelProductMappings}
       INNER JOIN ${products} ON ${channelProductMappings.productId} = ${products.id}
+      INNER JOIN product_stocks ps ON ps.id = ${products.id}
       INNER JOIN ${channels} ON ${channelProductMappings.channelId} = ${channels.id}
       LEFT JOIN ${channelProducts}
         ON ${channelProductMappings.channelId} = ${channelProducts.channelId}
@@ -236,6 +276,7 @@ export async function getPendingStockSyncProductSummaries(
         ${products.sku},
         ${products.quantityOnHand},
         ${products.reservedQuantity},
+        ps."availableQuantity",
         ${products.reorderLevel},
         ${products.updatedAt}
     ),
@@ -258,7 +299,7 @@ export async function getPendingStockSyncProductSummaries(
       sku: row.sku,
       quantityOnHand: row.quantityOnHand,
       reservedQuantity: row.reservedQuantity,
-      availableQuantity: Math.max(0, row.quantityOnHand - row.reservedQuantity),
+      availableQuantity: row.availableQuantity,
       reorderLevel: row.reorderLevel,
       lastTransactionAt: row.lastTransactionAt,
       lastTransactionNotes: row.lastTransactionNotes,
@@ -444,7 +485,7 @@ export async function getProductPurchaseHistory(productId: number, tx: QueryClie
 }
 
 export async function getProductsList(tx: QueryClient = db) {
-  return await tx
+  const allProducts = await tx
     .select({
       id: products.id,
       name: products.name,
@@ -457,11 +498,55 @@ export async function getProductsList(tx: QueryClient = db) {
       quantityOnHand: products.quantityOnHand,
       reservedQuantity: products.reservedQuantity,
       isActive: products.isActive,
+      isBundle: products.isBundle,
       description: products.description,
       attributes: products.attributes,
     })
     .from(products)
     .orderBy(desc(products.createdAt));
+
+  // For bundles, calculate available quantity dynamically based on components
+  const bundleProductsInList = allProducts.filter(p => p.isBundle);
+  if (bundleProductsInList.length > 0) {
+    const bundleIds = bundleProductsInList.map(b => b.id);
+    const allComponents = await tx
+      .select({
+        bundleId: productBundles.bundleProductId,
+        componentId: productBundles.componentProductId,
+        bundleQty: productBundles.quantity,
+        compQtyOnHand: products.quantityOnHand,
+        compReservedQty: products.reservedQuantity,
+      })
+      .from(productBundles)
+      .innerJoin(products, eq(productBundles.componentProductId, products.id))
+      .where(inArray(productBundles.bundleProductId, bundleIds));
+
+    const bundleMap = new Map<number, { bundleQty: number; available: number }[]>();
+    allComponents.forEach(c => {
+      const existing = bundleMap.get(c.bundleId) || [];
+      const available = Math.max(0, (c.compQtyOnHand ?? 0) - (c.compReservedQty ?? 0));
+      bundleMap.set(c.bundleId, [...existing, { bundleQty: c.bundleQty, available }]);
+    });
+
+    return allProducts.map(p => {
+      if (!p.isBundle) return p;
+      const comps = bundleMap.get(p.id) || [];
+      if (comps.length === 0) return { ...p, quantityOnHand: 0 };
+
+      let minAvailable = Infinity;
+      comps.forEach(c => {
+        const bundlePossible = Math.floor(c.available / c.bundleQty);
+        if (bundlePossible < minAvailable) minAvailable = bundlePossible;
+      });
+
+      return {
+        ...p,
+        quantityOnHand: minAvailable === Infinity ? 0 : minAvailable,
+      };
+    });
+  }
+
+  return allProducts;
 }
 
 export async function getActiveProductsForDropdown(tx: QueryClient = db) {
@@ -478,19 +563,48 @@ export async function getActiveProductsForDropdown(tx: QueryClient = db) {
     .orderBy(products.name);
 }
 
-export async function getProductQuantity(productId: number, tx: QueryClient = db) {
+export async function getProductQuantity(
+  productId: number,
+  tx: QueryClient = db,
+  visited = new Set<number>()
+): Promise<number | null> {
+  if (visited.has(productId)) {
+    console.warn(`[getProductQuantity] Cycle detected for product ${productId}. Returning 0.`);
+    return 0;
+  }
+  visited.add(productId);
+
   const productRows = await tx
     .select({
       quantityOnHand: products.quantityOnHand,
       reservedQuantity: products.reservedQuantity,
+      isBundle: products.isBundle,
     })
     .from(products)
     .where(eq(products.id, productId))
     .limit(1);
 
   if (productRows.length === 0) return null;
+
+  const product = productRows[0];
+
+  if (product.isBundle) {
+    // Optimization: Compute bundle availability using a single query if we assume no nested bundles.
+    // If nested bundles were allowed, we would need a recursive CTE or recursive calls with visited set.
+    // Given we enforce no nested bundles in actions, a single join is efficient.
+    const results = await tx.execute(sql`
+      SELECT MIN(FLOOR(GREATEST(0, p.quantity_on_hand - p.reserved_quantity) / NULLIF(pb.quantity, 0))) AS "available"
+      FROM ${productBundles} pb
+      JOIN ${products} p ON p.id = pb.component_product_id
+      WHERE pb.bundle_product_id = ${productId}
+    `);
+
+    const available = (results[0] as Record<string, unknown>)?.available;
+    return available != null ? Number(available) : 0;
+  }
+
   // Push availableQuantity to channels (on-hand minus reserved)
-  return Math.max(0, productRows[0].quantityOnHand - productRows[0].reservedQuantity);
+  return Math.max(0, product.quantityOnHand - product.reservedQuantity);
 }
 
 export async function getChannelMappingsForStockPush(

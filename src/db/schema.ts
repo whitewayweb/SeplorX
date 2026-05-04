@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   serial,
@@ -218,11 +219,30 @@ export const products = pgTable("products", {
   quantityOnHand: integer("quantity_on_hand").default(0).notNull(),
   reservedQuantity: integer("reserved_quantity").default(0).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
+  isBundle: boolean("is_bundle").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("products_attributes_idx").using("gin", table.attributes),
   index("products_is_active_idx").on(table.isActive),
+  index("products_is_bundle_idx").on(table.isBundle),
+]).enableRLS();
+
+// ─── Product Bundles ─────────────────────────────────────────────────────────
+
+export const productBundles = pgTable("product_bundles", {
+  id: serial("id").primaryKey(),
+  bundleProductId: integer("bundle_product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  componentProductId: integer("component_product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  quantity: integer("quantity").notNull(),
+  sortOrder: integer("sort_order").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("product_bundles_unique_link").on(table.bundleProductId, table.componentProductId),
+  index("product_bundles_bundle_idx").on(table.bundleProductId),
+  index("product_bundles_component_idx").on(table.componentProductId),
+  sql`CONSTRAINT "product_bundles_not_self_referential" CHECK ("bundle_product_id" <> "component_product_id")`,
+  sql`CONSTRAINT "product_bundles_quantity_positive" CHECK ("quantity" > 0)`,
 ]).enableRLS();
 
 // ─── Purchase Invoices ───────────────────────────────────────────────────────

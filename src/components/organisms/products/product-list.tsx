@@ -18,7 +18,8 @@ import { Label } from "@/components/ui/label";
 import { ProductDialog } from "@/components/organisms/products/product-dialog";
 import { StockAdjustmentDialog } from "@/components/organisms/products/stock-adjustment-dialog";
 import { toggleProductActive, deleteProduct } from "@/app/(dashboard)/products/actions";
-import { Power, Trash2 } from "lucide-react";
+import { Power, Trash2, Package, Layers } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type Product = {
   id: number;
@@ -31,6 +32,7 @@ type Product = {
   reorderLevel: number;
   quantityOnHand: number;
   isActive: boolean;
+  isBundle: boolean;
   isDeleting?: boolean;
 };
 
@@ -164,6 +166,9 @@ export function ProductList({ products, pendingMappingIds = [] }: ProductListPro
     filteredProducts = filteredProducts.filter(p => pendingMappingIds.includes(p.id));
   }
 
+  const simpleProducts = filteredProducts.filter(p => !p.isBundle);
+  const bundleProducts = filteredProducts.filter(p => p.isBundle);
+
   if (optimisticProducts.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -204,75 +209,122 @@ export function ProductList({ products, pendingMappingIds = [] }: ProductListPro
         )}
       </div>
 
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>SKU</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead>Unit</TableHead>
-              <TableHead className="text-right">Purchase</TableHead>
-              <TableHead className="text-right">Selling</TableHead>
-              <TableHead className="text-right">Stock</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredProducts.map((product) => (
-              <TableRow key={product.id} className={product.isDeleting ? "opacity-30 pointer-events-none" : !product.isActive ? "opacity-60 bg-muted/30" : ""}>
-                <TableCell className="font-medium">
-                  <div className="flex flex-col gap-1">
-                    <Link href={`/products/${product.id}`} className="hover:underline text-primary">
-                      {product.name}
-                    </Link>
-                    {pendingMappingIds.includes(product.id) && (
-                      <span className="text-xs text-amber-600 font-medium flex items-center gap-1">
-                        <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span> AI Mapping Review
-                      </span>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell className="font-mono text-sm">{product.sku ?? "—"}</TableCell>
-                <TableCell>{product.category ?? "—"}</TableCell>
-                <TableCell>{product.unit}</TableCell>
-                <TableCell className="text-right">{formatPrice(product.purchasePrice)}</TableCell>
-                <TableCell className="text-right">{formatPrice(product.sellingPrice)}</TableCell>
-                <TableCell className="text-right">
-                  <StockBadge quantity={product.quantityOnHand} reorderLevel={product.reorderLevel} />
-                </TableCell>
-                <TableCell>
-                  <Badge variant={product.isActive ? "default" : "secondary"} className="transition-colors">
-                    {product.isActive ? "Active" : "Inactive"}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center justify-end gap-1">
-                    <StockAdjustmentDialog productId={product.id} productName={product.name} />
-                    <ProductDialog product={product} />
-                    <ToggleButton
-                      product={product}
-                      onToggleOptimistic={() => setOptimisticProducts({ action: "toggle", id: product.id })}
-                    />
-                    <DeleteButton
-                      product={product}
-                      onDeleteOptimistic={() => setOptimisticProducts({ action: "delete", id: product.id })}
-                    />
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-            {filteredProducts.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
-                  No active products found matching your description.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+      <Tabs defaultValue="simple" className="w-full">
+        <TabsList className="mb-4">
+          <TabsTrigger value="simple" className="flex items-center gap-2">
+            <Package className="h-4 w-4" />
+            Simple Products ({simpleProducts.length})
+          </TabsTrigger>
+          <TabsTrigger value="bundles" className="flex items-center gap-2">
+            <Layers className="h-4 w-4" />
+            Bundles & Combos ({bundleProducts.length})
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="simple" className="mt-0">
+          <div className="rounded-md border">
+            <ProductTable 
+              products={simpleProducts} 
+              pendingMappingIds={pendingMappingIds} 
+              setOptimisticProducts={setOptimisticProducts} 
+            />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="bundles" className="mt-0">
+          <div className="rounded-md border">
+            <ProductTable 
+              products={bundleProducts} 
+              pendingMappingIds={pendingMappingIds} 
+              setOptimisticProducts={setOptimisticProducts} 
+              isBundleTab
+            />
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
+  );
+}
+
+function ProductTable({ 
+  products, 
+  pendingMappingIds, 
+  setOptimisticProducts,
+  isBundleTab = false
+}: { 
+  products: Product[], 
+  pendingMappingIds: number[], 
+  setOptimisticProducts: (action: { action: "toggle" | "delete"; id: number }) => void,
+  isBundleTab?: boolean
+}) {
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Name</TableHead>
+          <TableHead>SKU</TableHead>
+          <TableHead>Category</TableHead>
+          <TableHead>Unit</TableHead>
+          {!isBundleTab && <TableHead className="text-right">Purchase</TableHead>}
+          <TableHead className="text-right">Selling</TableHead>
+          <TableHead className="text-right">Stock</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead className="text-right">Actions</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {products.map((product) => (
+          <TableRow key={product.id} className={product.isDeleting ? "opacity-30 pointer-events-none" : !product.isActive ? "opacity-60 bg-muted/30" : ""}>
+            <TableCell className="font-medium">
+              <div className="flex flex-col gap-1">
+                <Link href={`/products/${product.id}`} className="hover:underline text-primary flex items-center gap-2">
+                  {isBundleTab && <Badge variant="outline" className="text-[10px] uppercase">Bundle</Badge>}
+                  {product.name}
+                </Link>
+                {pendingMappingIds.includes(product.id) && (
+                  <span className="text-xs text-amber-600 font-medium flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span> AI Mapping Review
+                  </span>
+                )}
+              </div>
+            </TableCell>
+            <TableCell className="font-mono text-sm">{product.sku ?? "—"}</TableCell>
+            <TableCell>{product.category ?? "—"}</TableCell>
+            <TableCell>{product.unit}</TableCell>
+            {!isBundleTab && <TableCell className="text-right">{formatPrice(product.purchasePrice)}</TableCell>}
+            <TableCell className="text-right">{formatPrice(product.sellingPrice)}</TableCell>
+            <TableCell className="text-right">
+              <StockBadge quantity={product.quantityOnHand} reorderLevel={product.reorderLevel} />
+            </TableCell>
+            <TableCell>
+              <Badge variant={product.isActive ? "default" : "secondary"} className="transition-colors">
+                {product.isActive ? "Active" : "Inactive"}
+              </Badge>
+            </TableCell>
+            <TableCell>
+              <div className="flex items-center justify-end gap-1">
+                {!isBundleTab && <StockAdjustmentDialog productId={product.id} productName={product.name} />}
+                <ProductDialog product={product} />
+                <ToggleButton
+                  product={product}
+                  onToggleOptimistic={() => setOptimisticProducts({ action: "toggle", id: product.id })}
+                />
+                <DeleteButton
+                  product={product}
+                  onDeleteOptimistic={() => setOptimisticProducts({ action: "delete", id: product.id })}
+                />
+              </div>
+            </TableCell>
+          </TableRow>
+        ))}
+        {products.length === 0 && (
+          <TableRow>
+            <TableCell colSpan={isBundleTab ? 7 : 9} className="h-24 text-center text-muted-foreground">
+              No products found.
+            </TableCell>
+          </TableRow>
+        )}
+      </TableBody>
+    </Table>
   );
 }

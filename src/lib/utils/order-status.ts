@@ -1,4 +1,4 @@
-export const ORDER_STATUS_BADGE_CLASS: Record<string, string> = {
+const ORDER_STATUS_BADGE_CLASS: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-800 hover:bg-yellow-100",
   processing: "bg-blue-100 text-blue-800 hover:bg-blue-100",
   "on-hold": "bg-purple-100 text-purple-800 hover:bg-purple-100",
