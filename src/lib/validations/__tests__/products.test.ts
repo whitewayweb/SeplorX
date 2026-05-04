@@ -78,6 +78,25 @@ describe("CreateProductSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  describe("Price Fields Validation", () => {
+    it("handles empty string for purchasePrice by treating it as undefined (valid optional)", () => {
+      const result = CreateProductSchema.safeParse({ ...validBase, purchasePrice: "" });
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data.purchasePrice).toBeUndefined();
+    });
+
+    it("handles null for sellingPrice by treating it as undefined (valid optional)", () => {
+      const result = CreateProductSchema.safeParse({ ...validBase, sellingPrice: null });
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data.sellingPrice).toBeUndefined();
+    });
+
+    it("fails when purchasePrice is explicitly invalid string", () => {
+      const result = CreateProductSchema.safeParse({ ...validBase, purchasePrice: "abc" });
+      expect(result.success).toBe(false);
+    });
+  });
+
   it("allows empty-string sku (treated as absent)", () => {
     const result = CreateProductSchema.safeParse({ ...validBase, sku: "" });
     expect(result.success).toBe(true);
@@ -110,6 +129,19 @@ describe("CreateProductSchema", () => {
         components: []
       });
       expect(result.success).toBe(true);
+    });
+
+    it("fails when isBundle is true and has duplicate component IDs", () => {
+      const result = CreateProductSchema.safeParse({
+        ...validBase,
+        isBundle: true,
+        components: [
+          { componentProductId: 10, quantity: 2 },
+          { componentProductId: 10, quantity: 5 } // duplicate ID
+        ]
+      });
+      expect(result.success).toBe(false);
+      expect(result.error?.issues[0].message).toMatch(/duplicate components/i);
     });
   });
 });
@@ -144,6 +176,18 @@ describe("UpdateProductSchema", () => {
     const result = UpdateProductSchema.safeParse({ ...validUpdate, id: "42" });
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.id).toBe(42);
+  });
+
+  describe("Bundle Validation (Update)", () => {
+    it("fails when updating a bundle to include itself as a component", () => {
+      const result = UpdateProductSchema.safeParse({
+        ...validUpdate,
+        isBundle: true,
+        components: [{ componentProductId: validUpdate.id, quantity: 1 }]
+      });
+      expect(result.success).toBe(false);
+      expect(result.error?.issues[0].message).toMatch(/cannot contain itself/i);
+    });
   });
 });
 
