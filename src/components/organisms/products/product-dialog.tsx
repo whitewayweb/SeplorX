@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useState, startTransition } from "react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -56,10 +56,10 @@ export function ProductDialog({ product }: ProductDialogProps) {
   const [formKey, setFormKey] = useState(0);
 
   // ── Attributes state ────────────────────────────────────────────────────────
-  const [attrs, setAttrs] = useState<Array<{ key: string; value: string }>>(() => {
+  const [attrs, setAttrs] = useState<Array<{ id: string; key: string; value: string }>>(() => {
     const initial = isEdit && product.attributes ? product.attributes : {};
     const entries = Object.entries(initial);
-    return entries.length > 0 ? entries.map(([k, v]) => ({ key: k, value: v })) : [];
+    return entries.length > 0 ? entries.map(([k, v]) => ({ id: crypto.randomUUID(), key: k, value: v })) : [];
   });
 
   const [existingKeys, setExistingKeys] = useState<{key: string; count: number}[]>([]);
@@ -67,7 +67,7 @@ export function ProductDialog({ product }: ProductDialogProps) {
   
   // ── Bundle state ────────────────────────────────────────────────────────────
   const [isBundle, setIsBundle] = useState(false);
-  const [components, setComponents] = useState<Array<{ componentProductId: number, quantity: number }>>([]);
+  const [components, setComponents] = useState<Array<{ id: string; componentProductId: number; quantity: number }>>([]);
   const [simpleProducts, setSimpleProducts] = useState<Array<{ id: number, name: string, sku: string | null }>>([]);
   const [isLoadingComponents, setIsLoadingComponents] = useState(false);
 
@@ -82,7 +82,7 @@ export function ProductDialog({ product }: ProductDialogProps) {
           if (fullProduct) {
             setIsBundle(fullProduct.isBundle || false);
             if (fullProduct.components) {
-              setComponents(fullProduct.components);
+              setComponents(fullProduct.components.map(c => ({ ...c, id: crypto.randomUUID() })));
             }
           }
         }).catch(console.error).finally(() => setIsLoadingComponents(false));
@@ -115,15 +115,15 @@ export function ProductDialog({ product }: ProductDialogProps) {
   }, [open]);
 
   function addAttr() {
-    setAttrs((prev) => [...prev, { key: "", value: "" }]);
+    setAttrs((prev) => [...prev, { id: crypto.randomUUID(), key: "", value: "" }]);
   }
 
-  function removeAttr(idx: number) {
-    setAttrs((prev) => prev.filter((_, i) => i !== idx));
+  function removeAttr(id: string) {
+    setAttrs((prev) => prev.filter((a) => a.id !== id));
   }
 
-  function updateAttr(idx: number, field: "key" | "value", val: string) {
-    setAttrs((prev) => prev.map((a, i) => (i === idx ? { ...a, [field]: val } : a)));
+  function updateAttr(id: string, field: "key" | "value", val: string) {
+    setAttrs((prev) => prev.map((a) => (a.id === id ? { ...a, [field]: val } : a)));
   }
 
   // Serialize attributes as JSON for the hidden input
@@ -141,15 +141,15 @@ export function ProductDialog({ product }: ProductDialogProps) {
   }
 
   function addComponent() {
-    setComponents((prev) => [...prev, { componentProductId: 0, quantity: 1 }]);
+    setComponents((prev) => [...prev, { id: crypto.randomUUID(), componentProductId: 0, quantity: 1 }]);
   }
 
-  function removeComponent(idx: number) {
-    setComponents((prev) => prev.filter((_, i) => i !== idx));
+  function removeComponent(id: string) {
+    setComponents((prev) => prev.filter((c) => c.id !== id));
   }
 
-  function updateComponent(idx: number, field: "componentProductId" | "quantity", val: number) {
-    setComponents((prev) => prev.map((c, i) => (i === idx ? { ...c, [field]: val } : c)));
+  function updateComponent(id: string, field: "componentProductId" | "quantity", val: number) {
+    setComponents((prev) => prev.map((c) => (c.id === id ? { ...c, [field]: val } : c)));
   }
 
   const [state, action, pending] = useActionState(
@@ -163,7 +163,8 @@ export function ProductDialog({ product }: ProductDialogProps) {
         setOpen(false);
         setFormKey((k) => k + 1);
       } else if (result?.error) {
-        toast.error(result.error);
+        const fieldMsgs = result.fieldErrors ? Object.entries(result.fieldErrors).map(([k, v]) => `${k}: ${v}`).join(", ") : "";
+        toast.error(fieldMsgs ? `${result.error} (${fieldMsgs})` : result.error);
       }
 
       return result;
@@ -177,8 +178,16 @@ export function ProductDialog({ product }: ProductDialogProps) {
     if (nextOpen) {
       const initial = isEdit && product.attributes ? product.attributes : {};
       const entries = Object.entries(initial);
-      setAttrs(entries.length > 0 ? entries.map(([k, v]) => ({ key: k, value: v })) : []);
+      setAttrs(entries.length > 0 ? entries.map(([k, v]) => ({ id: crypto.randomUUID(), key: k, value: v })) : []);
     }
+  };
+
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    startTransition(() => {
+      action(formData);
+    });
   };
 
   return (
@@ -205,7 +214,7 @@ export function ProductDialog({ product }: ProductDialogProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <form key={formKey} action={action} className="space-y-4">
+        <form key={formKey} onSubmit={handleSubmit} className="space-y-4">
           {isLoadingComponents ? (
             <div className="space-y-4 py-2">
               <div className="flex items-center space-x-2">
@@ -255,12 +264,12 @@ export function ProductDialog({ product }: ProductDialogProps) {
               {components.length === 0 && (
                 <p className="text-xs text-muted-foreground">Add components to this bundle.</p>
               )}
-              {components.map((comp, idx) => (
-                <div key={idx} className="flex items-center gap-2">
+              {components.map((comp) => (
+                <div key={comp.id} className="flex items-center gap-2">
                   <select
                     className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 flex-1"
                     value={comp.componentProductId}
-                    onChange={(e) => updateComponent(idx, "componentProductId", parseInt(e.target.value, 10))}
+                    onChange={(e) => updateComponent(comp.id, "componentProductId", parseInt(e.target.value, 10))}
                   >
                     <option value={0} disabled>Select Product</option>
                     {simpleProducts.map(sp => (
@@ -272,9 +281,9 @@ export function ProductDialog({ product }: ProductDialogProps) {
                     min="1"
                     className="w-20 h-9"
                     value={comp.quantity}
-                    onChange={(e) => updateComponent(idx, "quantity", parseInt(e.target.value, 10) || 1)}
+                    onChange={(e) => updateComponent(comp.id, "quantity", parseInt(e.target.value, 10) || 1)}
                   />
-                  <Button type="button" variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={() => removeComponent(idx)}>
+                  <Button type="button" variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={() => removeComponent(comp.id)}>
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
@@ -354,14 +363,14 @@ export function ProductDialog({ product }: ProductDialogProps) {
             )}
             
             {attrs.map((attr, idx) => (
-              <div key={idx} className="flex items-center gap-2">
+              <div key={attr.id} className="flex items-center gap-2">
                 <Input
                   className="h-8 text-sm flex-1"
                   placeholder="Key (e.g., color)"
                   value={attr.key}
                   list="attr-keys-list"
                   onChange={(e) => {
-                    updateAttr(idx, "key", e.target.value);
+                    updateAttr(attr.id, "key", e.target.value);
                     loadValuesForKey(e.target.value);
                   }}
                 />
@@ -379,9 +388,9 @@ export function ProductDialog({ product }: ProductDialogProps) {
                   placeholder="Value (e.g., Yellow)"
                   value={attr.value}
                   list={`attr-values-list-${idx}`}
-                  onChange={(e) => updateAttr(idx, "value", e.target.value)}
+                  onChange={(e) => updateAttr(attr.id, "value", e.target.value)}
                 />
-                <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => removeAttr(idx)}>
+                <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => removeAttr(attr.id)}>
                   <X className="h-3.5 w-3.5" />
                 </Button>
               </div>

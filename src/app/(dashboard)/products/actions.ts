@@ -33,6 +33,32 @@ import { getAuthenticatedUserId } from "@/lib/auth";
 import { triggerChannelSync } from "@/lib/stock/service";
 import { pushProductStockToChannelsService } from "@/lib/stock/channel-sync";
 
+function parseJsonField<T>(raw: FormDataEntryValue | null, defaultValue: T): T {
+  if (raw && typeof raw === "string" && raw.trim()) {
+    try { return JSON.parse(raw) as T; } catch { return defaultValue; }
+  }
+  return defaultValue;
+}
+
+async function validateBundleComponents(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  isBundle: boolean | undefined,
+  components: { componentProductId: number }[]
+): Promise<string | null> {
+  if (isBundle && components.length > 0) {
+    const componentIds = components.map(c => c.componentProductId);
+    const bundleComponents = await tx
+      .select({ id: products.id })
+      .from(products)
+      .where(and(inArray(products.id, componentIds), eq(products.isBundle, true)));
+
+    if (bundleComponents.length > 0) {
+      return "Nested bundles are not supported. Component products must be simple products.";
+    }
+  }
+  return null;
+}
+
 
 export async function createProduct(_prevState: unknown, formData: FormData): Promise<{
   success?: boolean;
@@ -40,17 +66,8 @@ export async function createProduct(_prevState: unknown, formData: FormData): Pr
   fieldErrors?: Record<string, string[] | undefined>;
   existingProduct?: { id: number; name: string; sku: string | null; purchasePrice: string | null; unit: string } | null;
 }> {
-  const rawAttrs = formData.get("attributes");
-  let parsedAttrs: Record<string, string> = {};
-  if (rawAttrs && typeof rawAttrs === "string" && rawAttrs.trim()) {
-    try { parsedAttrs = JSON.parse(rawAttrs); } catch { /* ignore invalid JSON */ }
-  }
-
-  const rawComponents = formData.get("components");
-  let parsedComponents: { componentProductId: number; quantity: number }[] = [];
-  if (rawComponents && typeof rawComponents === "string" && rawComponents.trim()) {
-    try { parsedComponents = JSON.parse(rawComponents); } catch { /* ignore */ }
-  }
+  const parsedAttrs = parseJsonField<Record<string, string>>(formData.get("attributes"), {});
+  const parsedComponents = parseJsonField<{ componentProductId: number; quantity: number }[]>(formData.get("components"), []);
 
   const parsed = CreateProductSchema.safeParse({
     name: formData.get("name"),
@@ -84,17 +101,8 @@ export async function createProduct(_prevState: unknown, formData: FormData): Pr
   try {
     return await db.transaction(async (tx) => {
       // Validate components: none can be bundles themselves (if nested bundles are unsupported)
-      if (isBundle && components.length > 0) {
-        const componentIds = components.map(c => c.componentProductId);
-        const bundleComponents = await tx
-          .select({ id: products.id })
-          .from(products)
-          .where(and(inArray(products.id, componentIds), eq(products.isBundle, true)));
-
-        if (bundleComponents.length > 0) {
-          return { error: "Nested bundles are not supported. Component products must be simple products." };
-        }
-      }
+      const validationError = await validateBundleComponents(tx, isBundle, components);
+      if (validationError) return { error: validationError };
 
       const [newProduct] = await tx.insert(products).values({
         ...rest,
@@ -145,17 +153,8 @@ export async function updateProduct(_prevState: unknown, formData: FormData): Pr
   error?: string;
   fieldErrors?: Record<string, string[] | undefined>;
 }> {
-  const rawAttrs = formData.get("attributes");
-  let parsedAttrs: Record<string, string> = {};
-  if (rawAttrs && typeof rawAttrs === "string" && rawAttrs.trim()) {
-    try { parsedAttrs = JSON.parse(rawAttrs); } catch { /* ignore invalid JSON */ }
-  }
-
-  const rawComponents = formData.get("components");
-  let parsedComponents: { componentProductId: number; quantity: number }[] = [];
-  if (rawComponents && typeof rawComponents === "string" && rawComponents.trim()) {
-    try { parsedComponents = JSON.parse(rawComponents); } catch { /* ignore */ }
-  }
+  const parsedAttrs = parseJsonField<Record<string, string>>(formData.get("attributes"), {});
+  const parsedComponents = parseJsonField<{ componentProductId: number; quantity: number }[]>(formData.get("components"), []);
 
   const parsed = UpdateProductSchema.safeParse({
     id: formData.get("id"),
@@ -207,17 +206,8 @@ export async function updateProduct(_prevState: unknown, formData: FormData): Pr
       }
 
       // Validate components: none can be bundles themselves
-      if (isBundle && components.length > 0) {
-        const componentIds = components.map(c => c.componentProductId);
-        const bundleComponents = await tx
-          .select({ id: products.id })
-          .from(products)
-          .where(and(inArray(products.id, componentIds), eq(products.isBundle, true)));
-
-        if (bundleComponents.length > 0) {
-          return { error: "Nested bundles are not supported. Component products must be simple products." };
-        }
-      }
+      const validationError = await validateBundleComponents(tx, isBundle, components);
+      if (validationError) return { error: validationError };
 
       await tx
         .update(products)

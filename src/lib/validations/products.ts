@@ -7,8 +7,8 @@ export const CreateProductSchema = z.object({
   category: z.string().trim().optional().or(z.literal("")),
   attributes: z.record(z.string(), z.string()).optional().default({}),
   unit: z.string().trim().min(1, "Unit is required"),
-  purchasePrice: z.preprocess((val) => (val === "" || val === null ? undefined : val), z.coerce.number().min(0, "Must be ≥ 0").optional()),
-  sellingPrice: z.preprocess((val) => (val === "" || val === null ? undefined : val), z.coerce.number().min(0, "Must be ≥ 0").optional()),
+  purchasePrice: z.union([z.literal(""), z.literal(null), z.coerce.number().min(0, "Must be ≥ 0")]).transform(v => v === "" || v === null ? undefined : v).optional(),
+  sellingPrice: z.union([z.literal(""), z.literal(null), z.coerce.number().min(0, "Must be ≥ 0")]).transform(v => v === "" || v === null ? undefined : v).optional(),
   reorderLevel: z.preprocess((val) => (val === "" || val === null ? 0 : val), z.coerce.number().int().min(0, "Must be ≥ 0")),
   isBundle: z.coerce.boolean().default(false).optional(),
   components: z.array(z.object({
