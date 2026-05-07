@@ -9,6 +9,7 @@ export interface MissingCostAuditQuery {
 }
 
 export interface MissingCostAuditRow {
+  rowKey: string;
   channelId: number;
   channelName: string;
   channelType: string;
@@ -179,28 +180,7 @@ export async function getMissingCostAudit(
   const firstRow = typedRows[0];
 
   return {
-    rows: typedRows.map((row) => ({
-      channelId: row.channelId,
-      channelName: row.channelName,
-      channelType: row.channelType,
-      externalProductId: row.externalProductId,
-      channelProductId: row.channelProductId,
-      channelProductName: row.channelProductName,
-      channelSku: row.channelSku,
-      itemTitle: row.itemTitle,
-      itemSku: row.itemSku,
-      mappedProductId: row.mappedProductId,
-      mappedProductName: row.mappedProductName,
-      mappedProductSku: row.mappedProductSku,
-      orderCount: row.orderCount,
-      lineItems: row.lineItems,
-      units: row.units,
-      revenue: row.revenue,
-      firstPurchasedAt: row.firstPurchasedAt,
-      lastPurchasedAt: row.lastPurchasedAt,
-      issue: row.issue,
-      totalCount: row.totalCount,
-    })),
+    rows: typedRows.map(toMissingCostAuditRow),
     totalCount: firstRow?.totalCount ?? 0,
     totals: {
       rowCount: firstRow?.totalCount ?? 0,
@@ -208,6 +188,41 @@ export async function getMissingCostAudit(
       lineItems: firstRow?.totalLineItems ?? 0,
       orderCount: firstRow?.totalOrderCount ?? 0,
     },
+  };
+}
+
+function toMissingCostAuditRow(
+  row: Omit<MissingCostAuditRow, "rowKey">,
+): MissingCostAuditRow {
+  return {
+    rowKey: [
+      row.channelId,
+      row.externalProductId ?? "no-external-id",
+      row.channelProductId ?? "no-channel-product",
+      row.itemSku ?? "no-item-sku",
+      row.itemTitle ?? "no-item-title",
+      row.issue,
+    ].join(":"),
+    channelId: row.channelId,
+    channelName: row.channelName,
+    channelType: row.channelType,
+    externalProductId: row.externalProductId,
+    channelProductId: row.channelProductId,
+    channelProductName: row.channelProductName,
+    channelSku: row.channelSku,
+    itemTitle: row.itemTitle,
+    itemSku: row.itemSku,
+    mappedProductId: row.mappedProductId,
+    mappedProductName: row.mappedProductName,
+    mappedProductSku: row.mappedProductSku,
+    orderCount: row.orderCount,
+    lineItems: row.lineItems,
+    units: row.units,
+    revenue: row.revenue,
+    firstPurchasedAt: row.firstPurchasedAt,
+    lastPurchasedAt: row.lastPurchasedAt,
+    issue: row.issue,
+    totalCount: row.totalCount,
   };
 }
 

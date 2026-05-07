@@ -72,7 +72,7 @@ export function SalesCostAuditTable({ rows, products }: SalesCostAuditTableProps
         </TableHeader>
         <TableBody>
           {rows.map((row) => (
-            <TableRow key={`${row.channelId}:${row.externalProductId ?? row.itemSku ?? row.itemTitle}`}>
+            <TableRow key={row.rowKey}>
               <TableCell className="max-w-[420px] whitespace-normal">
                 <div className="font-medium text-foreground">
                   {row.channelProductName ?? row.itemTitle ?? "Unknown product"}
