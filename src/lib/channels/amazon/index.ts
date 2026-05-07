@@ -153,6 +153,7 @@ export const amazonHandler: ChannelHandler = {
     } = await import("@/db/schema");
     const { eq, and, or, isNull, inArray } = await import("drizzle-orm");
     const { decryptChannelCredentials } = await import("@/lib/channels/utils");
+    const { resolveSalesOrderItemCostSnapshot } = await import("@/lib/orders/costs");
 
     const [channel] = await db
       .select({
@@ -373,6 +374,8 @@ export const amazonHandler: ChannelHandler = {
                 }
               }
 
+              const costSnapshot = await resolveSalesOrderItemCostSnapshot(tx, matchedProductId);
+
               await tx.insert(salesOrderItems).values({
                 orderId: insertedOrder.id,
                 externalItemId: item.OrderItemId,
@@ -381,6 +384,9 @@ export const amazonHandler: ChannelHandler = {
                 title: item.Title,
                 quantity: item.QuantityOrdered,
                 price: item.ItemPrice?.Amount,
+                unitCost: costSnapshot.unitCost,
+                costSource: costSnapshot.costSource,
+                costCapturedAt: costSnapshot.costCapturedAt,
                 rawData: item as Record<string, unknown>,
               });
             }
@@ -490,9 +496,16 @@ export const amazonHandler: ChannelHandler = {
           }
 
           if (matchedProductId) {
+            const costSnapshot = await resolveSalesOrderItemCostSnapshot(db, matchedProductId);
+
             await db
               .update(salesOrderItems)
-              .set({ productId: matchedProductId })
+              .set({
+                productId: matchedProductId,
+                unitCost: costSnapshot.unitCost,
+                costSource: costSnapshot.costSource,
+                costCapturedAt: costSnapshot.costCapturedAt,
+              })
               .where(eq(salesOrderItems.id, item.id));
 
             // Process stock for retroactively mapped orders (date-gated)

@@ -309,21 +309,20 @@ async function getSalesSummary(userId: number, window: DashboardWindow): Promise
       .select({
         knownCostRevenuePeriod: sql<string>`coalesce(sum(
           ${salesOrderItems.price}::numeric * ${salesOrderItems.quantity}
-        ) filter (where ${products.purchasePrice} is not null), 0)`,
+        ) filter (where ${salesOrderItems.unitCost} is not null), 0)`,
         grossProfitPeriod: sql<string>`coalesce(sum(
-          (${salesOrderItems.price}::numeric - ${products.purchasePrice}) * ${salesOrderItems.quantity}
-        ) filter (where ${products.purchasePrice} is not null), 0)`,
+          (${salesOrderItems.price}::numeric - ${salesOrderItems.unitCost}) * ${salesOrderItems.quantity}
+        ) filter (where ${salesOrderItems.unitCost} is not null), 0)`,
         estimatedCostPeriod: sql<string>`coalesce(sum(
-          ${products.purchasePrice} * ${salesOrderItems.quantity}
-        ) filter (where ${products.purchasePrice} is not null), 0)`,
+          ${salesOrderItems.unitCost} * ${salesOrderItems.quantity}
+        ) filter (where ${salesOrderItems.unitCost} is not null), 0)`,
         missingCostRevenue: sql<string>`coalesce(sum(
           ${salesOrderItems.price}::numeric * ${salesOrderItems.quantity}
-        ) filter (where ${products.purchasePrice} is null), 0)`,
+        ) filter (where ${salesOrderItems.unitCost} is null), 0)`,
       })
       .from(salesOrderItems)
       .innerJoin(salesOrders, eq(salesOrderItems.orderId, salesOrders.id))
       .innerJoin(channels, eq(salesOrders.channelId, channels.id))
-      .leftJoin(products, eq(salesOrderItems.productId, products.id))
       .where(
         and(
           eq(channels.userId, userId),
@@ -628,8 +627,8 @@ async function getTopProducts(
       sku: products.sku,
       revenue: sql<string>`coalesce(sum(${salesOrderItems.price}::numeric * ${salesOrderItems.quantity}), 0)`,
       profit: sql<string>`coalesce(sum(
-        (${salesOrderItems.price}::numeric - ${products.purchasePrice}) * ${salesOrderItems.quantity}
-      ) filter (where ${products.purchasePrice} is not null), 0)`,
+        (${salesOrderItems.price}::numeric - ${salesOrderItems.unitCost}) * ${salesOrderItems.quantity}
+      ) filter (where ${salesOrderItems.unitCost} is not null), 0)`,
       availableQuantity: sql<number>`greatest(0, ${products.quantityOnHand} - ${products.reservedQuantity})::int`,
     })
     .from(salesOrderItems)
@@ -645,8 +644,8 @@ async function getTopProducts(
     )
     .groupBy(products.id)
     .orderBy(desc(sql`coalesce(sum(
-      (${salesOrderItems.price}::numeric - ${products.purchasePrice}) * ${salesOrderItems.quantity}
-    ) filter (where ${products.purchasePrice} is not null), 0)`))
+      (${salesOrderItems.price}::numeric - ${salesOrderItems.unitCost}) * ${salesOrderItems.quantity}
+    ) filter (where ${salesOrderItems.unitCost} is not null), 0)`))
     .limit(5);
 
   return rows.map((row) => {

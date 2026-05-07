@@ -239,6 +239,13 @@
       "when": 1777918484472,
       "tag": "0033_modern_captain_universe",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1778120000000,
+      "tag": "0034_sales_order_item_cost_snapshots",
+      "breakpoints": true
     }
   ]
 }
