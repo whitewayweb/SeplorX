@@ -29,6 +29,15 @@ The `.agent/` directory contains broader Claude/ECC-oriented rules, skills, and 
 - Avoid proxy counts or duplicated business logic when a direct query or service exists.
 - For bulk or admin actions, show clear scope, confirmation, partial success/failure feedback, and refresh affected routes.
 
+## Sales Cost and Channel Mapping
+
+- Channel product mapping improves reporting, order attribution, and future order processing, but mapping/backfilling must not mutate inventory quantities by itself.
+- Historical missing-cost reconciliation may update only sales-order item attribution fields such as `sales_order_items.product_id`, `unit_cost`, `cost_source`, and `cost_captured_at`.
+- Historical mapping or cost backfills must not create stock reservations, inventory transactions, or alter `products.quantityOnHand` / `products.reservedQuantity`.
+- Bundle order-item costs should be captured from component costs at order-ingestion or mapping-resolution time; do not push bundle purchase-price calculation into dashboard-only reporting.
+- Inventory reconciliation remains a separate workflow. Reserve, deduct, release, restock, or discard inventory only through the order stock-processing and return workflows.
+- Manual sales-cost audit resolution should be reviewable and audit-friendly: show source channel data, affected order scope, selected SeplorX target product, and clear success/failure feedback.
+
 ## Performance
 
 - Treat performance as required from day one.

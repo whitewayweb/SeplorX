@@ -6,7 +6,19 @@ To prevent database bloat and ensure high-performance stock tracking:
 - **Auto-Sync Trigger**: Every stock mutation MUST call `triggerChannelSync(productId)` to ensure external sales channels (Amazon/WooCommerce) stay updated.
 - **Audit Consistency**: Never delete inventory transactions for reversed events (like deleted invoices). Instead, append an "Adjustment" row to maintain a perfect audit trail.
 
-### 5. Agent Autonomy & Pilot Protocol (MANDATORY)
+### 5. Bundle Products (MANDATORY)
+Bundles are virtual products composed of one or more simple products through `product_bundles`.
+
+- **Virtual Parent**: A bundle product is not independently stocked. It represents a sellable combination of component products.
+- **Derived Stock**: Bundle availability must be derived dynamically from component available stock with the weakest-link calculation: `Math.floor(componentAvailable / quantityInBundle)`.
+- **Hidden Derived Fields**: Bundle `purchasePrice` and `quantityOnHand` are read-only/derived in UI and business logic. Do not allow manual edits to those fields for bundle products.
+- **Component Cost Snapshots**: Sales order item cost for a bundle must be captured from its component purchase prices at order-ingestion or mapping-resolution time when all component costs are known.
+- **Atomic Component Updates**: Updating bundle composition must happen in one database transaction so `product_bundles` remains synchronized with the parent product.
+- **Immutability**: Once a product is established as a bundle, do not convert it back to a simple product; this preserves inventory audit trails.
+- **Inventory Explosion**: For orders, returns, reservations, deductions, and reconciliation, explode bundles into their simple components. Never deduct stock from the bundle parent.
+- **No Nested Assumptions Without Checks**: If code assumes bundles are not nested, enforce or validate that invariant at the mutation boundary before relying on single-level calculations.
+
+### 6. Agent Autonomy & Pilot Protocol (MANDATORY)
 To minimize "Pilot Load" for the user, all agents MUST:
 - **Environment Setup**: Immediately run `source .agent/env.sh` at the start of every session to ensure `yarn` and `node` are in the PATH.
 - **Lead, Don't Follow**: Proactively identify and fix architecture gaps (e.g., missing syncs, race conditions) instead of waiting for a bug report.
@@ -14,12 +26,12 @@ To minimize "Pilot Load" for the user, all agents MUST:
 - **Explain 'Why', Not 'What'**: Focus summaries on the business value and architectural hardening, not a line-by-line code log.
 - **Decisiveness**: Proceed through the roadmap autonomously. Only stop for definitive permission on destructive data migrations or major branding changes.
 
-### 6. Query Optimization (Mandatory)
+### 7. Query Optimization (Mandatory)
 - **Explicit Selection**: Never use `db.select()` without a column mapping. Always use `db.select({ id: table.id, ... })` to reduce data transfer.
 - **Efficient Joins**: Use `leftJoin` and `innerJoin` judiciously. Always ensure joining columns are indexed in `schema.ts`.
 - **JSONB Narrowing**: Only extract the specific JSONB fields you need using `sql<T>` snippets. Never fetch the entire blob if you only need one flag.
 
-### 7. IDOR & Ownership Audit (Critical)
+### 8. IDOR & Ownership Audit (Critical)
 Every Data Access (DAL) function and Server Action MUST pass the Ownership Audit:
 - **Rule**: Every query that takes a record ID MUST also include a `userId` or `companyId` constraint derived from the current session.
 - **Exception**: Public records (if any) must be explicitly marked with `// Public Access` in the code.
