@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { decrypt } from "@/lib/crypto";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { processOrderStockChange, STOCK_CUTOFF_DATE } from "@/lib/stock/service";
+import { resolveSalesOrderItemCostSnapshot } from "@/lib/orders/costs";
 import type { SalesOrderStatus } from "@/db/schema";
 import { logger } from "@/lib/logger";
 
@@ -196,6 +197,8 @@ export async function POST(
               if (localProduct) matchedProductId = localProduct.id;
             }
 
+            const costSnapshot = await resolveSalesOrderItemCostSnapshot(tx, matchedProductId);
+
             await tx.insert(salesOrderItems).values({
               orderId: insertedOrder.id,
               externalItemId: item.externalItemId,
@@ -204,6 +207,9 @@ export async function POST(
               title: item.title || null,
               quantity: item.quantity,
               price: item.price || null,
+              unitCost: costSnapshot.unitCost,
+              costSource: costSnapshot.costSource,
+              costCapturedAt: costSnapshot.costCapturedAt,
               rawData: item.rawData,
             });
           }

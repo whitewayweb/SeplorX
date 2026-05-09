@@ -14,6 +14,14 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import type { ReorderPlan } from "@/lib/agents/tools/inventory-tools";
 import { getAuthenticatedUserId } from "@/lib/auth";
+import { backfillSalesOrderItemsForChannelMapping } from "@/lib/orders/costs";
+
+const CHANNEL_MAPPING_LABEL_MAX_LENGTH = 255;
+
+function normalizeChannelMappingLabel(label: string | null): string | null {
+  if (!label) return null;
+  return label.slice(0, CHANNEL_MAPPING_LABEL_MAX_LENGTH);
+}
 
 const AgentTaskIdSchema = z.object({
   taskId: z.coerce.number().int().positive(),
@@ -486,14 +494,19 @@ export async function approvePendingChannelMappingItem(
 
     await db.transaction(async (tx) => {
       // 1. Insert the mapped product
-      await tx.insert(channelProductMappings)
+      const insertedMappings = await tx.insert(channelProductMappings)
         .values({
           channelId,
           productId,
           externalProductId,
-          label: externalProductName,
+          label: normalizeChannelMappingLabel(externalProductName),
         })
-        .onConflictDoNothing();
+        .onConflictDoNothing()
+        .returning({ id: channelProductMappings.id });
+
+      if (insertedMappings.length > 0) {
+        await backfillSalesOrderItemsForChannelMapping(tx, channelId, externalProductId, productId);
+      }
 
       // 2. Clear out the approved item from the parent task's JSON plan
       const [action] = await tx.select().from(agentActions).where(eq(agentActions.id, taskId));
@@ -525,6 +538,7 @@ export async function approvePendingChannelMappingItem(
       
     revalidatePath("/products");
     revalidatePath(`/products/${productId}`);
+    revalidatePath("/");
     console.log("✅ FINISHED ACTION: approvePendingChannelMappingItem", { taskId, externalProductId });
     return { success: true };
   } catch (err) {

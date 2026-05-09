@@ -827,10 +827,17 @@ export async function insertChannelMappingQuietly(
       channelId,
       productId,
       externalProductId,
-      label,
+      label: normalizeChannelMappingLabel(label),
     })
     .onConflictDoNothing()
     .returning({ id: channelProductMappings.id });
+}
+
+const CHANNEL_MAPPING_LABEL_MAX_LENGTH = 255;
+
+function normalizeChannelMappingLabel(label: string | null): string | null {
+  if (!label) return null;
+  return label.slice(0, CHANNEL_MAPPING_LABEL_MAX_LENGTH);
 }
 
 export async function getUniqueAttributeKeys(tx: QueryClient = db) {

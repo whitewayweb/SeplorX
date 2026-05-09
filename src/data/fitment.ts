@@ -9,7 +9,7 @@ export type FitmentRule = {
   yearStart?: number;
   yearEnd?: number;
   position: "Front" | "Rear" | "Both4Pc";
-  series: string; // "A", "B", "C", "D", "E"
+  series: string; // "A", "B", "C", "D", "E"; empty means pending admin review
 };
 
 const FITMENT_KEY = "fitment:registry";
@@ -33,4 +33,39 @@ export async function saveFitmentRegistry(rules: FitmentRule[]) {
       target: settings.key,
       set: { value: rules, updatedAt: new Date() },
     });
+}
+
+export async function ensurePendingFitmentRule(rule: Omit<FitmentRule, "id" | "series">) {
+  const currentRules = await getFitmentRegistry();
+  const existing = currentRules.find((currentRule) =>
+    isSameFitmentRule(currentRule, rule)
+  );
+
+  if (existing) return existing;
+
+  const pendingRule: FitmentRule = {
+    ...rule,
+    id: Math.random().toString(36).substring(2, 9),
+    series: "",
+  };
+
+  await saveFitmentRegistry([...currentRules, pendingRule]);
+  return pendingRule;
+}
+
+function isSameFitmentRule(
+  left: Pick<FitmentRule, "make" | "model" | "position" | "yearStart" | "yearEnd">,
+  right: Pick<FitmentRule, "make" | "model" | "position" | "yearStart" | "yearEnd">,
+) {
+  return (
+    normalizeFitmentValue(left.make) === normalizeFitmentValue(right.make) &&
+    normalizeFitmentValue(left.model) === normalizeFitmentValue(right.model) &&
+    left.position === right.position &&
+    left.yearStart === right.yearStart &&
+    left.yearEnd === right.yearEnd
+  );
+}
+
+function normalizeFitmentValue(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 }

@@ -32,6 +32,7 @@ export type ChannelProductWithState = ExternalProduct & {
 import { getAuthenticatedUserId } from "@/lib/auth";
 import { triggerChannelSync } from "@/lib/stock/service";
 import { pushProductStockToChannelsService } from "@/lib/stock/channel-sync";
+import { backfillSalesOrderItemsForChannelMapping } from "@/lib/orders/costs";
 
 function parseJsonField<T>(raw: FormDataEntryValue | null, defaultValue: T): T {
   if (raw && typeof raw === "string" && raw.trim()) {
@@ -609,24 +610,28 @@ export async function saveChannelMappings(
     let added = 0;
     let skipped = 0;
 
-    for (const item of items) {
-      try {
-        const result = await insertChannelMappingQuietly(channelId, productId, item.externalProductId, item.label || null);
-        if (result.length > 0) {
-          added++;
-        } else {
-          skipped++;
+    await db.transaction(async (tx) => {
+      for (const item of items) {
+        try {
+          const result = await insertChannelMappingQuietly(channelId, productId, item.externalProductId, item.label || null, tx);
+          if (result.length > 0) {
+            added++;
+            await backfillSalesOrderItemsForChannelMapping(tx, channelId, item.externalProductId, productId);
+          } else {
+            skipped++;
+          }
+        } catch (err) {
+          const code = (err as { code?: string }).code;
+          if (code === "23505") {
+            throw new Error(`Channel product ${item.externalProductId} is already mapped to another product.`);
+          }
+          throw err;
         }
-      } catch (err) {
-        const code = (err as { code?: string }).code;
-        if (code === "23505") {
-          throw new Error(`WC product ${item.externalProductId} is already mapped to another product.`);
-        }
-        throw err;
       }
-    }
+    });
 
     revalidatePath(`/products/${productId}`);
+    revalidatePath("/");
     return { added, skipped };
   } catch (err) {
     console.error("[saveChannelMappings]", { channelId, productId, error: String(err) });

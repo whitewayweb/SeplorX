@@ -244,6 +244,24 @@ This is non-fatal — wrap in try/catch so order saving succeeds even if stock p
 
 4. **Retroactive mapping pass**: After all orders are saved, query `salesOrderItems` where `productId IS NULL` for the channel. Re-attempt mapping via `channelProductMappings` and SKU fallback. When a product is successfully matched, also call `processOrderStockChange()` for that order (with the same `STOCK_CUTOFF_DATE` gate and `stockProcessed` guard).
 
+## Step 10.1 — Sales Cost Mapping and Inventory Separation
+
+Channel mapping and sales-cost reconciliation are not inventory mutations.
+
+**Allowed during historical missing-cost reconciliation:**
+- Insert or update `channel_product_mappings` after review.
+- Backfill `sales_order_items.product_id` for matching historical order items.
+- Capture immutable cost snapshots on order items: `unit_cost`, `cost_source`, and `cost_captured_at`.
+- Derive bundle item cost from current component purchase prices at mapping-resolution time when every component has a cost.
+
+**Not allowed during historical missing-cost reconciliation:**
+- Do not update `products.quantityOnHand` or `products.reservedQuantity`.
+- Do not create `inventory_transactions`.
+- Do not create `stock_reservations` for old orders.
+- Do not push stock to external channels just because a channel product was mapped.
+
+Order-driven inventory remains owned by `src/lib/stock/service.ts` and must stay gated by `STOCK_CUTOFF_DATE` plus the existing stock-processed/idempotency guards. Mapping improves attribution, reporting, and future processing; stock reservations and deductions happen only through the order stock-processing and return workflows.
+
 ## Step 10 — Stock Management Integration
 
 Stock processing is handled by `src/lib/stock/service.ts`. The state machine follows this flow:

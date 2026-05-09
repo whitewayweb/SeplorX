@@ -65,11 +65,15 @@ const SERIES_OPTIONS = ["A", "B", "C", "D", "E"] as const;
 export function FitmentDialog({ 
   rule, 
   makes = [], 
-  rules = [] 
+  rules = [],
+  initialValues,
+  triggerClassName,
 }: { 
   rule?: FitmentRule;
   makes?: string[];
   rules?: FitmentRule[];
+  initialValues?: Partial<Pick<FitmentRule, "make" | "model" | "position" | "series" | "yearStart" | "yearEnd">>;
+  triggerClassName?: string;
 }) {
   const isEdit = !!rule;
   const [open, setOpen] = useState(false);
@@ -83,12 +87,12 @@ export function FitmentDialog({
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      make: rule?.make ?? "",
-      model: rule?.model ?? "",
-      yearStart: rule?.yearStart?.toString() ?? "none",
-      yearEnd: rule?.yearEnd?.toString() ?? "none",
-      position: rule?.position ?? "Front",
-      series: rule?.series ?? "",
+      make: rule?.make ?? initialValues?.make ?? "",
+      model: rule?.model ?? initialValues?.model ?? "",
+      yearStart: (rule?.yearStart ?? initialValues?.yearStart)?.toString() ?? "none",
+      yearEnd: (rule?.yearEnd ?? initialValues?.yearEnd)?.toString() ?? "none",
+      position: rule?.position ?? initialValues?.position ?? "Front",
+      series: rule?.series ?? initialValues?.series ?? "",
     },
   });
 
@@ -144,7 +148,19 @@ export function FitmentDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         {isEdit ? (
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn("h-8 w-8 text-muted-foreground hover:text-foreground", triggerClassName)}
+          >
+            <Pencil className="h-4 w-4" />
+          </Button>
+        ) : triggerClassName ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn("h-8 w-8 text-muted-foreground hover:text-foreground", triggerClassName)}
+          >
             <Pencil className="h-4 w-4" />
           </Button>
         ) : (

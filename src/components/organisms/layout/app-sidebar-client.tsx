@@ -17,6 +17,7 @@ import {
   LogOut,
   User,
   ShoppingCart,
+  ClipboardCheck,
 } from "lucide-react";
 import {
   Sidebar,
@@ -37,6 +38,7 @@ import { PORTAL_NAME } from "@/utils/constants";
 
 const navItems = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
+  { title: "Sales Cost Audit", href: "/audit/missing-cost", icon: ClipboardCheck },
   { title: "Companies", href: "/companies", icon: Building2 },
   { title: "Products", href: "/products", icon: Package },
   { title: "Invoices", href: "/invoices", icon: FileText },

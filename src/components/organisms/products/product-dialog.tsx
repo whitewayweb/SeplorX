@@ -45,7 +45,7 @@ const PRODUCT_FIELDS = [
   { key: "sku", label: "SKU", required: false, type: "text" as const },
   { key: "category", label: "Category", required: false, type: "text" as const },
   { key: "unit", label: "Unit", required: true, type: "text" as const },
-  { key: "purchasePrice", label: "Purchase Price (₹)", required: false, type: "number" as const },
+  { key: "purchasePrice", label: "Purchase Price (₹)", required: true, type: "number" as const },
   { key: "sellingPrice", label: "Selling Price (₹)", required: false, type: "number" as const },
   { key: "reorderLevel", label: "Reorder Level", required: true, type: "number" as const },
 ] as const;

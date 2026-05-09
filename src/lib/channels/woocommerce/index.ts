@@ -513,6 +513,7 @@ export const woocommerceHandler: ChannelHandler = {
     const { channels, salesOrders, salesOrderItems, channelProductMappings, products } = await import("@/db/schema");
     const { eq, and, isNull, inArray } = await import("drizzle-orm");
     const { decryptChannelCredentials } = await import("@/lib/channels/utils");
+    const { resolveSalesOrderItemCostSnapshot } = await import("@/lib/orders/costs");
 
     const [channel] = await db
       .select({
@@ -712,6 +713,8 @@ export const woocommerceHandler: ChannelHandler = {
                 }
               }
 
+              const costSnapshot = await resolveSalesOrderItemCostSnapshot(tx, matchedProductId);
+
               await tx.insert(salesOrderItems).values({
                 orderId: insertedOrder.id,
                 externalItemId: String(item.id),
@@ -720,6 +723,9 @@ export const woocommerceHandler: ChannelHandler = {
                 title: typeof item.name === "string" ? item.name : (item.name ? String(item.name) : null),
                 quantity: item.quantity || 0,
                 price: item.price !== undefined && item.price !== null ? String(item.price) : null,
+                unitCost: costSnapshot.unitCost,
+                costSource: costSnapshot.costSource,
+                costCapturedAt: costSnapshot.costCapturedAt,
                 rawData: item as Record<string, unknown>,
               });
             }
@@ -830,9 +836,16 @@ export const woocommerceHandler: ChannelHandler = {
           }
 
           if (matchedProductId) {
+            const costSnapshot = await resolveSalesOrderItemCostSnapshot(db, matchedProductId);
+
             await db
               .update(salesOrderItems)
-              .set({ productId: matchedProductId })
+              .set({
+                productId: matchedProductId,
+                unitCost: costSnapshot.unitCost,
+                costSource: costSnapshot.costSource,
+                costCapturedAt: costSnapshot.costCapturedAt,
+              })
               .where(eq(salesOrderItems.id, item.id));
 
             // Process stock for retroactively mapped orders (date-gated)

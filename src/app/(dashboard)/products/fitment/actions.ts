@@ -40,20 +40,3 @@ export async function updateFitmentRule(rule: FitmentRule) {
   }
 }
 
-/**
- * Deletes a fitment rule by ID.
- * Reads current state from DB (not client) to avoid stale-data overwrites.
- */
-export async function deleteFitmentRule(ruleId: string) {
-  try {
-    const currentRules = await getFitmentRegistry();
-    const updatedRules = currentRules.filter((r) => r.id !== ruleId);
-    await saveFitmentRegistry(updatedRules);
-    revalidatePath("/products/fitment");
-    return { success: true };
-  } catch (error) {
-    console.error("[deleteFitmentRule]", error);
-    return { success: false, error: "Failed to delete fitment rule" };
-  }
-}
-
