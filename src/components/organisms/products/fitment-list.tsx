@@ -136,25 +136,29 @@ export function FitmentList({ rules, children }: FitmentListProps) {
   const groupKeys = Object.keys(grouped).sort();
 
   const matrixData = useMemo(() => {
-    const result: Record<string, Record<string, { front?: string; rear?: string }>> = {};
+    const result: Record<string, Record<string, { front: FitmentRule[]; rear: FitmentRule[] }>> = {};
     for (const rule of filteredRules) {
       if (!result[rule.make]) result[rule.make] = {};
-      if (!result[rule.make][rule.model]) result[rule.make][rule.model] = {};
+      if (!result[rule.make][rule.model]) result[rule.make][rule.model] = { front: [], rear: [] };
 
       const mod = result[rule.make][rule.model];
 
       if (rule.position === "Front" || rule.position === "Both4Pc") {
-        const existing = mod.front ? mod.front.split(", ") : [];
-        if (!existing.includes(rule.series)) existing.push(rule.series);
-        mod.front = existing.join(", ");
+        if (!mod.front.some((existingRule) => existingRule.id === rule.id)) mod.front.push(rule);
       }
 
       if (rule.position === "Rear" || rule.position === "Both4Pc") {
-        const existing = mod.rear ? mod.rear.split(", ") : [];
-        if (!existing.includes(rule.series)) existing.push(rule.series);
-        mod.rear = existing.join(", ");
+        if (!mod.rear.some((existingRule) => existingRule.id === rule.id)) mod.rear.push(rule);
       }
     }
+
+    for (const make of Object.keys(result)) {
+      for (const model of Object.keys(result[make])) {
+        result[make][model].front.sort((a, b) => a.series.localeCompare(b.series));
+        result[make][model].rear.sort((a, b) => a.series.localeCompare(b.series));
+      }
+    }
+
     return result;
   }, [filteredRules]);
 
@@ -185,7 +189,7 @@ export function FitmentList({ rules, children }: FitmentListProps) {
   const isSearchActive = search.trim().length > 0;
 
   return (
-    <Tabs defaultValue="list" className="w-full space-y-4">
+    <Tabs defaultValue="matrix" className="w-full space-y-4">
       {/* Search Bar & Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="relative w-full sm:max-w-sm">
@@ -288,9 +292,15 @@ export function FitmentList({ rules, children }: FitmentListProps) {
                                 </Badge>
                               </TableCell>
                               <TableCell>
-                                <Badge variant="outline" className={SERIES_STYLES[rule.series] ?? ""}>
-                                  Series {rule.series}
-                                </Badge>
+                                {rule.series ? (
+                                  <Badge variant="outline" className={SERIES_STYLES[rule.series] ?? ""}>
+                                    Series {rule.series}
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+                                    Set series
+                                  </Badge>
+                                )}
                               </TableCell>
                               <TableCell className="text-right pr-4 space-x-1">
                                 <FitmentDialog rule={rule} makes={makes} rules={rules} />
@@ -370,14 +380,24 @@ export function FitmentList({ rules, children }: FitmentListProps) {
                         <TableRow key={model} className="hover:bg-muted/20">
                           <TableCell className="py-2.5 font-medium leading-snug whitespace-normal break-words pr-2">{model}</TableCell>
                           <TableCell className="py-2.5 text-center border-l border-border/30">
-                            <span className="font-medium text-muted-foreground">
-                              {models[model].front || "-"}
-                            </span>
+                            <MatrixSeriesCell
+                              rules={models[model].front}
+                              make={make}
+                              model={model}
+                              position="Front"
+                              makes={makes}
+                              allRules={rules}
+                            />
                           </TableCell>
                           <TableCell className="py-2.5 text-center border-l border-border/30">
-                            <span className="font-medium text-muted-foreground">
-                              {models[model].rear || "-"}
-                            </span>
+                            <MatrixSeriesCell
+                              rules={models[model].rear}
+                              make={make}
+                              model={model}
+                              position="Rear"
+                              makes={makes}
+                              allRules={rules}
+                            />
                           </TableCell>
                         </TableRow>
                       ))}
@@ -391,5 +411,54 @@ export function FitmentList({ rules, children }: FitmentListProps) {
         )}
       </TabsContent>
     </Tabs>
+  );
+}
+
+function MatrixSeriesCell({
+  rules,
+  make,
+  model,
+  position,
+  makes,
+  allRules,
+}: {
+  rules: FitmentRule[];
+  make: string;
+  model: string;
+  position: FitmentRule["position"];
+  makes: string[];
+  allRules: FitmentRule[];
+}) {
+  if (rules.length === 0) {
+    return (
+      <span className="group/series inline-flex min-h-7 items-center justify-center gap-0.5 rounded-md px-1.5 font-medium text-muted-foreground transition-colors hover:bg-muted">
+        <span>-</span>
+        <FitmentDialog
+          initialValues={{ make, model, position }}
+          makes={makes}
+          rules={allRules}
+          triggerClassName="h-5 w-5 opacity-0 transition-opacity group-hover/series:opacity-100 focus:opacity-100"
+        />
+      </span>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-1">
+      {rules.map((rule) => (
+        <span
+          key={rule.id}
+          className="group/series inline-flex min-h-7 items-center justify-center gap-0.5 rounded-md px-1.5 font-medium text-muted-foreground transition-colors hover:bg-muted"
+        >
+          <span>{rule.series || "Set"}</span>
+          <FitmentDialog
+            rule={rule}
+            makes={makes}
+            rules={allRules}
+            triggerClassName="h-5 w-5 opacity-0 transition-opacity group-hover/series:opacity-100 focus:opacity-100"
+          />
+        </span>
+      ))}
+    </div>
   );
 }

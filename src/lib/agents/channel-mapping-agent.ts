@@ -28,8 +28,10 @@ import {
   fetchChannelProducts,
   lookupFitmentSeries,
   findSeplorxProduct,
+  createPendingFitmentRuleFromExtraction,
 } from "./tools/channel-mapping-tools";
 import { logger } from "@/lib/logger";
+import { getFitmentRegistry, type FitmentRule } from "@/data/fitment";
 
 // ─── Provider Cascade ─────────────────────────────────────────────────────────
 
@@ -101,9 +103,10 @@ export async function runChannelMappingAgent(
 
   try {
     // 1. Fetch Local Context
-    const [seplorxProducts, channelResponse] = await Promise.all([
+    const [seplorxProducts, channelResponse, fitmentRules] = await Promise.all([
       fetchSeplorxProducts(),
       fetchChannelProducts(channelId, userId),
+      getFitmentRegistry(),
     ]);
 
     if ("message" in channelResponse) {
@@ -142,7 +145,7 @@ export async function runChannelMappingAgent(
     for (const product of unmappedBatch) {
       try {
         // Step A: LLM extracts {make, model, position, color} from title
-        const extraction = await extractFitmentFromTitle(product.name);
+        const extraction = await extractFitmentFromTitle(product.name, fitmentRules);
 
         if (!extraction) {
           // Non-automotive product — fallback to direct LLM matching against SeplorX catalog
@@ -180,7 +183,13 @@ export async function runChannelMappingAgent(
         );
 
         if (!fitment) {
+          const pendingRule = await createPendingFitmentRuleFromExtraction(
+            extraction.make,
+            extraction.model,
+            extraction.position,
+          );
           logger.info(`[agent/channel-mapping] ⏭️ Skipped (Local Registry Miss): "${product.name}" → Extracted: ${extraction.make} ${extraction.model}`);
+          logger.info(`[agent/channel-mapping] Created pending fitment rule ${pendingRule.id} for admin series review.`);
           unmatchCount++;
           continue;
         }
@@ -249,6 +258,7 @@ export async function runChannelMappingAgent(
  */
 async function extractFitmentFromTitle(
   title: string,
+  fitmentRules: FitmentRule[],
 ): Promise<{ make: string; model: string; position: "front" | "rear" | "both"; color: string | null; } | null> {
   const maxAttempts = 3; // at most 3 tiers
 
@@ -257,7 +267,7 @@ async function extractFitmentFromTitle(
       const { object } = await generateObject({
         model: getModel(),
         schema: ExtractionSchema,
-        prompt: `Extract the car make, model, buffer pad position, and product color from this product title. If position is not clear or it says "4 PCs" or "4pc set", use "both". If color is not mentioned, return null for color.\n\nTitle: "${title}"`,
+        prompt: buildExtractionPrompt(title, fitmentRules),
         maxRetries: 1,
       });
 
@@ -274,6 +284,42 @@ async function extractFitmentFromTitle(
   }
 
   return null;
+}
+
+function buildExtractionPrompt(title: string, fitmentRules: FitmentRule[]): string {
+  const candidates = getRegistryCandidatesForTitle(title, fitmentRules);
+  const candidateText = candidates.length > 0
+    ? `\n\nExisting registry candidates. Prefer these exact make/model values when the title refers to the same vehicle:\n${candidates.map((candidate) => `- ${candidate.make} / ${candidate.model}`).join("\n")}`
+    : "";
+
+  return `Extract the car make, model, buffer pad position, and product color from this product title.
+If a listed registry candidate matches the title, return that exact candidate make and model.
+If none match, return the make and model exactly as inferred from the title so a pending fitment rule can be created.
+If position is not clear or it says "4 PCs" or "4pc set", use "both".
+If color is contradictory or not mentioned, return null for color.
+
+Title: "${title}"${candidateText}`;
+}
+
+function getRegistryCandidatesForTitle(
+  title: string,
+  fitmentRules: FitmentRule[],
+): Array<Pick<FitmentRule, "make" | "model">> {
+  const titleNorm = normalizeExtractionToken(title);
+  const candidates = new Map<string, Pick<FitmentRule, "make" | "model">>();
+
+  for (const rule of fitmentRules) {
+    const modelNorm = normalizeExtractionToken(rule.model);
+    if (modelNorm.length < 3 || !titleNorm.includes(modelNorm)) continue;
+    const key = `${rule.make}:${rule.model}`;
+    candidates.set(key, { make: rule.make, model: rule.model });
+  }
+
+  return Array.from(candidates.values()).slice(0, 25);
+}
+
+function normalizeExtractionToken(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 // ─── Non-Automotive Direct Match ──────────────────────────────────────────────

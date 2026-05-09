@@ -17,7 +17,7 @@ import {
 import { eq, and } from "drizzle-orm";
 import { getAuthenticatedUserId } from "@/lib/auth";
 import { getPendingChannelMappings } from "@/data/agents";
-import { getFitmentRegistry } from "@/data/fitment";
+import { ensurePendingFitmentRule, getFitmentRegistry } from "@/data/fitment";
 
 // ─── Shared plan types (exported for use in approval card + action) ────────────
 
@@ -160,8 +160,8 @@ export async function lookupFitmentSeries(
   model: string,
   position: "front" | "rear" | "both",
 ): Promise<{ series: string; matchedMake: string; matchedModel: string } | null> {
-  const makeNorm = make.trim().toLowerCase().replace(/[-_\s]/g, "");
-  const modelNorm = model.trim().toLowerCase().replace(/[-_\s]/g, "");
+  const makeNorm = normalizeFitmentToken(make);
+  const modelNorm = normalizeFitmentToken(model);
 
   // 1. Fetch Dynamic Registry from Database
   const dbRules = await getFitmentRegistry();
@@ -169,7 +169,7 @@ export async function lookupFitmentSeries(
   if (dbRules.length > 0) {
     // A. Find best match for Make (case insensitive, space/dash agnostic)
     const matchingMakeRules = dbRules.filter((r) => {
-      const dbMakeNorm = r.make.toLowerCase().replace(/[-_\s]/g, "");
+      const dbMakeNorm = normalizeFitmentToken(r.make);
       return dbMakeNorm === makeNorm || dbMakeNorm.includes(makeNorm) || makeNorm.includes(dbMakeNorm);
     });
 
@@ -178,7 +178,7 @@ export async function lookupFitmentSeries(
 
       // B. Find best match for Model
       const matchingModelRules = matchingMakeRules.filter((r) => {
-        const dbModelNorm = r.model.toLowerCase().replace(/[-_\s]/g, "");
+        const dbModelNorm = normalizeFitmentToken(r.model);
         return dbModelNorm === modelNorm || dbModelNorm.includes(modelNorm) || modelNorm.includes(dbModelNorm);
       });
 
@@ -195,7 +195,7 @@ export async function lookupFitmentSeries(
            match = matchingModelRules[0];
         }
 
-        if (match) {
+        if (match?.series) {
           return { series: match.series, matchedMake, matchedModel };
         }
       }
@@ -204,6 +204,27 @@ export async function lookupFitmentSeries(
 
   // Fallback removed — Agent now strictly follows the DB registry.
   return null;
+}
+
+function normalizeFitmentToken(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+export async function createPendingFitmentRuleFromExtraction(
+  make: string,
+  model: string,
+  position: "front" | "rear" | "both",
+) {
+  const registryPosition =
+    position === "both"
+      ? "Both4Pc"
+      : (position.charAt(0).toUpperCase() + position.slice(1) as "Front" | "Rear");
+
+  return ensurePendingFitmentRule({
+    make: make.trim(),
+    model: model.trim(),
+    position: registryPosition,
+  });
 }
 
 // ─── Tool 5: Match SeplorX product by series + color ──────────────────────────
