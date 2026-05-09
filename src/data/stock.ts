@@ -50,6 +50,8 @@ export async function getReservationsForOrder(orderId: number) {
     .select({
       id: stockReservations.id,
       productId: stockReservations.productId,
+      productName: products.name,
+      productSku: products.sku,
       quantity: stockReservations.quantity,
       status: stockReservations.status,
       orderItemId: stockReservations.orderItemId,
@@ -57,6 +59,7 @@ export async function getReservationsForOrder(orderId: number) {
       resolvedAt: stockReservations.resolvedAt,
     })
     .from(stockReservations)
+    .innerJoin(products, eq(stockReservations.productId, products.id))
     .where(eq(stockReservations.orderId, orderId));
 }
 
