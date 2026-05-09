@@ -16,6 +16,13 @@ type ResolveMissingCostMappingResult =
   | { success: true; updatedOrderItems: number }
   | { error: string };
 
+const CHANNEL_MAPPING_LABEL_MAX_LENGTH = 255;
+
+function normalizeChannelMappingLabel(label: string | null): string | null {
+  if (!label) return null;
+  return label.slice(0, CHANNEL_MAPPING_LABEL_MAX_LENGTH);
+}
+
 export async function resolveMissingCostMapping(
   _prevState: ResolveMissingCostMappingState,
   formData: FormData,
@@ -56,7 +63,7 @@ export async function resolveMissingCostMapping(
           channelId,
           productId,
           externalProductId,
-          label,
+          label: normalizeChannelMappingLabel(label),
         })
         .onConflictDoUpdate({
           target: [
@@ -65,7 +72,7 @@ export async function resolveMissingCostMapping(
           ],
           set: {
             productId,
-            label,
+            label: normalizeChannelMappingLabel(label),
             syncStatus: "pending_update",
             lastSyncError: null,
           },

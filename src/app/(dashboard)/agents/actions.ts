@@ -16,6 +16,13 @@ import type { ReorderPlan } from "@/lib/agents/tools/inventory-tools";
 import { getAuthenticatedUserId } from "@/lib/auth";
 import { backfillSalesOrderItemsForChannelMapping } from "@/lib/orders/costs";
 
+const CHANNEL_MAPPING_LABEL_MAX_LENGTH = 255;
+
+function normalizeChannelMappingLabel(label: string | null): string | null {
+  if (!label) return null;
+  return label.slice(0, CHANNEL_MAPPING_LABEL_MAX_LENGTH);
+}
+
 const AgentTaskIdSchema = z.object({
   taskId: z.coerce.number().int().positive(),
 });
@@ -492,7 +499,7 @@ export async function approvePendingChannelMappingItem(
           channelId,
           productId,
           externalProductId,
-          label: externalProductName,
+          label: normalizeChannelMappingLabel(externalProductName),
         })
         .onConflictDoNothing()
         .returning({ id: channelProductMappings.id });
