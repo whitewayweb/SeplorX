@@ -18,6 +18,9 @@ export const CreateProductSchema = z.object({
 }).refine(data => !data.isBundle || data.components.length > 0, {
   message: "A bundle must have at least one valid component",
   path: ["components"]
+}).refine(data => data.isBundle || data.purchasePrice !== undefined, {
+  message: "Purchase price is required",
+  path: ["purchasePrice"]
 }).refine(data => {
   if (data.isBundle && data.components.length > 0) {
     // Check for direct self-reference if id were available (but it's not in CreateProductSchema)

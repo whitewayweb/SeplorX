@@ -4,11 +4,19 @@ import { CreateProductSchema, UpdateProductSchema, StockAdjustmentSchema } from 
 // ─── CreateProductSchema ──────────────────────────────────────────────────────
 
 describe("CreateProductSchema", () => {
-  const validBase = { name: "Widget", unit: "pcs", reorderLevel: 0 };
+  const validBase = { name: "Widget", unit: "pcs", purchasePrice: 10.99, reorderLevel: 0 };
 
   it("passes with valid minimal data", () => {
     const result = CreateProductSchema.safeParse(validBase);
     expect(result.success).toBe(true);
+  });
+
+  it("fails when a simple product has no purchasePrice", () => {
+    const withoutPurchasePrice = { ...validBase } as Partial<typeof validBase>;
+    delete withoutPurchasePrice.purchasePrice;
+    const result = CreateProductSchema.safeParse(withoutPurchasePrice);
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0].message).toMatch(/purchase price is required/i);
   });
 
   it("passes with all optional fields provided", () => {
@@ -79,10 +87,10 @@ describe("CreateProductSchema", () => {
   });
 
   describe("Price Fields Validation", () => {
-    it("handles empty string for purchasePrice by treating it as undefined (valid optional)", () => {
+    it("fails when purchasePrice is empty for a simple product", () => {
       const result = CreateProductSchema.safeParse({ ...validBase, purchasePrice: "" });
-      expect(result.success).toBe(true);
-      if (result.success) expect(result.data.purchasePrice).toBeUndefined();
+      expect(result.success).toBe(false);
+      expect(result.error?.issues[0].message).toMatch(/purchase price is required/i);
     });
 
     it("handles null for sellingPrice by treating it as undefined (valid optional)", () => {
@@ -114,8 +122,10 @@ describe("CreateProductSchema", () => {
     });
 
     it("passes when isBundle is true and has valid components", () => {
+      const bundleBase = { ...validBase } as Partial<typeof validBase>;
+      delete bundleBase.purchasePrice;
       const result = CreateProductSchema.safeParse({
-        ...validBase,
+        ...bundleBase,
         isBundle: true,
         components: [{ componentProductId: 10, quantity: 2 }]
       });
@@ -149,7 +159,7 @@ describe("CreateProductSchema", () => {
 // ─── UpdateProductSchema ──────────────────────────────────────────────────────
 
 describe("UpdateProductSchema", () => {
-  const validUpdate = { id: 1, name: "Widget", unit: "pcs", reorderLevel: 0 };
+  const validUpdate = { id: 1, name: "Widget", unit: "pcs", purchasePrice: 10.99, reorderLevel: 0 };
 
   it("passes with valid id included", () => {
     expect(UpdateProductSchema.safeParse(validUpdate).success).toBe(true);

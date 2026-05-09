@@ -794,11 +794,14 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
                           />
                         </div>
                         <div className="space-y-1 col-span-2">
-                          <Label className="text-xs text-muted-foreground">Purchase Price (₹)</Label>
+                          <Label className="text-xs text-muted-foreground">
+                            Purchase Price (₹) <span className="text-destructive">*</span>
+                          </Label>
                           <Input
                             type="number"
                             min="0"
                             step="0.01"
+                            required
                             className="h-8 text-sm"
                             value={newProducts[idx].purchasePrice}
                             onChange={(e) => updateNewProduct(idx, { purchasePrice: e.target.value })}
