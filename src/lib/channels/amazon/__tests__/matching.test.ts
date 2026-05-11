@@ -187,4 +187,16 @@ describe("Amazon order status mapping", () => {
       }),
     ).toBe("delivered");
   });
+
+  it("maps terminal Easy Ship return statuses to returned", () => {
+    expect(
+      __amazonOrderStatusForTest.mapAmazonOrderStatus({
+        AmazonOrderId: "123-1234567-1234567",
+        PurchaseDate: "2026-05-10T10:00:00Z",
+        LastUpdateDate: "2026-05-11T10:00:00Z",
+        OrderStatus: "Shipped",
+        EasyShipShipmentStatus: "ReturnedToSeller",
+      }),
+    ).toBe("returned");
+  });
 });

@@ -6,6 +6,7 @@ import { RefreshCw } from "lucide-react";
 import { fetchChannelOrdersAction } from "@/app/(dashboard)/orders/actions";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 export function FetchOrdersButton({
   channelId,
@@ -23,7 +24,19 @@ export function FetchOrdersButton({
     startTransition(async () => {
       const result = await fetchChannelOrdersAction(channelId);
       if (result.success) {
+        if ("amazonShippedReconciliation" in result && result.amazonShippedReconciliation) {
+          const reconciliation = result.amazonShippedReconciliation;
+          toast.success("Orders fetched", {
+            description: `Amazon shipped check: ${reconciliation.checked} checked, ${reconciliation.delivered} delivered, ${reconciliation.unchanged} unchanged, ${reconciliation.failed} failed.`,
+          });
+        } else {
+          toast.success("Orders fetched", {
+            description: "Order sync completed.",
+          });
+        }
         router.refresh();
+      } else {
+        toast.error("Fetch failed", { description: result.error });
       }
     });
   }

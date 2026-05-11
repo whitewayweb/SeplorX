@@ -4,7 +4,7 @@
 // Next.js/Turbopack never tries to bundle it. The dynamic import() below is
 // resolved at runtime on the server only.
 
-import type { ChannelHandler } from "../types";
+import type { ChannelHandler, OrderFetchResult } from "../types";
 import { AmazonAPIClient } from "./api/client";
 import { logger } from "@/lib/logger";
 import type { SalesOrderStatus } from "@/db/schema";
@@ -149,7 +149,7 @@ export const amazonHandler: ChannelHandler = {
   async fetchAndSaveOrders(
     userId: number,
     channelId: number,
-  ): Promise<{ fetched: number; saved: number }> {
+  ): Promise<OrderFetchResult> {
     const { db } = await import("@/db");
     const {
       channels,
@@ -195,6 +195,12 @@ export const amazonHandler: ChannelHandler = {
 
     let fetchedCount = 0;
     let savedCount = 0;
+    const amazonShippedReconciliation: NonNullable<OrderFetchResult["amazonShippedReconciliation"]> = {
+      checked: 0,
+      delivered: 0,
+      unchanged: 0,
+      failed: 0,
+    };
 
     for await (const pageOrders of ordersGenerator) {
       fetchedCount += pageOrders.length;
@@ -563,7 +569,11 @@ export const amazonHandler: ChannelHandler = {
       for (const order of staleShippedOrders) {
         try {
           const latestOrder = await client.getOrder(order.externalOrderId);
-          if (!latestOrder) continue;
+          amazonShippedReconciliation.checked++;
+          if (!latestOrder) {
+            amazonShippedReconciliation.failed++;
+            continue;
+          }
 
           const newStatus = mapAmazonOrderStatus(latestOrder);
           const mergedRawData = {
@@ -602,10 +612,16 @@ export const amazonHandler: ChannelHandler = {
               );
             }
             savedCount++;
+            if (newStatus === "delivered") {
+              amazonShippedReconciliation.delivered++;
+            }
+          } else {
+            amazonShippedReconciliation.unchanged++;
           }
 
           await sleep(AMAZON_ORDER_DETAIL_DELAY_MS);
         } catch (err) {
+          amazonShippedReconciliation.failed++;
           logger.error(
             `[Amazon Sync] Failed to reconcile shipped order ${order.externalOrderId}:`,
             err,
@@ -616,12 +632,28 @@ export const amazonHandler: ChannelHandler = {
       logger.error("[Amazon Sync] Failed to reconcile shipped orders:", err);
     }
 
-    return { fetched: fetchedCount, saved: savedCount };
+    logger.info("[Amazon Sync] Shipped order reconciliation complete", {
+      channelId,
+      ...amazonShippedReconciliation,
+    });
+
+    return {
+      fetched: fetchedCount,
+      saved: savedCount,
+      amazonShippedReconciliation,
+    };
   },
 };
 
 function mapAmazonOrderStatus(order: Pick<AmazonOrder, "OrderStatus" | "EasyShipShipmentStatus">): SalesOrderStatus {
   if (order.EasyShipShipmentStatus === "Delivered") return "delivered";
+  if (
+    order.EasyShipShipmentStatus === "ReturnedToSeller" ||
+    order.EasyShipShipmentStatus === "ReturningToSeller" ||
+    order.EasyShipShipmentStatus === "RejectedByBuyer"
+  ) {
+    return "returned";
+  }
   return mapAmazonStatus(order.OrderStatus);
 }
 

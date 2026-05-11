@@ -141,6 +141,17 @@ export interface WebhookOrderEvent {
   purchasedAt?: Date | null;
 }
 
+export type OrderFetchResult = {
+  fetched: number;
+  saved: number;
+  amazonShippedReconciliation?: {
+    checked: number;
+    delivered: number;
+    unchanged: number;
+    failed: number;
+  };
+};
+
 export interface ExternalProduct {
   id: string;
   name: string;
@@ -365,5 +376,5 @@ export interface ChannelHandler {
   fetchAndSaveOrders?(
     userId: number,
     channelId: number,
-  ): Promise<{ fetched: number; saved: number }>;
+  ): Promise<OrderFetchResult>;
 }
