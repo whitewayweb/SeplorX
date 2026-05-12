@@ -37,12 +37,13 @@ vi.mock("../api/client", () => {
           { OrderItemId: "item1", ASIN: "B001234567", SellerSKU: "MY_SEPLORX_SKU", QuantityOrdered: 1 }
         ]
       });
+      getOrder = vi.fn().mockResolvedValue({ AmazonOrderId: "123-1234567-1234567", OrderStatus: "Shipped" });
     }
   };
 });
 
 import { db } from "@/db";
-import { amazonHandler } from "../index";
+import { __amazonOrderStatusForTest, amazonHandler } from "../index";
 
 describe("Amazon Order Matching Logic", () => {
   let txMock: {
@@ -160,5 +161,42 @@ describe("Amazon Order Matching Logic", () => {
     const orderItemValues = txMock.insert.mock.results[1].value.values.mock.calls[0][0];
     
     expect(orderItemValues.productId).toBeUndefined();
+  });
+});
+
+describe("Amazon order status mapping", () => {
+  it("keeps regular Amazon Shipped orders shipped", () => {
+    expect(
+      __amazonOrderStatusForTest.mapAmazonOrderStatus({
+        AmazonOrderId: "123-1234567-1234567",
+        PurchaseDate: "2026-05-10T10:00:00Z",
+        LastUpdateDate: "2026-05-10T10:00:00Z",
+        OrderStatus: "Shipped",
+      }),
+    ).toBe("shipped");
+  });
+
+  it("marks Easy Ship delivered orders as delivered only when Amazon provides delivery evidence", () => {
+    expect(
+      __amazonOrderStatusForTest.mapAmazonOrderStatus({
+        AmazonOrderId: "123-1234567-1234567",
+        PurchaseDate: "2026-05-10T10:00:00Z",
+        LastUpdateDate: "2026-05-11T10:00:00Z",
+        OrderStatus: "Shipped",
+        EasyShipShipmentStatus: "Delivered",
+      }),
+    ).toBe("delivered");
+  });
+
+  it("maps terminal Easy Ship return statuses to returned", () => {
+    expect(
+      __amazonOrderStatusForTest.mapAmazonOrderStatus({
+        AmazonOrderId: "123-1234567-1234567",
+        PurchaseDate: "2026-05-10T10:00:00Z",
+        LastUpdateDate: "2026-05-11T10:00:00Z",
+        OrderStatus: "Shipped",
+        EasyShipShipmentStatus: "ReturnedToSeller",
+      }),
+    ).toBe("returned");
   });
 });

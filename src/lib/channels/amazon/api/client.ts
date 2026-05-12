@@ -1264,6 +1264,35 @@ export class AmazonAPIClient {
   }
 
   /**
+   * Fetch one order by Amazon order ID.
+   * API: /orders/v0/orders/{orderId} (getOrder)
+   */
+  public async getOrder(
+    orderId: string,
+  ): Promise<OrdersV0Schema["GetOrderResponse"]["payload"]> {
+    const accessToken = await this.getAccessToken();
+    const url = new URL(
+      `${this.endpoint}/orders/v0/orders/${encodeURIComponent(orderId)}`,
+    );
+
+    const res = await this.fetchWithRetry(url.toString(), {
+      headers: {
+        Accept: "application/json",
+        "x-amz-access-token": accessToken,
+      },
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      logger.error("[Amazon SP-API] getOrder Error:", errText);
+      throw new Error(`Failed to get order ${orderId}: ${res.status}`);
+    }
+
+    const data = (await res.json()) as OrdersV0Schema["GetOrderResponse"];
+    return data.payload;
+  }
+
+  /**
    * Fetch line items for a specific order.
    * API: /orders/v0/orders/{orderId}/orderItems (getOrderItems)
    */

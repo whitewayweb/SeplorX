@@ -4,9 +4,11 @@
 // Next.js/Turbopack never tries to bundle it. The dynamic import() below is
 // resolved at runtime on the server only.
 
-import type { ChannelHandler } from "../types";
+import type { ChannelHandler, OrderFetchResult } from "../types";
 import { AmazonAPIClient } from "./api/client";
 import { logger } from "@/lib/logger";
+import type { SalesOrderStatus } from "@/db/schema";
+import type { OrdersV0Schema } from "./api/types/ordersV0Schema";
 
 import {
   configFields,
@@ -17,6 +19,11 @@ import {
   extractRelationships,
 } from "./config";
 import { extractSqlField, getBrands } from "./queries";
+
+type AmazonOrder = OrdersV0Schema["Order"];
+
+const STALE_SHIPPED_RECONCILE_LIMIT = 25;
+const AMAZON_ORDER_DETAIL_DELAY_MS = 2_000;
 
 export const amazonHandler: ChannelHandler = {
   id: "amazon",
@@ -142,7 +149,7 @@ export const amazonHandler: ChannelHandler = {
   async fetchAndSaveOrders(
     userId: number,
     channelId: number,
-  ): Promise<{ fetched: number; saved: number }> {
+  ): Promise<OrderFetchResult> {
     const { db } = await import("@/db");
     const {
       channels,
@@ -151,7 +158,7 @@ export const amazonHandler: ChannelHandler = {
       channelProductMappings,
       products,
     } = await import("@/db/schema");
-    const { eq, and, or, isNull, inArray } = await import("drizzle-orm");
+    const { eq, and, or, isNull, inArray, asc } = await import("drizzle-orm");
     const { decryptChannelCredentials } = await import("@/lib/channels/utils");
     const { resolveSalesOrderItemCostSnapshot } = await import("@/lib/orders/costs");
 
@@ -188,6 +195,12 @@ export const amazonHandler: ChannelHandler = {
 
     let fetchedCount = 0;
     let savedCount = 0;
+    const amazonShippedReconciliation: NonNullable<OrderFetchResult["amazonShippedReconciliation"]> = {
+      checked: 0,
+      delivered: 0,
+      unchanged: 0,
+      failed: 0,
+    };
 
     for await (const pageOrders of ordersGenerator) {
       fetchedCount += pageOrders.length;
@@ -196,8 +209,7 @@ export const amazonHandler: ChannelHandler = {
       for (const amzOrder of pageOrders) {
         try {
           logger.info(`[Amazon Sync] Processing order ${amzOrder.AmazonOrderId} (${amzOrder.OrderStatus})`);
-          // 1. Pre-check if order already exists (out of tx to save connection)
-          // 1. Pre-check for existing order
+          // Pre-check for existing order
           const [existing] = await db
             .select({
               id: salesOrders.id,
@@ -216,7 +228,7 @@ export const amazonHandler: ChannelHandler = {
             .limit(1);
 
           if (existing) {
-            const newStatus = mapAmazonStatus(amzOrder.OrderStatus);
+            const newStatus = mapAmazonOrderStatus(amzOrder);
 
             // If status changed, update and process stock
             if (existing.status !== newStatus) {
@@ -277,7 +289,7 @@ export const amazonHandler: ChannelHandler = {
           ]);
 
           // Throttling: respect SP-API burst/restore limits (approx 0.5s restore rate for these endpoints)
-          await new Promise((resolve) => setTimeout(resolve, 500));
+          await sleep(500);
 
           await db.transaction(async (tx) => {
             // Double check inside tx for atomicity (optional but safer)
@@ -310,7 +322,7 @@ export const amazonHandler: ChannelHandler = {
               .values({
                 channelId,
                 externalOrderId: amzOrder.AmazonOrderId,
-                status: mapAmazonStatus(amzOrder.OrderStatus),
+                status: mapAmazonOrderStatus(amzOrder),
                 totalAmount: amzOrder.OrderTotal?.Amount,
                 currency: amzOrder.OrderTotal?.CurrencyCode,
                 buyerName: resolvedBuyerName,
@@ -535,24 +547,119 @@ export const amazonHandler: ChannelHandler = {
       logger.error("[Amazon Sync] Failed to map past items:", err);
     }
 
-    return { fetched: fetchedCount, saved: savedCount };
+    try {
+      const staleShippedOrders = await db
+        .select({
+          id: salesOrders.id,
+          externalOrderId: salesOrders.externalOrderId,
+          status: salesOrders.status,
+          purchasedAt: salesOrders.purchasedAt,
+          rawData: salesOrders.rawData,
+        })
+        .from(salesOrders)
+        .where(
+          and(
+            eq(salesOrders.channelId, channelId),
+            eq(salesOrders.status, "shipped"),
+          ),
+        )
+        .orderBy(asc(salesOrders.syncedAt))
+        .limit(STALE_SHIPPED_RECONCILE_LIMIT);
+
+      for (const order of staleShippedOrders) {
+        try {
+          const latestOrder = await client.getOrder(order.externalOrderId);
+          amazonShippedReconciliation.checked++;
+          if (!latestOrder) {
+            amazonShippedReconciliation.failed++;
+            continue;
+          }
+
+          const newStatus = mapAmazonOrderStatus(latestOrder);
+          const mergedRawData = {
+            ...((order.rawData as Record<string, unknown>) || {}),
+            lastAmzUpdate: latestOrder,
+          };
+
+          await db
+            .update(salesOrders)
+            .set({
+              status: newStatus,
+              previousStatus: order.status !== newStatus ? order.status : undefined,
+              rawData: mergedRawData,
+              syncedAt: new Date(),
+            })
+            .where(eq(salesOrders.id, order.id));
+
+          if (order.status !== newStatus) {
+            try {
+              const {
+                processOrderStockChange,
+                STOCK_CUTOFF_DATE,
+              } = await import("@/lib/stock/service");
+              if (order.purchasedAt && order.purchasedAt >= STOCK_CUTOFF_DATE) {
+                await processOrderStockChange(
+                  order.id,
+                  newStatus,
+                  order.status,
+                  userId,
+                );
+              }
+            } catch (stockErr) {
+              logger.error(
+                `[Amazon Sync] Stock processing failed for reconciled order ${order.externalOrderId}:`,
+                stockErr,
+              );
+            }
+            savedCount++;
+            if (newStatus === "delivered") {
+              amazonShippedReconciliation.delivered++;
+            }
+          } else {
+            amazonShippedReconciliation.unchanged++;
+          }
+
+          await sleep(AMAZON_ORDER_DETAIL_DELAY_MS);
+        } catch (err) {
+          amazonShippedReconciliation.failed++;
+          logger.error(
+            `[Amazon Sync] Failed to reconcile shipped order ${order.externalOrderId}:`,
+            err,
+          );
+        }
+      }
+    } catch (err) {
+      logger.error("[Amazon Sync] Failed to reconcile shipped orders:", err);
+    }
+
+    logger.info("[Amazon Sync] Shipped order reconciliation complete", {
+      channelId,
+      ...amazonShippedReconciliation,
+    });
+
+    return {
+      fetched: fetchedCount,
+      saved: savedCount,
+      amazonShippedReconciliation,
+    };
   },
 };
 
+function mapAmazonOrderStatus(order: Pick<AmazonOrder, "OrderStatus" | "EasyShipShipmentStatus">): SalesOrderStatus {
+  if (order.EasyShipShipmentStatus === "Delivered") return "delivered";
+  if (
+    order.EasyShipShipmentStatus === "ReturnedToSeller" ||
+    order.EasyShipShipmentStatus === "ReturningToSeller" ||
+    order.EasyShipShipmentStatus === "RejectedByBuyer"
+  ) {
+    return "returned";
+  }
+  return mapAmazonStatus(order.OrderStatus);
+}
+
 function mapAmazonStatus(
   status: string | undefined,
-):
-  | "pending"
-  | "processing"
-  | "on-hold"
-  | "packed"
-  | "shipped"
-  | "delivered"
-  | "cancelled"
-  | "returned"
-  | "refunded"
-  | "failed"
-  | "draft" {
+): SalesOrderStatus {
   if (!status) return "pending";
   switch (status) {
     case "PendingAvailability":
@@ -574,3 +681,11 @@ function mapAmazonStatus(
       return "pending";
   }
 }
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export const __amazonOrderStatusForTest = {
+  mapAmazonOrderStatus,
+};

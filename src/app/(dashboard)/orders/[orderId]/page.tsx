@@ -11,8 +11,8 @@ export const dynamic = "force-dynamic";
 
 const RETURN_DISPOSITION_BADGES: Record<string, { label: string; className: string }> = {
   pending_inspection: { label: "Pending Inspection", className: "bg-amber-100 text-amber-800" },
-  restocked:          { label: "Restocked",          className: "bg-green-100 text-green-800" },
-  discarded:          { label: "Discarded",           className: "bg-red-100 text-red-800" },
+  restocked: { label: "Restocked", className: "bg-green-100 text-green-800" },
+  discarded: { label: "Discarded", className: "bg-red-100 text-red-800" },
 };
 
 export default async function OrderDetailPage({
@@ -46,7 +46,7 @@ export default async function OrderDetailPage({
   const returnDisposition = order.returnDisposition;
 
   return (
-    <div className="p-8 max-w-5xl">
+    <div className="p-8">
       {/* Header */}
       <div className="mb-6">
         <Link
@@ -66,18 +66,16 @@ export default async function OrderDetailPage({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`px-3 py-1 text-sm font-semibold rounded-full ${
-              order.status === "shipped"   ? "bg-green-100 text-green-800"  :
-              order.status === "cancelled" ? "bg-red-100 text-red-800"      :
-              order.status === "returned"  ? "bg-orange-100 text-orange-800":
-                                             "bg-yellow-100 text-yellow-800"
-            }`}>
+            <span className={`px-3 py-1 text-sm font-semibold rounded-full ${order.status === "shipped" ? "bg-green-100 text-green-800" :
+              order.status === "cancelled" ? "bg-red-100 text-red-800" :
+                order.status === "returned" ? "bg-orange-100 text-orange-800" :
+                  "bg-yellow-100 text-yellow-800"
+              }`}>
               {order.status}
             </span>
             {isReturned && returnDisposition && (
-              <span className={`px-3 py-1 text-sm font-semibold rounded-full ${
-                RETURN_DISPOSITION_BADGES[returnDisposition]?.className ?? "bg-gray-100 text-gray-800"
-              }`}>
+              <span className={`px-3 py-1 text-sm font-semibold rounded-full ${RETURN_DISPOSITION_BADGES[returnDisposition]?.className ?? "bg-gray-100 text-gray-800"
+                }`}>
                 {RETURN_DISPOSITION_BADGES[returnDisposition]?.label ?? returnDisposition}
               </span>
             )}
@@ -132,9 +130,8 @@ export default async function OrderDetailPage({
                           )}
                           {/* Return disposition badge per item */}
                           {isReturned && itemDisposition && (
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                              RETURN_DISPOSITION_BADGES[itemDisposition]?.className ?? "bg-gray-100 text-gray-700"
-                            }`}>
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${RETURN_DISPOSITION_BADGES[itemDisposition]?.className ?? "bg-gray-100 text-gray-700"
+                              }`}>
                               {RETURN_DISPOSITION_BADGES[itemDisposition]?.label ?? itemDisposition}
                               {item.returnQuantity > 0 && item.returnQuantity < item.quantity && (
                                 <> ({item.returnQuantity}/{item.quantity})</>
@@ -194,7 +191,7 @@ export default async function OrderDetailPage({
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50/50">
                     <tr>
-                      <th className="text-left py-2.5 px-6 font-medium text-gray-500 text-xs">Product ID</th>
+                      <th className="text-left py-2.5 px-6 font-medium text-gray-500 text-xs">Product</th>
                       <th className="text-right py-2.5 px-6 font-medium text-gray-500 text-xs">Quantity Reserved</th>
                       <th className="text-left py-2.5 px-6 font-medium text-gray-500 text-xs">Created At</th>
                     </tr>
@@ -204,8 +201,13 @@ export default async function OrderDetailPage({
                       <tr key={res.id}>
                         <td className="py-3 px-6">
                           {res.productId ? (
-                            <Link href={`/products/${res.productId}`} className="text-blue-600 hover:underline font-mono text-xs">
-                              {res.productId}
+                            <Link href={`/products/${res.productId}`} className="group block min-w-0">
+                              <span className="block font-medium text-blue-600 group-hover:underline line-clamp-1">
+                                {res.productName}
+                              </span>
+                              <span className="block text-xs text-gray-400 font-mono mt-0.5">
+                                {res.productSku ? `SKU: ${res.productSku} · ` : ""}ID: {res.productId}
+                              </span>
                             </Link>
                           ) : "—"}
                         </td>
