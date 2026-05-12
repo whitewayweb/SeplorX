@@ -425,6 +425,8 @@ export interface OrdersV0Schema {
   OrderBuyerInfo: {
     /** @description An Amazon-defined order identifier, in 3-7-7 format. */
     AmazonOrderId: string;
+    /** @description The anonymized email address of the buyer. */
+    BuyerEmail?: string;
     /** @description The buyer name or the recipient name. */
     BuyerName?: string;
     /**
@@ -593,9 +595,9 @@ export interface OrdersV0Schema {
      */
     Phone?: string;
     /**
-     * @description The container for address extended fields. For example, street name or street number.
+     * @description Extended address fields for additional address components including the street name or number.
      *
-     * **Note**: This attribute is currently only available with Brazil shipping addresses.
+     * Note: Available for grocery sellers and Brazil shipping addresses.
      */
     ExtendedFields?: OrdersV0Schema["AddressExtendedFields"];
     /**
@@ -604,7 +606,11 @@ export interface OrdersV0Schema {
      */
     AddressType?: "Residential" | "Commercial";
   };
-  /** @description The container for address extended fields (such as `street name` and `street number`). Currently only available with Brazil shipping addresses. */
+  /**
+   * @description Extended address fields for additional address components including the street name or number.
+   *
+   * Note: Available for grocery sellers and Brazil shipping addresses.
+   */
   AddressExtendedFields: {
     /** @description The street name. */
     StreetName?: string;
@@ -614,6 +620,25 @@ export interface OrdersV0Schema {
     Complement?: string;
     /** @description The neighborhood. This value is only used in some countries (such as Brazil). */
     Neighborhood?: string;
+    /**
+     * @description Latitude and longitude coordinates for the shipping address using the WGS84 coordinate system.
+     *
+     * Note: Available for sellers that support geographic coordinates.
+     */
+    GeoCoordinates?: OrdersV0Schema["GeoCoordinates"];
+  };
+  /** @description The latitude and longitude coordinates of the shipping address using the WGS84 coordinate system. */
+  GeoCoordinates: {
+    /**
+     * Format: double
+     * @description The latitude coordinate of the shipping address using the WGS84 coordinate system.
+     */
+    Latitude?: number;
+    /**
+     * Format: double
+     * @description The longitude coordinate of the shipping address using the WGS84 coordinate system.
+     */
+    Longitude?: number;
   };
   /** @description Contains all of the delivery instructions provided by the customer for the shipping address. */
   DeliveryPreferences: {
@@ -1054,6 +1079,8 @@ export interface OrdersV0Schema {
   ConstraintType: "MANDATORY";
   /** @description Buyer information. */
   BuyerInfo: {
+    /** @description The anonymized email address of the buyer. */
+    BuyerEmail?: string;
     /** @description The buyer name or the recipient name. */
     BuyerName?: string;
     /**
@@ -1280,7 +1307,9 @@ export interface operations {
          * **Possible values**: `COD` (cash on delivery), `CVS` (convenience store), `Other` (Any payment method other than COD or CVS).
          */
         PaymentMethods?: string[];
-        /** An order identifier that is specified by the seller. Used to select only the orders that match the order identifier. If `SellerOrderId` is specified, then `FulfillmentChannels`, `OrderStatuses`, `PaymentMethod`, `LastUpdatedAfter`, and `LastUpdatedBefore` cannot be specified. */
+        /** The email address of a buyer. Used to select orders that contain the specified email address. */
+        BuyerEmail?: string;
+        /** An order identifier that is specified by the seller. Used to select only the orders that match the order identifier. If `SellerOrderId` is specified, then `FulfillmentChannels`, `OrderStatuses`, `PaymentMethod`, `LastUpdatedAfter`, `LastUpdatedBefore`, and `BuyerEmail` cannot be specified. */
         SellerOrderId?: string;
         /** A number that indicates the maximum number of orders that can be returned per page. Value must be 1 - 100. Default 100. */
         MaxResultsPerPage?: number;

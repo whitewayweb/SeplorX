@@ -42,8 +42,18 @@ Supabase provides two connection URLs:
 | `yarn build` | Production build |
 | `yarn lint` | Run ESLint |
 | `yarn knip` | Find unused code and dependencies |
+| `yarn generate:amazon-types` | Regenerate collocated Amazon SP-API types in `src/lib/channels/amazon/api/types` |
+| `yarn generate:types` | Regenerate channel API types, including Amazon and WooCommerce |
 | `yarn db` | Generate and run database migrations |
 | `yarn db:studio` | Open Drizzle Studio (database GUI) |
+
+## Channel Finance Reconciliation
+
+Order finance data is normalized through the shared `src/lib/order-finance` service. Channel handlers can opt in with `capabilities.canSyncOrderFinances` and implement `syncOrderFinances()`.
+
+- Amazon fetches delayed realized finance transactions from Finances API `2024-06-19`.
+- WooCommerce derives finance rows from the stored order payload; it does not call a separate finance API.
+- Reporting only applies cost-side finance roles to profit: marketplace fees, payment fees, withholding, adjustments, and provider-specific other costs.
 
 ## Deployment
 

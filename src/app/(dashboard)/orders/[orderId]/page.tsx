@@ -1,11 +1,14 @@
 import { getAuthenticatedUserId } from "@/lib/auth";
 import { getOrderDetail, getOrderItems } from "@/lib/channels/amazon/queries";
 import { getReservationsForOrder, getReturnItemsForOrder } from "@/data/stock";
+import { getOrderFinanceSummary } from "@/lib/order-finance/service";
+import { getChannelById } from "@/lib/channels/registry";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Lock, RotateCcw } from "lucide-react";
 import type { OrdersV0Schema } from "@/lib/channels/amazon/api/types/ordersV0Schema";
 import { ReturnActionDialog } from "@/components/organisms/orders/return-action-dialog";
+import { SyncFinancesButton } from "@/components/organisms/orders/sync-finances-button";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +17,36 @@ const RETURN_DISPOSITION_BADGES: Record<string, { label: string; className: stri
   restocked: { label: "Restocked", className: "bg-green-100 text-green-800" },
   discarded: { label: "Discarded", className: "bg-red-100 text-red-800" },
 };
+
+const FINANCE_STATUS_BADGES: Record<string, { label: string; className: string }> = {
+  pending: { label: "Pending", className: "bg-yellow-100 text-yellow-800" },
+  synced: { label: "Synced", className: "bg-green-100 text-green-800" },
+  no_data: { label: "No data", className: "bg-gray-100 text-gray-700" },
+  failed: { label: "Failed", className: "bg-red-100 text-red-800" },
+  not_supported: { label: "Not supported", className: "bg-gray-100 text-gray-700" },
+};
+
+function formatMoney(currency: string | null, amount: number): string {
+  try {
+    return new Intl.NumberFormat("en-GB", {
+      style: "currency",
+      currency: currency ?? "GBP",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${currency ?? ""} ${amount.toFixed(2)}`.trim();
+  }
+}
+
+function formatDateTime(value: Date | null): string {
+  if (!value) return "—";
+  return new Intl.DateTimeFormat("en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Europe/London",
+  }).format(value);
+}
 
 export default async function OrderDetailPage({
   params,
@@ -31,10 +64,11 @@ export default async function OrderDetailPage({
   const order = await getOrderDetail(userId, orderIdNum);
   if (!order) notFound();
 
-  const [items, reservations, returnItems] = await Promise.all([
+  const [items, reservations, returnItems, financeSummary] = await Promise.all([
     getOrderItems(userId, orderIdNum),
     getReservationsForOrder(orderIdNum),
     order.status === "returned" ? getReturnItemsForOrder(orderIdNum) : Promise.resolve([]),
+    getOrderFinanceSummary(userId, orderIdNum),
   ]);
 
   // Read from the narrowed JSONB fields directly
@@ -44,6 +78,10 @@ export default async function OrderDetailPage({
   const matchedCount = items.filter((i) => i.channelProductId !== null).length;
   const isReturned = order.status === "returned";
   const returnDisposition = order.returnDisposition;
+  const channelDefinition = getChannelById(order.channelType);
+  const canSyncFinances = channelDefinition?.capabilities?.canSyncOrderFinances === true;
+  const financeStatus = financeSummary?.syncStatus ?? "pending";
+  const financeBadge = FINANCE_STATUS_BADGES[financeStatus] ?? FINANCE_STATUS_BADGES.pending;
 
   return (
     <div className="p-8">
@@ -269,6 +307,63 @@ export default async function OrderDetailPage({
 
         {/* Sidebar */}
         <div className="space-y-4">
+          {/* Finance Reconciliation */}
+          <div className="bg-white rounded-lg shadow">
+            <div className="px-4 py-3 border-b flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-800">Finance</h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {financeSummary?.eventCount ?? 0} events · latest {formatDateTime(financeSummary?.latestPostedAt ?? null)}
+                </p>
+              </div>
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${financeBadge.className}`}>
+                {financeBadge.label}
+              </span>
+            </div>
+            <div className="px-4 py-3 text-xs text-gray-600 space-y-2">
+              <div className="flex justify-between">
+                <span>Principal</span>
+                <span className="font-medium text-gray-900">
+                  {formatMoney(order.currency, financeSummary?.principal ?? 0)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Marketplace fees</span>
+                <span className="font-medium text-gray-900">
+                  {formatMoney(order.currency, financeSummary?.marketplaceFee ?? 0)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Withholding</span>
+                <span className="font-medium text-gray-900">
+                  {formatMoney(order.currency, financeSummary?.withholding ?? 0)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Refunds/adjustments</span>
+                <span className="font-medium text-gray-900">
+                  {formatMoney(order.currency, (financeSummary?.refund ?? 0) + (financeSummary?.adjustment ?? 0))}
+                </span>
+              </div>
+              <div className="flex justify-between border-t pt-2">
+                <span className="font-medium text-gray-800">Profit adjustment</span>
+                <span className="font-semibold text-gray-900">
+                  {formatMoney(order.currency, financeSummary?.netProfitAdjustment ?? 0)}
+                </span>
+              </div>
+              {financeSummary?.lastErrorMessage && (
+                <p className="rounded-md bg-red-50 px-3 py-2 text-red-700">
+                  Finance sync failed. Check server logs for details.
+                </p>
+              )}
+              {canSyncFinances && (
+                <div className="pt-2">
+                  <SyncFinancesButton channelId={order.channelId} orderId={order.id} />
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Buyer Info */}
           <div className="bg-white rounded-lg shadow">
             <div className="px-4 py-3 border-b">

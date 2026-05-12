@@ -112,6 +112,30 @@ export const salesOrderStatusEnum = pgEnum("sales_order_status", [
 ]);
 export type SalesOrderStatus = typeof salesOrderStatusEnum.enumValues[number];
 
+export const financeSyncStatusEnum = pgEnum("finance_sync_status", [
+  "pending",
+  "synced",
+  "no_data",
+  "failed",
+  "not_supported",
+]);
+export type FinanceSyncStatus = typeof financeSyncStatusEnum.enumValues[number];
+
+export const financeAmountRoleEnum = pgEnum("finance_amount_role", [
+  "principal",
+  "tax",
+  "shipping_revenue",
+  "discount",
+  "order_fee_revenue",
+  "marketplace_fee",
+  "payment_fee",
+  "withholding",
+  "refund",
+  "adjustment",
+  "other",
+]);
+export type FinanceAmountRole = typeof financeAmountRoleEnum.enumValues[number];
+
 // ─── Users ───────────────────────────────────────────────────────────────────
 
 export const users = pgTable("users", {
@@ -608,6 +632,64 @@ export const salesOrderItems = pgTable("sales_order_items", {
   uniqueIndex("sales_order_items_order_ext_idx").on(table.orderId, table.externalItemId),
   index("sales_order_items_order_idx").on(table.orderId),
   index("sales_order_items_product_idx").on(table.productId),
+  index("sales_order_items_unit_cost_idx").on(table.unitCost),
+]).enableRLS();
+
+export const salesOrderFinanceSyncs = pgTable("sales_order_finance_syncs", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id").notNull().references(() => salesOrders.id, { onDelete: "cascade" }),
+  channelId: integer("channel_id").notNull().references(() => channels.id, { onDelete: "cascade" }),
+  status: financeSyncStatusEnum("status").default("pending").notNull(),
+  source: varchar("source", { length: 100 }).notNull(),
+  lastAttemptAt: timestamp("last_attempt_at"),
+  syncedAt: timestamp("synced_at"),
+  lastErrorCode: varchar("last_error_code", { length: 100 }),
+  lastErrorMessage: text("last_error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("sales_order_finance_syncs_order_unique").on(table.orderId),
+  index("sales_order_finance_syncs_channel_idx").on(table.channelId),
+  index("sales_order_finance_syncs_status_idx").on(table.status),
+]).enableRLS();
+
+export const salesOrderFinanceEvents = pgTable("sales_order_finance_events", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id").notNull().references(() => salesOrders.id, { onDelete: "cascade" }),
+  channelId: integer("channel_id").notNull().references(() => channels.id, { onDelete: "cascade" }),
+  dedupeKey: varchar("dedupe_key", { length: 255 }).notNull(),
+  externalEventId: varchar("external_event_id", { length: 255 }),
+  eventType: varchar("event_type", { length: 100 }).notNull(),
+  eventStatus: varchar("event_status", { length: 100 }),
+  postedAt: timestamp("posted_at"),
+  sourceApiVersion: varchar("source_api_version", { length: 100 }).notNull(),
+  rawData: jsonb("raw_data").$type<Record<string, unknown>>().default({}).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("sales_order_finance_events_dedupe_unique").on(table.channelId, table.dedupeKey),
+  index("sales_order_finance_events_order_idx").on(table.orderId),
+  index("sales_order_finance_events_channel_idx").on(table.channelId),
+  index("sales_order_finance_events_posted_idx").on(table.postedAt),
+]).enableRLS();
+
+export const salesOrderFinanceComponents = pgTable("sales_order_finance_components", {
+  id: serial("id").primaryKey(),
+  financeEventId: integer("finance_event_id").notNull().references(() => salesOrderFinanceEvents.id, { onDelete: "cascade" }),
+  orderItemId: integer("order_item_id").references(() => salesOrderItems.id, { onDelete: "set null" }),
+  externalItemId: varchar("external_item_id", { length: 255 }),
+  sku: varchar("sku", { length: 255 }),
+  amountRole: financeAmountRoleEnum("amount_role").notNull(),
+  code: varchar("code", { length: 100 }).notNull(),
+  amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 10 }),
+  quantity: integer("quantity"),
+  rawData: jsonb("raw_data").$type<Record<string, unknown>>().default({}).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("sales_order_finance_components_event_idx").on(table.financeEventId),
+  index("sales_order_finance_components_item_idx").on(table.orderItemId),
+  index("sales_order_finance_components_role_idx").on(table.amountRole),
 ]).enableRLS();
 
 // ─── Stock Reservations ──────────────────────────────────────────────────────

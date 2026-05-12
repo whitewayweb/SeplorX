@@ -5,12 +5,14 @@ import {
   channelProducts,
   channels,
   products,
+  salesOrderFinanceSyncs,
   salesOrderItems,
   salesOrders,
   stockReservations,
 } from "@/db/schema";
 import { getPendingStockSyncProductCount } from "@/data/products";
 import { channelRegistry, getChannelById } from "@/lib/channels/registry";
+import { getFinanceProfitAdjustmentSql } from "@/lib/order-finance/service";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
 
@@ -33,6 +35,10 @@ const ACTIONABLE_ORDER_STATUSES = [
 
 const STOCK_PUSH_SUPPORTED_CHANNEL_TYPES = channelRegistry
   .filter((channel) => channel.capabilities?.canPushStock)
+  .map((channel) => channel.id);
+
+const FINANCE_SUPPORTED_CHANNEL_TYPES = channelRegistry
+  .filter((channel) => channel.capabilities?.canSyncOrderFinances)
   .map((channel) => channel.id);
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -192,6 +198,7 @@ interface OperationalSummary {
   unmappedListings: number;
   returnsAwaitingAction: number;
   failedFeeds: number;
+  financeUnsyncedOrders: number;
   inventoryValue: number;
 }
 
@@ -266,6 +273,14 @@ function buildActions(
       tone: "warning",
     },
     {
+      title: "Sync order finances",
+      description: "Eligible orders are missing fee, withholding, or adjustment rows needed for reconciled profit.",
+      count: summary.financeUnsyncedOrders,
+      href: "/orders",
+      cta: "Review orders",
+      tone: "info",
+    },
+    {
       title: "Fix failed channel feeds",
       description: "Failed feeds can leave external listings out of date until they are reviewed.",
       count: summary.failedFeeds,
@@ -282,7 +297,7 @@ function buildActions(
 }
 
 async function getSalesSummary(userId: number, window: DashboardWindow): Promise<SalesSummary> {
-  const [ordersRow, profitRow] = await Promise.all([
+  const [ordersRow, profitRow, financeProfitAdjustmentPeriod] = await Promise.all([
     db
       .select({
         revenueToday: sql<string>`coalesce(sum(${salesOrders.totalAmount}) filter (
@@ -330,6 +345,7 @@ async function getSalesSummary(userId: number, window: DashboardWindow): Promise
           sql`${salesOrders.purchasedAt} >= ${window.periodStart}`,
         ),
       ),
+    getFinanceProfitAdjustmentSql(userId, window.periodStart),
   ]);
 
   const row = ordersRow[0];
@@ -342,7 +358,7 @@ async function getSalesSummary(userId: number, window: DashboardWindow): Promise
     ordersToday: toNumber(row?.ordersToday),
     ordersPeriod: toNumber(row?.ordersPeriod),
     knownCostRevenuePeriod: toNumber(profit?.knownCostRevenuePeriod),
-    grossProfitPeriod: toNumber(profit?.grossProfitPeriod),
+    grossProfitPeriod: toNumber(profit?.grossProfitPeriod) + financeProfitAdjustmentPeriod,
     estimatedCostPeriod: toNumber(profit?.estimatedCostPeriod),
     missingCostRevenue: toNumber(profit?.missingCostRevenue),
   };
@@ -354,6 +370,7 @@ async function getOperationalSummary(userId: number): Promise<OperationalSummary
     unmappedRows,
     returnsRows,
     failedFeedRows,
+    financeUnsyncedRows,
     inventoryRows,
   ] = await Promise.all([
     db
@@ -403,6 +420,38 @@ async function getOperationalSummary(userId: number): Promise<OperationalSummary
       .where(and(eq(channels.userId, userId), eq(channelFeeds.status, "fatal"))),
     db
       .select({
+        count: sql<number>`count(*)::int`,
+      })
+      .from(salesOrders)
+      .innerJoin(channels, eq(salesOrders.channelId, channels.id))
+      .leftJoin(salesOrderFinanceSyncs, eq(salesOrderFinanceSyncs.orderId, salesOrders.id))
+      .where(
+        and(
+          eq(channels.userId, userId),
+          eq(channels.status, "connected"),
+          inArray(channels.channelType, FINANCE_SUPPORTED_CHANNEL_TYPES),
+          inArray(salesOrders.status, [
+            "pending",
+            "processing",
+            "on-hold",
+            "packed",
+            "shipped",
+            "delivered",
+            "returned",
+            "refunded",
+          ]),
+          sql`(
+            ${salesOrderFinanceSyncs.status} is null
+            or ${salesOrderFinanceSyncs.status} not in ('synced', 'not_supported')
+          )`,
+          sql`(
+            ${channels.channelType} <> 'amazon'
+            or ${salesOrders.purchasedAt} <= ${new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()}
+          )`,
+        ),
+      ),
+    db
+      .select({
         totalValue: sql<string>`coalesce(sum(${products.quantityOnHand}::numeric * coalesce(${products.purchasePrice}, 0)), 0)`,
       })
       .from(products)
@@ -414,6 +463,7 @@ async function getOperationalSummary(userId: number): Promise<OperationalSummary
     unmappedListings: toNumber(unmappedRows[0]?.count),
     returnsAwaitingAction: toNumber(returnsRows[0]?.count),
     failedFeeds: toNumber(failedFeedRows[0]?.count),
+    financeUnsyncedOrders: toNumber(financeUnsyncedRows[0]?.count),
     inventoryValue: toNumber(inventoryRows[0]?.totalValue),
   };
 }

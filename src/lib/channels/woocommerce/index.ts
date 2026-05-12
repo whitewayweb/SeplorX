@@ -1,6 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
-import type { ChannelHandler, WebhookStockChange, WebhookOrderEvent, ExternalProduct, ChannelPushSyncResult } from "../types";
+import type { ChannelHandler, WebhookStockChange, WebhookOrderEvent, ExternalProduct, ChannelPushSyncResult, OrderFetchResult } from "../types";
 import { extractSqlField, getBrands } from "./queries";
+import { syncWooCommerceOrderFinances } from "./finances";
 import { PORTAL_NAME } from "@/utils/constants";
 import { logger } from "@/lib/logger";
 
@@ -508,7 +509,7 @@ export const woocommerceHandler: ChannelHandler = {
   /**
    * Fetch orders from the remote channel and persist them as sales_orders.
    */
-  async fetchAndSaveOrders(userId: number, channelId: number): Promise<{ fetched: number; saved: number }> {
+  async fetchAndSaveOrders(userId: number, channelId: number): Promise<OrderFetchResult> {
     const { db } = await import("@/db");
     const { channels, salesOrders, salesOrderItems, channelProductMappings, products } = await import("@/db/schema");
     const { eq, and, isNull, inArray } = await import("drizzle-orm");
@@ -875,7 +876,22 @@ export const woocommerceHandler: ChannelHandler = {
       logger.error("[WooCommerce Sync] Failed to map past items", err);
     }
 
-    return { fetched: fetchedCount, saved: savedCount };
+    const financeReconciliation = await syncWooCommerceOrderFinances(userId, channelId, { limit: 100 }).catch((err) => {
+      logger.error("[WooCommerce Sync] Finance reconciliation failed:", err);
+      return {
+        checked: 0,
+        synced: 0,
+        noData: 0,
+        failed: 1,
+        notSupported: 0,
+      };
+    });
+
+    return { fetched: fetchedCount, saved: savedCount, financeReconciliation };
+  },
+
+  async syncOrderFinances(userId, channelId, options) {
+    return syncWooCommerceOrderFinances(userId, channelId, options);
   },
 };
 

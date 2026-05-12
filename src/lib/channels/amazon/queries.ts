@@ -77,6 +77,7 @@ export interface OrderDetail {
   purchasedAt: Date | null;
   channelId: number;
   channelName: string | null;
+  channelType: string;
   returnDisposition: string | null;
   /** Extracted sub-fields from rawData JSONB — only what the UI needs. */
   rawOrder: OrdersV0Schema["Order"] | null;
@@ -265,6 +266,7 @@ export async function getOrderDetail(
       purchasedAt: salesOrders.purchasedAt,
       channelId: salesOrders.channelId,
       channelName: channels.name,
+      channelType: channels.channelType,
       // Extract only the sub-fields the page actually renders — avoids shipping
       // the full rawData blob across the network.
       rawOrder: sql<OrdersV0Schema["Order"] | null>`(${salesOrders.rawData}->>'order')::jsonb`,
@@ -343,7 +345,6 @@ export async function getOrderItems(userId: number, orderId: number): Promise<Or
 
 
 export { getLastSyncDate } from "../queries";
-
 
 
 

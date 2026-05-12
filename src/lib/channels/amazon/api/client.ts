@@ -1263,6 +1263,48 @@ export class AmazonAPIClient {
     return { Orders: allOrders };
   }
 
+  public async getFinanceTransactionsByOrderId(
+    orderId: string,
+  ): Promise<unknown[]> {
+    const accessToken = await this.getAccessToken();
+    const transactions: unknown[] = [];
+    let nextToken: string | undefined = undefined;
+
+    do {
+      const url = new URL(`${this.endpoint}/finances/2024-06-19/transactions`);
+      url.searchParams.set("marketplaceId", this.marketplaceId);
+      url.searchParams.set("relatedIdentifierName", "ORDER_ID");
+      url.searchParams.set("relatedIdentifierValue", orderId);
+      if (nextToken) url.searchParams.set("nextToken", nextToken);
+
+      const res = await this.fetchWithRetry(url.toString(), {
+        headers: {
+          Accept: "application/json",
+          "x-amz-access-token": accessToken,
+        },
+      });
+
+      if (!res.ok) {
+        await this.logErrorResponse("[Amazon SP-API] listTransactions Error:", res);
+        throw new Error(`Failed to get finance transactions for ${orderId}: ${res.status}`);
+      }
+
+      const data = (await res.json()) as {
+        payload?: {
+          nextToken?: string;
+          transactions?: unknown[];
+        };
+      };
+
+      if (Array.isArray(data.payload?.transactions)) {
+        transactions.push(...data.payload.transactions);
+      }
+      nextToken = data.payload?.nextToken;
+    } while (nextToken);
+
+    return transactions;
+  }
+
   /**
    * Fetch one order by Amazon order ID.
    * API: /orders/v0/orders/{orderId} (getOrder)

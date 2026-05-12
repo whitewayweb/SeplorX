@@ -16,6 +16,7 @@ export const capabilities: ChannelCapabilities = {
   canPushStock: true,
   canPushProductUpdates: true, // Direct WooCommerce REST API push via PUT /products/{id}
   usesWebhooks: true,
+  canSyncOrderFinances: true,
 };
 
 export function validateConfig(config: Partial<Record<string, string>>): string | null {
