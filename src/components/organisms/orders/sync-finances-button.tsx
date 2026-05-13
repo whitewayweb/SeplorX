@@ -12,11 +12,17 @@ import { cn } from "@/lib/utils";
 export function SyncFinancesButton({
   channelId,
   orderId,
+  limit,
+  label = "Sync finances",
+  syncingLabel = "Syncing...",
   variant = "outline",
   size = "sm",
 }: {
   channelId: number;
   orderId?: number;
+  limit?: number;
+  label?: string;
+  syncingLabel?: string;
   variant?: "default" | "outline" | "ghost" | "secondary";
   size?: "default" | "sm" | "lg" | "icon";
 }) {
@@ -25,7 +31,7 @@ export function SyncFinancesButton({
 
   function handleSync() {
     startTransition(async () => {
-      const result = await syncOrderFinancesAction(channelId, orderId);
+      const result = await syncOrderFinancesAction(channelId, orderId, { limit });
       if (result.success) {
         toast.success("Finance sync completed", {
           description: `${result.checked} checked, ${result.synced} synced, ${result.noData} no data, ${result.failed} failed.`,
@@ -47,7 +53,7 @@ export function SyncFinancesButton({
       className={cn("gap-2", variant === "ghost" && "h-8 px-2")}
     >
       <ReceiptText className={cn("h-4 w-4", isPending && "animate-pulse")} />
-      {isPending ? "Syncing..." : "Sync finances"}
+      {isPending ? syncingLabel : label}
     </Button>
   );
 }

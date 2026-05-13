@@ -1,5 +1,6 @@
 import { db, type QueryClient } from "@/db";
 import {
+  type FinanceAmountRole,
   salesOrderFinanceComponents,
   salesOrderFinanceEvents,
   salesOrderFinanceSyncs,
@@ -11,6 +12,13 @@ import type {
   PersistOrderFinanceInput,
   OrderFinanceSummary,
 } from "./types";
+
+export type OrderFinanceComponentBreakdown = {
+  amountRole: FinanceAmountRole;
+  code: string;
+  amount: number;
+  currency: string | null;
+};
 
 export const PROFIT_ADJUSTMENT_ROLES = [
   "marketplace_fee",
@@ -248,6 +256,51 @@ export async function getFinanceProfitAdjustmentSql(
   `);
 
   return toNumber((row as { adjustment?: string | number } | undefined)?.adjustment);
+}
+
+export async function getOrderFinanceComponentBreakdown(
+  userId: number,
+  orderId: number,
+): Promise<OrderFinanceComponentBreakdown[]> {
+  const rows = await db.execute(sql`
+    SELECT
+      sofc.amount_role AS "amountRole",
+      sofc.code,
+      sofc.currency,
+      coalesce(sum(sofc.amount::numeric), 0) AS amount
+    FROM sales_order_finance_components sofc
+    JOIN sales_order_finance_events sofe ON sofe.id = sofc.finance_event_id
+    JOIN sales_orders so ON so.id = sofe.order_id
+    JOIN channels c ON c.id = so.channel_id
+    WHERE c.user_id = ${userId}
+      AND so.id = ${orderId}
+    GROUP BY sofc.amount_role, sofc.code, sofc.currency
+    ORDER BY
+      CASE sofc.amount_role
+        WHEN 'marketplace_fee' THEN 1
+        WHEN 'payment_fee' THEN 2
+        WHEN 'other' THEN 3
+        ELSE 4
+      END,
+      abs(coalesce(sum(sofc.amount::numeric), 0)) DESC,
+      sofc.code ASC
+  `);
+
+  return rows.map((row) => {
+    const value = row as {
+      amountRole: FinanceAmountRole;
+      code: string;
+      amount: string | number | null;
+      currency: string | null;
+    };
+
+    return {
+      amountRole: value.amountRole,
+      code: value.code,
+      amount: toNumber(value.amount),
+      currency: value.currency,
+    };
+  });
 }
 
 async function getOrderItemLookup(

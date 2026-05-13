@@ -161,6 +161,12 @@ export interface OrderFinanceSyncResult {
   notSupported: number;
 }
 
+export interface OrderFinanceSyncOptions {
+  orderId?: number;
+  limit?: number;
+  retryFailed?: boolean;
+}
+
 export interface ExternalProduct {
   id: string;
   name: string;
@@ -399,10 +405,6 @@ export interface ChannelHandler {
   syncOrderFinances?(
     userId: number,
     channelId: number,
-    options?: {
-      orderId?: number;
-      limit?: number;
-      retryFailed?: boolean;
-    },
+    options?: OrderFinanceSyncOptions,
   ): Promise<OrderFinanceSyncResult>;
 }

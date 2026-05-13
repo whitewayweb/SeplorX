@@ -4,7 +4,7 @@ import {
   type FinanceAmountRole,
 } from "@/db/schema";
 import { decryptChannelCredentials } from "@/lib/channels/utils";
-import type { OrderFinanceSyncResult } from "@/lib/channels/types";
+import type { OrderFinanceSyncOptions, OrderFinanceSyncResult } from "@/lib/channels/types";
 import {
   markOrderFinanceStatus,
   persistOrderFinance,
@@ -21,7 +21,7 @@ const SOURCE = "amazon_finances_2024";
 const SOURCE_API_VERSION = "finances/2024-06-19";
 const FINANCE_SYNC_DELAY_MS = 48 * 60 * 60 * 1000;
 const DEFAULT_FINANCE_SYNC_LIMIT = 3;
-const MANUAL_FINANCE_SYNC_LIMIT = 5;
+const MANUAL_FINANCE_SYNC_LIMIT = 20;
 const FINANCE_REQUEST_DELAY_MS = 2500;
 const FINANCE_RETRY_COOLDOWN_MS = 60 * 60 * 1000;
 const NO_DATA_RETRY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
@@ -68,11 +68,7 @@ type CandidateOrder = {
 export async function syncAmazonOrderFinances(
   userId: number,
   channelId: number,
-  options: {
-    orderId?: number;
-    limit?: number;
-    retryFailed?: boolean;
-  } = {},
+  options: OrderFinanceSyncOptions = {},
 ): Promise<OrderFinanceSyncResult> {
   const result: OrderFinanceSyncResult = {
     checked: 0,
@@ -229,11 +225,7 @@ export function normalizeAmazonFinanceTransactions(
 async function getCandidateOrders(
   userId: number,
   channelId: number,
-  options: {
-    orderId?: number;
-    limit?: number;
-    retryFailed?: boolean;
-  },
+  options: OrderFinanceSyncOptions,
 ): Promise<CandidateOrder[]> {
   const defaultLimit = options.orderId ? 1 : DEFAULT_FINANCE_SYNC_LIMIT;
   const maxLimit = options.orderId ? 1 : MANUAL_FINANCE_SYNC_LIMIT;

@@ -9,7 +9,7 @@ import { db } from "@/db";
 import { channels, salesOrders } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { ChannelIdSchema } from "@/lib/validations/channels";
-import type { OrderFinanceSyncResult } from "@/lib/channels/types";
+import type { OrderFinanceSyncOptions, OrderFinanceSyncResult } from "@/lib/channels/types";
 
 type SyncOrderFinancesActionResult =
   | ({ success: true } & OrderFinanceSyncResult)
@@ -65,6 +65,7 @@ export async function fetchChannelOrdersAction(rawChannelId: unknown) {
 export async function syncOrderFinancesAction(
   rawChannelId: unknown,
   rawOrderId?: unknown,
+  rawOptions: Pick<OrderFinanceSyncOptions, "limit" | "retryFailed"> = {},
 ): Promise<SyncOrderFinancesActionResult> {
   const parsed = ChannelIdSchema.safeParse({ id: rawChannelId });
   if (!parsed.success) {
@@ -113,10 +114,17 @@ export async function syncOrderFinancesAction(
   }
 
   try {
+    const requestedLimit = Number(rawOptions.limit);
+    const limit = orderId
+      ? 1
+      : Number.isInteger(requestedLimit) && requestedLimit > 0
+        ? Math.min(requestedLimit, 20)
+        : 20;
+
     const result = await handler.syncOrderFinances(userId, channelId, {
       orderId,
-      limit: orderId ? 1 : undefined,
-      retryFailed: true,
+      limit,
+      retryFailed: rawOptions.retryFailed ?? true,
     });
 
     revalidatePath("/orders");

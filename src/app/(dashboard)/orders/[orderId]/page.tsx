@@ -1,14 +1,23 @@
 import { getAuthenticatedUserId } from "@/lib/auth";
 import { getOrderDetail, getOrderItems } from "@/lib/channels/amazon/queries";
 import { getReservationsForOrder, getReturnItemsForOrder } from "@/data/stock";
-import { getOrderFinanceSummary } from "@/lib/order-finance/service";
+import {
+  getOrderFinanceComponentBreakdown,
+  getOrderFinanceSummary,
+} from "@/lib/order-finance/service";
 import { getChannelById } from "@/lib/channels/registry";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Lock, RotateCcw } from "lucide-react";
+import { ArrowLeft, CircleHelp, Lock, RotateCcw } from "lucide-react";
 import type { OrdersV0Schema } from "@/lib/channels/amazon/api/types/ordersV0Schema";
 import { ReturnActionDialog } from "@/components/organisms/orders/return-action-dialog";
 import { SyncFinancesButton } from "@/components/organisms/orders/sync-finances-button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +60,90 @@ function formatDateTime(value: Date | string | number | null): string {
   }).format(date);
 }
 
+function HelpTooltip({ text }: { text: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <CircleHelp className="h-3.5 w-3.5 text-gray-400 hover:text-gray-600" />
+      </TooltipTrigger>
+      <TooltipContent className="max-w-72 leading-relaxed">
+        {text}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function shouldShowFinanceSummaryRow(amount: number): boolean {
+  return Math.abs(amount) > 0.004;
+}
+
+function getFinanceCodeDescription(role: string): string {
+  if (role === "marketplace_fee") return "Amazon marketplace fee";
+  if (role === "payment_fee") return "Payment or settlement fee";
+  if (role === "other") return "Rebate, reversal, or other settlement entry";
+  return "Settlement entry";
+}
+
+function parseMoneyValue(value: string | null): number | null {
+  if (value === null) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getOrderProductCost(
+  items: Awaited<ReturnType<typeof getOrderItems>>,
+): {
+  capturedCost: number;
+  missingCostCount: number;
+  costedItemCount: number;
+} {
+  return items.reduce(
+    (total, item) => {
+      const unitCost = parseMoneyValue(item.unitCost);
+      if (unitCost === null) {
+        return {
+          ...total,
+          missingCostCount: total.missingCostCount + 1,
+        };
+      }
+
+      return {
+        capturedCost: total.capturedCost + unitCost * item.quantity,
+        missingCostCount: total.missingCostCount,
+        costedItemCount: total.costedItemCount + 1,
+      };
+    },
+    { capturedCost: 0, missingCostCount: 0, costedItemCount: 0 },
+  );
+}
+
+function getSellerFinanceView(summary: NonNullable<Awaited<ReturnType<typeof getOrderFinanceSummary>>>) {
+  const salesRevenue =
+    summary.principal +
+    summary.shippingRevenue +
+    summary.orderFeeRevenue +
+    summary.discount;
+  const amazonFees =
+    summary.marketplaceFee +
+    summary.paymentFee +
+    summary.other;
+  const withholding = summary.withholding;
+  const refunds = summary.refund + summary.adjustment;
+  const netBeforeProductCost = salesRevenue + amazonFees + withholding + refunds;
+
+  return {
+    salesRevenue,
+    tax: summary.tax,
+    amazonFees,
+    marketplaceFee: summary.marketplaceFee,
+    paymentFee: summary.paymentFee,
+    otherFeesAndRebates: summary.other,
+    withholding,
+    refunds,
+    netBeforeProductCost,
+  };
+}
+
 export default async function OrderDetailPage({
   params,
 }: {
@@ -67,24 +160,35 @@ export default async function OrderDetailPage({
   const order = await getOrderDetail(userId, orderIdNum);
   if (!order) notFound();
 
-  const [items, reservations, returnItems, financeSummary] = await Promise.all([
+  const [items, reservations, returnItems, financeSummary, financeBreakdown] = await Promise.all([
     getOrderItems(userId, orderIdNum),
     getReservationsForOrder(orderIdNum),
     order.status === "returned" ? getReturnItemsForOrder(orderIdNum) : Promise.resolve([]),
     getOrderFinanceSummary(userId, orderIdNum),
+    getOrderFinanceComponentBreakdown(userId, orderIdNum),
   ]);
 
   // Read from the narrowed JSONB fields directly
   const rawOrder = order.rawOrder;
   const addr = order.shippingAddress?.ShippingAddress;
 
-  const matchedCount = items.filter((i) => i.channelProductId !== null).length;
+  const unmatchedItemCount = items.filter((i) => i.productId === null).length;
   const isReturned = order.status === "returned";
   const returnDisposition = order.returnDisposition;
   const channelDefinition = getChannelById(order.channelType);
   const canSyncFinances = channelDefinition?.capabilities?.canSyncOrderFinances === true;
   const financeStatus = financeSummary?.syncStatus ?? "pending";
   const financeBadge = FINANCE_STATUS_BADGES[financeStatus] ?? FINANCE_STATUS_BADGES.pending;
+  const productCost = getOrderProductCost(items);
+  const sellerFinance = financeSummary ? getSellerFinanceView(financeSummary) : null;
+  const amazonFeeBreakdown = financeBreakdown.filter((row) =>
+    row.amountRole === "marketplace_fee" ||
+    row.amountRole === "payment_fee" ||
+    row.amountRole === "other"
+  );
+  const estimatedOperatingProfit = sellerFinance
+    ? sellerFinance.netBeforeProductCost - productCost.capturedCost
+    : null;
 
   return (
     <div className="p-8">
@@ -130,8 +234,13 @@ export default async function OrderDetailPage({
           <div className="bg-white rounded-lg shadow">
             <div className="px-6 py-4 border-b">
               <h2 className="font-semibold text-gray-800">
-                Order Items ({items.length}) · {matchedCount}/{items.length} matched
+                Order Items ({items.length})
               </h2>
+              {unmatchedItemCount > 0 && (
+                <p className="mt-1 text-xs text-amber-700">
+                  {unmatchedItemCount} item{unmatchedItemCount === 1 ? "" : "s"} not linked to a SeplorX product
+                </p>
+              )}
             </div>
             <div className="divide-y">
               {items.map((item) => {
@@ -218,52 +327,6 @@ export default async function OrderDetailPage({
             </div>
           </div>
 
-          {/* ─── Stock Reservations ─── */}
-          {reservations.length > 0 && (
-            <div className="bg-white rounded-lg shadow mt-6 overflow-hidden">
-              <div className="px-6 py-4 border-b flex items-center justify-between">
-                <h2 className="font-semibold text-gray-800 flex items-center gap-2">
-                  <Lock className="h-4 w-4 text-orange-500" />
-                  Stock Reservations
-                </h2>
-                <span className="text-xs text-muted-foreground">{reservations.length} active</span>
-              </div>
-              <div className="divide-y">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50/50">
-                    <tr>
-                      <th className="text-left py-2.5 px-6 font-medium text-gray-500 text-xs">Product</th>
-                      <th className="text-right py-2.5 px-6 font-medium text-gray-500 text-xs">Quantity Reserved</th>
-                      <th className="text-left py-2.5 px-6 font-medium text-gray-500 text-xs">Created At</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {reservations.map((res) => (
-                      <tr key={res.id}>
-                        <td className="py-3 px-6">
-                          {res.productId ? (
-                            <Link href={`/products/${res.productId}`} className="group block min-w-0">
-                              <span className="block font-medium text-blue-600 group-hover:underline line-clamp-1">
-                                {res.productName}
-                              </span>
-                              <span className="block text-xs text-gray-400 font-mono mt-0.5">
-                                {res.productSku ? `SKU: ${res.productSku} · ` : ""}ID: {res.productId}
-                              </span>
-                            </Link>
-                          ) : "—"}
-                        </td>
-                        <td className="py-3 px-6 text-right font-mono text-orange-600 font-semibold">{res.quantity}</td>
-                        <td className="py-3 px-6 text-gray-500 text-xs">
-                          {res.createdAt ? new Date(res.createdAt).toLocaleString() : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
           {/* ─── Returns Summary ─── */}
           {returnItems.length > 0 && (
             <div className="bg-white rounded-lg shadow mt-6 overflow-hidden">
@@ -306,66 +369,254 @@ export default async function OrderDetailPage({
             </div>
           )}
 
+          {/* ─── Order Economics ─── */}
+          {sellerFinance && (
+            <TooltipProvider>
+              <div className="bg-white rounded-lg shadow mt-6 overflow-hidden">
+                <div className="px-6 py-4 border-b">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="font-semibold text-gray-800">Order Economics</h2>
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${financeBadge.className}`}>
+                          {financeBadge.label}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1 max-w-2xl">
+                        Seller-facing profit view: sales proceeds minus Amazon deductions
+                        and captured SeplorX product cost.
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Amazon finance synced {formatDateTime(financeSummary?.syncedAt ?? null)}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-xs text-gray-500">Estimated profit</div>
+                      <div className="text-2xl font-bold text-gray-900">
+                        {formatMoney(order.currency, estimatedOperatingProfit ?? 0)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="px-6 py-5">
+                  <div className="mb-5 grid gap-3 rounded-md border bg-gray-50 px-4 py-4 md:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr] md:items-center">
+                    <div>
+                      <div className="text-xs font-medium text-gray-500">Sale proceeds</div>
+                      <div className="text-lg font-semibold text-gray-900">
+                        {formatMoney(order.currency, sellerFinance.salesRevenue)}
+                      </div>
+                    </div>
+                    <div className="hidden text-gray-300 md:block">−</div>
+                    <div>
+                      <div className="text-xs font-medium text-gray-500">Amazon deductions</div>
+                      <div className="text-lg font-semibold text-gray-900">
+                        {formatMoney(order.currency, Math.abs(sellerFinance.amazonFees + sellerFinance.withholding + sellerFinance.refunds))}
+                      </div>
+                    </div>
+                    <div className="hidden text-gray-300 md:block">−</div>
+                    <div>
+                      <div className="text-xs font-medium text-gray-500">Product cost</div>
+                      <div className="text-lg font-semibold text-gray-900">
+                        {formatMoney(order.currency, productCost.capturedCost)}
+                      </div>
+                    </div>
+                    <div className="hidden text-gray-300 md:block">=</div>
+                    <div>
+                      <div className="text-xs font-medium text-gray-500">Profit</div>
+                      <div className="text-lg font-bold text-gray-900">
+                        {formatMoney(order.currency, estimatedOperatingProfit ?? 0)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="overflow-hidden rounded-md border">
+                    <div className="grid grid-cols-[1fr_auto] gap-4 border-b px-4 py-3 text-sm">
+                      <div>
+                        <div className="flex items-center gap-1 font-medium text-gray-900">
+                          Sales revenue
+                          <HelpTooltip text="Product, shipping, customer-facing fees, and discounts. Tax is excluded from profit and shown separately below." />
+                        </div>
+                        <div className="text-xs text-gray-500">What this order sold before Amazon deductions</div>
+                      </div>
+                      <div className="text-right font-semibold text-gray-900">
+                        {formatMoney(order.currency, sellerFinance.salesRevenue)}
+                      </div>
+                    </div>
+                    <details className="group border-b">
+                      <summary className="grid cursor-pointer list-none grid-cols-[1fr_auto] gap-4 px-4 py-3 text-sm hover:bg-gray-50 [&::-webkit-details-marker]:hidden">
+                        <div>
+                          <div className="flex items-center gap-1 font-medium text-gray-900">
+                            Amazon fees and rebates
+                            <HelpTooltip text="Marketplace fees, payment fees, commission, closing fees, fulfillment fees, promo rebates, and fee reversals from settlement data." />
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            <span className="group-open:hidden">Settlement-side deductions or reversals · expand for breakdown</span>
+                            <span className="hidden group-open:inline">Settlement-side deductions or reversals</span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-semibold text-gray-900">
+                            {formatMoney(order.currency, sellerFinance.amazonFees)}
+                          </div>
+                          <div className="text-xs text-gray-400">
+                            <span className="group-open:hidden">Expand</span>
+                            <span className="hidden group-open:inline">Collapse</span>
+                          </div>
+                        </div>
+                      </summary>
+                      <div className="border-t bg-gray-50/60">
+                        {amazonFeeBreakdown.map((entry) => (
+                          <div key={`${entry.amountRole}:${entry.code}`} className="grid grid-cols-[1fr_auto] gap-4 border-b px-4 py-2.5 pl-8 text-sm last:border-b-0">
+                            <div>
+                              <div className="font-medium text-gray-800">{entry.code}</div>
+                              <div className="text-xs text-gray-500">{getFinanceCodeDescription(entry.amountRole)}</div>
+                            </div>
+                            <div className="text-right font-medium text-gray-900">
+                              {formatMoney(entry.currency ?? order.currency, entry.amount)}
+                            </div>
+                          </div>
+                        ))}
+                        {amazonFeeBreakdown.length === 0 && (
+                          <div className="px-4 py-2.5 pl-8 text-sm text-gray-500">
+                            No individual Amazon fee rows were saved for this order.
+                          </div>
+                        )}
+                      </div>
+                    </details>
+                    <div className="grid grid-cols-[1fr_auto] gap-4 border-b px-4 py-3 text-sm">
+                      <div>
+                        <div className="flex items-center gap-1 font-medium text-gray-900">
+                          Tax withheld
+                          <HelpTooltip text="TDS/TCS or similar amounts held by Amazon. This affects settlement cash flow but is tracked separately from product cost." />
+                        </div>
+                        <div className="text-xs text-gray-500">Withholding from the finance event</div>
+                      </div>
+                      <div className="text-right font-semibold text-gray-900">
+                        {formatMoney(order.currency, sellerFinance.withholding)}
+                      </div>
+                    </div>
+                    {shouldShowFinanceSummaryRow(sellerFinance.refunds) && (
+                      <div className="grid grid-cols-[1fr_auto] gap-4 border-b px-4 py-3 text-sm">
+                        <div>
+                          <div className="flex items-center gap-1 font-medium text-gray-900">
+                            Refunds / adjustments
+                            <HelpTooltip text="Refund and adjustment amounts from finance data. Negative values reduce the order contribution." />
+                          </div>
+                          <div className="text-xs text-gray-500">Customer refunds and provider adjustments</div>
+                        </div>
+                        <div className="text-right font-semibold text-gray-900">
+                          {formatMoney(order.currency, sellerFinance.refunds)}
+                        </div>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-[1fr_auto] gap-4 border-b bg-gray-50 px-4 py-3 text-sm">
+                      <div>
+                        <div className="font-medium text-gray-900">Order contribution before product cost</div>
+                        <div className="text-xs text-gray-500">Sales revenue plus Amazon settlement deductions</div>
+                      </div>
+                      <div className="text-right font-semibold text-gray-900">
+                        {formatMoney(order.currency, sellerFinance.netBeforeProductCost)}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-[1fr_auto] gap-4 border-b border-l-4 border-blue-500 bg-blue-50/70 px-4 py-3 text-sm">
+                      <div>
+                        <div className="flex items-center gap-1 font-medium text-gray-900">
+                          SeplorX product cost
+                          <HelpTooltip text="Captured sales-order item unit cost multiplied by quantity. This uses the historical order cost snapshot, not current inventory valuation." />
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {productCost.missingCostCount > 0
+                            ? `${productCost.missingCostCount} item cost missing`
+                            : "All order items have captured cost"}
+                        </div>
+                      </div>
+                      <div className="text-right font-semibold text-gray-900">
+                        {formatMoney(order.currency, -productCost.capturedCost)}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-[1fr_auto] gap-4 bg-gray-50 px-4 py-3 text-sm">
+                      <div>
+                        <div className="font-semibold text-gray-900">Estimated operating profit</div>
+                        <div className="text-xs text-gray-500">
+                          Order contribution minus captured product cost
+                        </div>
+                      </div>
+                      <div className="text-right text-lg font-bold text-gray-900">
+                        {formatMoney(order.currency, estimatedOperatingProfit ?? 0)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {shouldShowFinanceSummaryRow(sellerFinance.tax) && (
+                    <div className="mt-3 text-xs text-gray-500">
+                      Tax collected for reconciliation:{" "}
+                      <span className="font-medium text-gray-700">
+                        {formatMoney(order.currency, sellerFinance.tax)}
+                      </span>
+                      . It is excluded from estimated operating profit.
+                    </div>
+                  )}
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-gray-500">
+                    <span>Amazon settlement data is saved for this order.</span>
+                    {canSyncFinances && (
+                      <SyncFinancesButton channelId={order.channelId} orderId={order.id} />
+                    )}
+                  </div>
+                </div>
+              </div>
+            </TooltipProvider>
+          )}
+
         </div>
 
         {/* Sidebar */}
         <div className="space-y-4">
-          {/* Finance Reconciliation */}
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-4 py-3 border-b flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold text-gray-800">Finance</h2>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  {financeSummary?.eventCount ?? 0} events · latest {formatDateTime(financeSummary?.latestPostedAt ?? null)}
-                </p>
+          {/* Stock Reservations */}
+          {reservations.length > 0 && (
+            <div className="bg-white rounded-lg shadow">
+              <div className="px-4 py-3 border-b flex items-center justify-between gap-3">
+                <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                  <Lock className="h-4 w-4 text-orange-500" />
+                  Stock reserved
+                </h2>
+                <span className="rounded-full bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-700">
+                  {reservations.length} active
+                </span>
               </div>
-              <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${financeBadge.className}`}>
-                {financeBadge.label}
-              </span>
+              <div className="divide-y">
+                {reservations.map((res) => (
+                  <div key={res.id} className="px-4 py-3 text-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        {res.productId ? (
+                          <Link href={`/products/${res.productId}`} className="group block">
+                            <span className="line-clamp-2 font-medium text-blue-600 group-hover:underline">
+                              {res.productName}
+                            </span>
+                          </Link>
+                        ) : (
+                          <span className="font-medium text-gray-900">Unmapped product</span>
+                        )}
+                        <div className="mt-1 text-xs font-mono text-gray-400">
+                          {res.productSku ? `SKU: ${res.productSku}` : `ID: ${res.productId ?? "—"}`}
+                        </div>
+                        <div className="mt-1 text-xs text-gray-500">
+                          Reserved {formatDateTime(res.createdAt)}
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <div className="text-xs text-gray-500">Qty</div>
+                        <div className="font-mono text-base font-semibold text-orange-600">
+                          {res.quantity}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="px-4 py-3 text-xs text-gray-600 space-y-2">
-              <div className="flex justify-between">
-                <span>Principal</span>
-                <span className="font-medium text-gray-900">
-                  {formatMoney(order.currency, financeSummary?.principal ?? 0)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span>Marketplace fees</span>
-                <span className="font-medium text-gray-900">
-                  {formatMoney(order.currency, financeSummary?.marketplaceFee ?? 0)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span>Withholding</span>
-                <span className="font-medium text-gray-900">
-                  {formatMoney(order.currency, financeSummary?.withholding ?? 0)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span>Refunds/adjustments</span>
-                <span className="font-medium text-gray-900">
-                  {formatMoney(order.currency, (financeSummary?.refund ?? 0) + (financeSummary?.adjustment ?? 0))}
-                </span>
-              </div>
-              <div className="flex justify-between border-t pt-2">
-                <span className="font-medium text-gray-800">Profit adjustment</span>
-                <span className="font-semibold text-gray-900">
-                  {formatMoney(order.currency, financeSummary?.netProfitAdjustment ?? 0)}
-                </span>
-              </div>
-              {financeSummary?.lastErrorMessage && (
-                <p className="rounded-md bg-red-50 px-3 py-2 text-red-700">
-                  Finance sync failed. Check server logs for details.
-                </p>
-              )}
-              {canSyncFinances && (
-                <div className="pt-2">
-                  <SyncFinancesButton channelId={order.channelId} orderId={order.id} />
-                </div>
-              )}
-            </div>
-          </div>
+          )}
 
           {/* Buyer Info */}
           <div className="bg-white rounded-lg shadow">
@@ -412,30 +663,6 @@ export default async function OrderDetailPage({
             </div>
           )}
 
-          {/* Order Meta */}
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-4 py-3 border-b">
-              <h2 className="text-sm font-semibold text-gray-800">Order Details</h2>
-            </div>
-            <div className="px-4 py-3 text-xs text-gray-500 space-y-2">
-              <div className="flex justify-between">
-                <span>Items Shipped</span>
-                <span className="font-medium text-gray-800">
-                  {rawOrder?.NumberOfItemsShipped ?? "—"}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span>Items Unshipped</span>
-                <span className="font-medium text-gray-800">
-                  {rawOrder?.NumberOfItemsUnshipped ?? "—"}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span>Channel</span>
-                <span className="font-medium text-gray-800">{order.channelName}</span>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>

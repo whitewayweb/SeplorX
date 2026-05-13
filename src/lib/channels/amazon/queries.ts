@@ -1,6 +1,14 @@
 import { sql, eq, desc, and, or, gte, lte } from "drizzle-orm";
 import { db } from "@/db";
-import { channelProducts, salesOrders, salesOrderItems, channels, type SalesOrderStatus } from "@/db/schema";
+import {
+  channelProducts,
+  salesOrderFinanceSyncs,
+  salesOrders,
+  salesOrderItems,
+  channels,
+  type FinanceSyncStatus,
+  type SalesOrderStatus,
+} from "@/db/schema";
 import { getDistinctChannelProductField } from "../queries";
 
 function getStatusFilter(status?: string) {
@@ -57,6 +65,7 @@ export async function getBrands(channelId: number): Promise<string[]> {
 
 export interface OrderRow {
   id: number;
+  channelId: number;
   externalOrderId: string | null;
   status: string | null;
   totalAmount: string | null;
@@ -64,6 +73,9 @@ export interface OrderRow {
   buyerName: string | null;
   purchasedAt: Date | null;
   channelName: string | null;
+  financeSyncStatus: FinanceSyncStatus | null;
+  financeSyncedAt: Date | null;
+  financeNextAttemptAt: Date | null;
 }
 
 export interface OrderDetail {
@@ -91,6 +103,9 @@ export interface OrderItemRow {
   title: string | null;
   quantity: number;
   price: string | null;
+  unitCost: string | null;
+  costSource: string | null;
+  costCapturedAt: Date | null;
   /** Stored as the full OrderItem shape from the Amazon SP-API. */
   rawData: OrdersV0Schema["OrderItem"] | null;
   channelProductId: number | null;
@@ -113,6 +128,7 @@ export async function getAllOrders(
   const query = db
     .select({
       id: salesOrders.id,
+      channelId: salesOrders.channelId,
       externalOrderId: salesOrders.externalOrderId,
       status: salesOrders.status,
       totalAmount: salesOrders.totalAmount,
@@ -120,9 +136,13 @@ export async function getAllOrders(
       buyerName: salesOrders.buyerName,
       purchasedAt: salesOrders.purchasedAt,
       channelName: channels.name,
+      financeSyncStatus: salesOrderFinanceSyncs.status,
+      financeSyncedAt: salesOrderFinanceSyncs.syncedAt,
+      financeNextAttemptAt: salesOrderFinanceSyncs.nextAttemptAt,
     })
     .from(salesOrders)
     .innerJoin(channels, eq(salesOrders.channelId, channels.id))
+    .leftJoin(salesOrderFinanceSyncs, eq(salesOrderFinanceSyncs.orderId, salesOrders.id))
     .where(
       and(
         eq(channels.userId, userId),
@@ -196,6 +216,7 @@ export async function getOrdersByChannel(
   const query = db
     .select({
       id: salesOrders.id,
+      channelId: salesOrders.channelId,
       externalOrderId: salesOrders.externalOrderId,
       status: salesOrders.status,
       totalAmount: salesOrders.totalAmount,
@@ -203,12 +224,16 @@ export async function getOrdersByChannel(
       buyerName: salesOrders.buyerName,
       purchasedAt: salesOrders.purchasedAt,
       channelName: channels.name,
+      financeSyncStatus: salesOrderFinanceSyncs.status,
+      financeSyncedAt: salesOrderFinanceSyncs.syncedAt,
+      financeNextAttemptAt: salesOrderFinanceSyncs.nextAttemptAt,
     })
     .from(salesOrders)
     .innerJoin(
       channels,
       and(eq(salesOrders.channelId, channels.id), eq(channels.userId, userId))
     )
+    .leftJoin(salesOrderFinanceSyncs, eq(salesOrderFinanceSyncs.orderId, salesOrders.id))
     .where(
       and(
         eq(salesOrders.channelId, channelId),
@@ -294,6 +319,9 @@ export async function getOrderItems(userId: number, orderId: number): Promise<Or
       title: salesOrderItems.title,
       quantity: salesOrderItems.quantity,
       price: salesOrderItems.price,
+      unitCost: salesOrderItems.unitCost,
+      costSource: salesOrderItems.costSource,
+      costCapturedAt: salesOrderItems.costCapturedAt,
       rawData: salesOrderItems.rawData,
       productId: salesOrderItems.productId,
       returnQuantity: salesOrderItems.returnQuantity,
@@ -345,8 +373,6 @@ export async function getOrderItems(userId: number, orderId: number): Promise<Or
 
 
 export { getLastSyncDate } from "../queries";
-
-
 
 
 

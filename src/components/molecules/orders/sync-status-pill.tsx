@@ -56,7 +56,7 @@ export function SyncStatusPill({
           variant="ghost"
         />
         {showFinanceSync && (
-          <SyncFinancesButton channelId={channelId} variant="ghost" />
+          <SyncFinancesButton channelId={channelId} limit={20} variant="ghost" />
         )}
         {showClear && (
           <ClearOrdersButton channelId={channelId} variant="ghost" />
