@@ -41,6 +41,7 @@ export async function persistOrderFinance(
         source: input.source,
         lastAttemptAt: now,
         syncedAt: input.status === "synced" ? now : null,
+        nextAttemptAt: input.nextAttemptAt ?? null,
         lastErrorCode: input.error?.code ?? null,
         lastErrorMessage: input.error?.message ?? null,
         updatedAt: now,
@@ -52,6 +53,7 @@ export async function persistOrderFinance(
           source: input.source,
           lastAttemptAt: now,
           syncedAt: input.status === "synced" ? now : null,
+          nextAttemptAt: input.nextAttemptAt ?? null,
           lastErrorCode: input.error?.code ?? null,
           lastErrorMessage: input.error?.message ?? null,
           updatedAt: now,
@@ -133,6 +135,7 @@ export async function markOrderFinanceStatus(input: {
   channelId: number;
   source: string;
   status: "pending" | "no_data" | "failed" | "not_supported";
+  nextAttemptAt?: Date | null;
   error?: { code?: string | null; message?: string | null };
 }): Promise<void> {
   await persistOrderFinance({
@@ -140,6 +143,7 @@ export async function markOrderFinanceStatus(input: {
     channelId: input.channelId,
     source: input.source,
     status: input.status,
+    nextAttemptAt: input.nextAttemptAt,
     events: [],
     error: input.error,
   });
@@ -205,12 +209,12 @@ export async function getOrderFinanceSummary(
   return {
     syncStatus: row.syncStatus,
     source: row.source,
-    lastAttemptAt: row.lastAttemptAt,
-    syncedAt: row.syncedAt,
+    lastAttemptAt: toDate(row.lastAttemptAt),
+    syncedAt: toDate(row.syncedAt),
     lastErrorCode: row.lastErrorCode,
     lastErrorMessage: row.lastErrorMessage,
     eventCount: Number(row.eventCount ?? 0),
-    latestPostedAt: row.latestPostedAt,
+    latestPostedAt: toDate(row.latestPostedAt),
     principal: toNumber(row.principal),
     tax: toNumber(row.tax),
     shippingRevenue: toNumber(row.shippingRevenue),
@@ -285,3 +289,8 @@ function toNumber(value: number | string | null | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function toDate(value: Date | string | number | null | undefined): Date | null {
+  if (value === null || value === undefined) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}

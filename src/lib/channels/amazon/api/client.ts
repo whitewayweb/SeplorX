@@ -24,6 +24,16 @@ type EnrichProductsOptions = {
   discoverVirtualParents?: boolean;
 };
 
+export class AmazonRateLimitError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "AmazonRateLimitError";
+  }
+}
+
 export class AmazonAPIClient {
   private marketplaceId: string;
   private clientId: string;
@@ -1286,6 +1296,12 @@ export class AmazonAPIClient {
 
       if (!res.ok) {
         await this.logErrorResponse("[Amazon SP-API] listTransactions Error:", res);
+        if (res.status === 429) {
+          throw new AmazonRateLimitError(
+            `Amazon finance transactions rate limited for ${orderId}`,
+            res.status,
+          );
+        }
         throw new Error(`Failed to get finance transactions for ${orderId}: ${res.status}`);
       }
 

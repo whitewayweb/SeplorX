@@ -39,13 +39,16 @@ function formatMoney(currency: string | null, amount: number): string {
   }
 }
 
-function formatDateTime(value: Date | null): string {
+function formatDateTime(value: Date | string | number | null): string {
   if (!value) return "—";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+
   return new Intl.DateTimeFormat("en-GB", {
     dateStyle: "medium",
     timeStyle: "short",
     timeZone: "Europe/London",
-  }).format(value);
+  }).format(date);
 }
 
 export default async function OrderDetailPage({

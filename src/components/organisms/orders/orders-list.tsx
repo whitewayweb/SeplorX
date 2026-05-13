@@ -24,6 +24,7 @@ interface Channel {
   name: string;
   lastSyncAt?: Date | null;
   color?: string;
+  canSyncOrderFinances?: boolean;
 }
 
 interface OrdersListProps {
@@ -102,6 +103,7 @@ export function OrdersList({
               lastSyncAt={channel.lastSyncAt}
               color={channel.color}
               showClear={showClear && totalCount > 0}
+              showFinanceSync={channel.canSyncOrderFinances}
             />
           ))}
         </div>

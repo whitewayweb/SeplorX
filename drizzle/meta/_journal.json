@@ -253,6 +253,13 @@
       "when": 1778617180373,
       "tag": "0035_past_black_tarantula",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1778703067608,
+      "tag": "0036_perfect_james_howlett",
+      "breakpoints": true
     }
   ]
 }

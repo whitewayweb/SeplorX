@@ -643,6 +643,8 @@ export const salesOrderFinanceSyncs = pgTable("sales_order_finance_syncs", {
   source: varchar("source", { length: 100 }).notNull(),
   lastAttemptAt: timestamp("last_attempt_at"),
   syncedAt: timestamp("synced_at"),
+  nextAttemptAt: timestamp("next_attempt_at"),
+  attemptCount: integer("attempt_count").default(0).notNull(),
   lastErrorCode: varchar("last_error_code", { length: 100 }),
   lastErrorMessage: text("last_error_message"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -651,6 +653,7 @@ export const salesOrderFinanceSyncs = pgTable("sales_order_finance_syncs", {
   uniqueIndex("sales_order_finance_syncs_order_unique").on(table.orderId),
   index("sales_order_finance_syncs_channel_idx").on(table.channelId),
   index("sales_order_finance_syncs_status_idx").on(table.status),
+  index("sales_order_finance_syncs_next_attempt_idx").on(table.nextAttemptAt),
 ]).enableRLS();
 
 export const salesOrderFinanceEvents = pgTable("sales_order_finance_events", {

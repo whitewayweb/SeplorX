@@ -1,11 +1,19 @@
 import { db } from "@/db";
 import { channels } from "@/db/schema";
-import { and, eq, or, lte, isNull } from "drizzle-orm";
+import { and, eq, or, lte, isNull, sql } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getBaseUrl } from "@/lib/utils";
 import { logger } from "@/lib/logger";
+import { channelRegistry } from "@/lib/channels/registry";
 
 const SYNC_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+const AMAZON_FINANCE_DELAY_MS = 48 * 60 * 60 * 1000;
+const FINANCE_RETRY_COOLDOWN_MS = 60 * 60 * 1000;
+const FINANCE_SUPPORTED_CHANNEL_TYPES = channelRegistry
+    .filter((channel) => channel.capabilities?.canSyncOrderFinances)
+    .map((channel) => channel.id);
+
+const lastTriggerByUser = new Map<number, number>();
 
 /**
  * Checks if any of the user's channels are "stale" (not synced in > 15 mins)
@@ -15,9 +23,15 @@ const SYNC_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
  * the agent whenever the user is active in the portal.
  */
 export async function triggerOnDemandSync(userId: number) {
+    const lastTriggerAt = lastTriggerByUser.get(userId);
+    if (lastTriggerAt && Date.now() - lastTriggerAt < SYNC_INTERVAL_MS) return;
+
     const staleTime = new Date(Date.now() - SYNC_INTERVAL_MS);
+    const financeRetryBefore = new Date(Date.now() - FINANCE_RETRY_COOLDOWN_MS);
     
-    // 1. Check for stale connected channels
+    // 1. Check for stale connected channels or finance work that is ready.
+    // Order sync handlers also run finance reconciliation, so this reuses the
+    // existing active-browser scheduler instead of creating another poller.
     const staleChannels = await db.select({ id: channels.id })
         .from(channels)
         .where(
@@ -26,7 +40,39 @@ export async function triggerOnDemandSync(userId: number) {
                 eq(channels.status, 'connected'),
                 or(
                     isNull(channels.lastOrderSyncAt),
-                    lte(channels.lastOrderSyncAt, staleTime)
+                    lte(channels.lastOrderSyncAt, staleTime),
+                    sql`exists (
+                        select 1
+                        from sales_orders so
+                        left join sales_order_finance_syncs sofs
+                          on sofs.order_id = so.id
+                        where so.channel_id = ${channels.id}
+                          and ${channels.channelType} in ${FINANCE_SUPPORTED_CHANNEL_TYPES}
+                          and so.status in (
+                            'pending',
+                            'processing',
+                            'on-hold',
+                            'packed',
+                            'shipped',
+                            'delivered',
+                            'returned',
+                            'refunded'
+                          )
+                          and (
+                            sofs.status is null
+                            or (
+                              sofs.status in ('pending', 'no_data', 'failed')
+                              and (
+                                sofs.next_attempt_at is null
+                                or sofs.next_attempt_at <= ${financeRetryBefore.toISOString()}
+                              )
+                            )
+                          )
+                          and (
+                            ${channels.channelType} <> 'amazon'
+                            or so.purchased_at <= ${new Date(Date.now() - AMAZON_FINANCE_DELAY_MS).toISOString()}
+                          )
+                    )`
                 )
             )
         )
@@ -35,6 +81,7 @@ export async function triggerOnDemandSync(userId: number) {
     if (staleChannels.length === 0) return;
 
     // 2. Trigger the scheduler in the background
+    lastTriggerByUser.set(userId, Date.now());
     const headerList = await headers();
     const baseUrl = getBaseUrl(headerList);
     const url = `${baseUrl}/api/cron/order-sync?userId=${userId}`;

@@ -30,6 +30,7 @@ export type PersistOrderFinanceInput = {
   channelId: number;
   source: string;
   status: FinanceSyncStatus;
+  nextAttemptAt?: Date | null;
   events: FinanceEventInput[];
   error?: {
     code?: string | null;
@@ -59,4 +60,3 @@ export type OrderFinanceSummary = {
   other: number;
   netProfitAdjustment: number;
 };
-

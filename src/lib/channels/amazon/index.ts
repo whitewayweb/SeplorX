@@ -638,9 +638,7 @@ export const amazonHandler: ChannelHandler = {
       ...amazonShippedReconciliation,
     });
 
-    const financeReconciliation = await syncAmazonOrderFinances(userId, channelId, {
-      limit: 20,
-    }).catch((err) => {
+    const financeReconciliation = await syncAmazonOrderFinances(userId, channelId).catch((err) => {
       logger.error("[Amazon Sync] Finance reconciliation failed:", err);
       return {
         checked: 0,
