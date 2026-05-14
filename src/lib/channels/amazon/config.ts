@@ -250,6 +250,7 @@ export const capabilities: ChannelCapabilities = {
   canPushStock: true,
   canPushProductUpdates: false, // Amazon uses the Feeds API (xlsm templates), not direct REST push
   usesWebhooks: false,
+  canSyncOrderFinances: true,
 };
 
 // ────────────────────────────────────────────────────────────────────────────

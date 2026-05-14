@@ -9,6 +9,11 @@ import { db } from "@/db";
 import { channels, salesOrders } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { ChannelIdSchema } from "@/lib/validations/channels";
+import type { OrderFinanceSyncOptions, OrderFinanceSyncResult } from "@/lib/channels/types";
+
+type SyncOrderFinancesActionResult =
+  | ({ success: true } & OrderFinanceSyncResult)
+  | { success: false; error: string };
 
 /**
  * Server Action to fetch orders from a specific channel instance.
@@ -51,6 +56,90 @@ export async function fetchChannelOrdersAction(rawChannelId: unknown) {
   } catch (err) {
     logger.error("[fetchChannelOrdersAction]", { channelId, userId, error: String(err) });
     return { success: false, error: String(err) };
+  }
+}
+
+/**
+ * Server Action to sync finance events for a channel, optionally scoped to one order.
+ */
+export async function syncOrderFinancesAction(
+  rawChannelId: unknown,
+  rawOrderId?: unknown,
+  rawOptions: Pick<OrderFinanceSyncOptions, "limit" | "retryFailed"> = {},
+): Promise<SyncOrderFinancesActionResult> {
+  const parsed = ChannelIdSchema.safeParse({ id: rawChannelId });
+  if (!parsed.success) {
+    logger.error("[syncOrderFinancesAction]", {
+      channelId: rawChannelId,
+      orderId: rawOrderId,
+      userId: "unknown",
+      error: "Validation failed",
+    });
+    return { success: false, error: "Invalid channelId" };
+  }
+
+  const orderId =
+    rawOrderId === undefined || rawOrderId === null
+      ? undefined
+      : Number(rawOrderId);
+  if (orderId !== undefined && (!Number.isInteger(orderId) || orderId <= 0)) {
+    return { success: false, error: "Invalid orderId" };
+  }
+
+  const channelId = parsed.data.id;
+  const userId = await getAuthenticatedUserId();
+  if (!userId) throw new Error("Unauthorized");
+
+  const [channel] = await db
+    .select({ channelType: channels.channelType })
+    .from(channels)
+    .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
+    .limit(1);
+
+  if (!channel) return { success: false, error: "Channel not found" };
+
+  if (orderId !== undefined) {
+    const [order] = await db
+      .select({ id: salesOrders.id })
+      .from(salesOrders)
+      .where(and(eq(salesOrders.id, orderId), eq(salesOrders.channelId, channelId)))
+      .limit(1);
+
+    if (!order) return { success: false, error: "Order not found" };
+  }
+
+  const handler = getChannelHandler(channel.channelType);
+  if (!handler?.syncOrderFinances) {
+    return { success: false, error: "Finance sync is not supported for this channel." };
+  }
+
+  try {
+    const requestedLimit = Number(rawOptions.limit);
+    const limit = orderId
+      ? 1
+      : Number.isInteger(requestedLimit) && requestedLimit > 0
+        ? Math.min(requestedLimit, 20)
+        : 20;
+
+    const result = await handler.syncOrderFinances(userId, channelId, {
+      orderId,
+      limit,
+      retryFailed: rawOptions.retryFailed ?? true,
+    });
+
+    revalidatePath("/orders");
+    revalidatePath(`/orders/channels/${channelId}`);
+    if (orderId) revalidatePath(`/orders/${orderId}`);
+
+    return { success: true, ...result };
+  } catch (err) {
+    logger.error("[syncOrderFinancesAction]", {
+      channelId,
+      orderId,
+      userId,
+      error: String(err),
+    });
+    return { success: false, error: "Finance sync failed. Check server logs for details." };
   }
 }
 

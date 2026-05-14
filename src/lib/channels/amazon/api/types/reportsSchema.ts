@@ -860,6 +860,10 @@ export interface operations {
         /** The identifier for the report document. */
         reportDocumentId: string;
       };
+      query: {
+        /** When `true`, the Content-Encoding header on the returned URL is set to `gzip` instead of the default `identity` when `compressionAlgorithm` is `GZIP`. This allows automatic decompression by HTTP clients. */
+        enableContentEncodingUrlHeader?: boolean;
+      };
     };
     responses: {
       /** Success. */

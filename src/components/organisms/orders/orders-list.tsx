@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { SyncStatusPill } from "@/components/molecules/orders/sync-status-pill";
+import { SyncFinancesButton } from "@/components/organisms/orders/sync-finances-button";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -10,6 +11,7 @@ import { getOrderStatusBadgeClass, getOrderStatusLabel } from "@/lib/utils/order
 
 interface Order {
   id: number;
+  channelId: number;
   externalOrderId: string | null;
   status: string | null;
   totalAmount: string | null;
@@ -17,6 +19,9 @@ interface Order {
   buyerName: string | null;
   purchasedAt: Date | null;
   channelName: string | null;
+  financeSyncStatus: "pending" | "synced" | "no_data" | "failed" | "not_supported" | null;
+  financeSyncedAt: Date | null;
+  financeNextAttemptAt: Date | null;
 }
 
 interface Channel {
@@ -24,6 +29,7 @@ interface Channel {
   name: string;
   lastSyncAt?: Date | null;
   color?: string;
+  canSyncOrderFinances?: boolean;
 }
 
 interface OrdersListProps {
@@ -36,6 +42,60 @@ interface OrdersListProps {
   showClear?: boolean;
   currentStatus?: string;
   statusCounts?: Record<string, number>;
+}
+
+const FINANCE_STATUS_META = {
+  unsynced: {
+    label: "Missing",
+    className: "bg-yellow-50 text-yellow-800 ring-yellow-200",
+    helper: "Finance not fetched",
+  },
+  pending: {
+    label: "Queued",
+    className: "bg-blue-50 text-blue-800 ring-blue-200",
+    helper: "Waiting for next attempt",
+  },
+  synced: {
+    label: "Synced",
+    className: "bg-green-50 text-green-800 ring-green-200",
+    helper: "Finance saved",
+  },
+  no_data: {
+    label: "No data",
+    className: "bg-gray-100 text-gray-700 ring-gray-200",
+    helper: "Amazon returned no events",
+  },
+  failed: {
+    label: "Failed",
+    className: "bg-red-50 text-red-800 ring-red-200",
+    helper: "Needs retry",
+  },
+  not_supported: {
+    label: "N/A",
+    className: "bg-gray-100 text-gray-600 ring-gray-200",
+    helper: "Not supported",
+  },
+  not_ready: {
+    label: "Not ready",
+    className: "bg-gray-100 text-gray-600 ring-gray-200",
+    helper: "Awaiting shipment",
+  },
+} as const;
+
+function isFinanceEligibleOrderStatus(status: string | null): boolean {
+  return status === "shipped" || status === "delivered" || status === "returned" || status === "refunded";
+}
+
+function getFinanceStatusMeta(order: Order) {
+  if (!isFinanceEligibleOrderStatus(order.status)) return FINANCE_STATUS_META.not_ready;
+  const { financeSyncStatus: status } = order;
+  return FINANCE_STATUS_META[status ?? "unsynced"];
+}
+
+function shouldShowRowFinanceSync(order: Order, financeSyncChannelIds: Set<number>): boolean {
+  if (!financeSyncChannelIds.has(order.channelId)) return false;
+  if (!isFinanceEligibleOrderStatus(order.status)) return false;
+  return order.financeSyncStatus === null || order.financeSyncStatus === "failed" || order.financeSyncStatus === "no_data";
 }
 
 export function OrdersList({
@@ -68,6 +128,9 @@ export function OrdersList({
     "pending", "processing", "on-hold", "packed", "shipped",
     "delivered", "cancelled", "returned", "refunded", "failed", "draft"
   ];
+  const financeSyncChannelIds = new Set(
+    channels.filter((channel) => channel.canSyncOrderFinances).map((channel) => channel.id),
+  );
 
   const statusTabs = [
     ...ALL_STATUSES.map((status) => ({
@@ -102,6 +165,7 @@ export function OrdersList({
               lastSyncAt={channel.lastSyncAt}
               color={channel.color}
               showClear={showClear && totalCount > 0}
+              showFinanceSync={channel.canSyncOrderFinances}
             />
           ))}
         </div>
@@ -148,54 +212,82 @@ export function OrdersList({
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Channel</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Finance</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-right">Total</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {orders.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-6 py-10 text-center text-gray-500">
+                <td colSpan={7} className="px-6 py-10 text-center text-gray-500">
                   No orders found. Use the button above to fetch orders.
                 </td>
               </tr>
             ) : (
-              orders.map((order) => (
-                <tr key={order.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {order.purchasedAt?.toLocaleString("en-IN", {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit"
-                    }) ?? "—"}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">
-                    <Link
-                      href={`/orders/${order.id}`}
-                      className="text-blue-600 hover:underline"
-                    >
-                      {order.externalOrderId}
-                    </Link>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {order.channelName ?? "—"}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                    {order.buyerName ?? <span className="text-gray-400 italic text-xs">Amazon Anonymized</span>}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${getOrderStatusBadgeClass(order.status)}`}>
-                      {order.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right font-semibold">
-                    {order.currency && order.totalAmount
-                      ? `${order.currency} ${parseFloat(order.totalAmount).toFixed(2)}`
-                      : "—"}
-                  </td>
-                </tr>
-              ))
+              orders.map((order) => {
+                const financeStatus = getFinanceStatusMeta(order);
+                const showRowFinanceSync = shouldShowRowFinanceSync(order, financeSyncChannelIds);
+
+                return (
+                  <tr key={order.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {order.purchasedAt?.toLocaleString("en-IN", {
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit"
+                      }) ?? "—"}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">
+                      <Link
+                        href={`/orders/${order.id}`}
+                        className="text-blue-600 hover:underline"
+                      >
+                        {order.externalOrderId}
+                      </Link>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {order.channelName ?? "—"}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                      {order.buyerName ?? <span className="text-gray-400 italic text-xs">Amazon Anonymized</span>}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${getOrderStatusBadgeClass(order.status)}`}>
+                        {order.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <div>
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${financeStatus.className}`}>
+                            {financeStatus.label}
+                          </span>
+                          <div className="mt-0.5 text-[11px] text-gray-400">
+                            {financeStatus.helper}
+                          </div>
+                        </div>
+                        {showRowFinanceSync && (
+                          <SyncFinancesButton
+                            channelId={order.channelId}
+                            orderId={order.id}
+                            label="Sync"
+                            syncingLabel="..."
+                            variant="ghost"
+                            size="sm"
+                          />
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right font-semibold">
+                      {order.currency && order.totalAmount
+                        ? `${order.currency} ${parseFloat(order.totalAmount).toFixed(2)}`
+                        : "—"}
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

@@ -24,14 +24,19 @@ export function FetchOrdersButton({
     startTransition(async () => {
       const result = await fetchChannelOrdersAction(channelId);
       if (result.success) {
+        const financeText =
+          "financeReconciliation" in result && result.financeReconciliation
+            ? ` Finance: ${result.financeReconciliation.checked} checked, ${result.financeReconciliation.synced} synced, ${result.financeReconciliation.noData} no data, ${result.financeReconciliation.failed} failed.`
+            : "";
+
         if ("amazonShippedReconciliation" in result && result.amazonShippedReconciliation) {
           const reconciliation = result.amazonShippedReconciliation;
           toast.success("Orders fetched", {
-            description: `Amazon shipped check: ${reconciliation.checked} checked, ${reconciliation.delivered} delivered, ${reconciliation.unchanged} unchanged, ${reconciliation.failed} failed.`,
+            description: `Amazon shipped check: ${reconciliation.checked} checked, ${reconciliation.delivered} delivered, ${reconciliation.unchanged} unchanged, ${reconciliation.failed} failed.${financeText}`,
           });
         } else {
           toast.success("Orders fetched", {
-            description: "Order sync completed.",
+            description: `Order sync completed.${financeText}`,
           });
         }
         router.refresh();

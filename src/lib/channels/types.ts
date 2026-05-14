@@ -144,6 +144,7 @@ export interface WebhookOrderEvent {
 export type OrderFetchResult = {
   fetched: number;
   saved: number;
+  financeReconciliation?: OrderFinanceSyncResult;
   amazonShippedReconciliation?: {
     checked: number;
     delivered: number;
@@ -151,6 +152,20 @@ export type OrderFetchResult = {
     failed: number;
   };
 };
+
+export interface OrderFinanceSyncResult {
+  checked: number;
+  synced: number;
+  noData: number;
+  failed: number;
+  notSupported: number;
+}
+
+export interface OrderFinanceSyncOptions {
+  orderId?: number;
+  limit?: number;
+  retryFailed?: boolean;
+}
 
 export interface ExternalProduct {
   id: string;
@@ -193,6 +208,8 @@ export interface ChannelCapabilities {
    * If false, the "Register Webhooks" button is hidden in the UI.
    */
   usesWebhooks: boolean;
+  /** Can normalize or fetch order-level finance adjustments for profitability. */
+  canSyncOrderFinances?: boolean;
 }
 
 export interface ChannelHandler {
@@ -377,4 +394,17 @@ export interface ChannelHandler {
     userId: number,
     channelId: number,
   ): Promise<OrderFetchResult>;
+
+  /**
+   * Reconcile realized order finance data for this channel.
+   *
+   * Implementations must not mutate inventory or product cost snapshots.
+   * They should persist normalized finance rows through the shared finance
+   * service and return an aggregate summary for manual or background syncs.
+   */
+  syncOrderFinances?(
+    userId: number,
+    channelId: number,
+    options?: OrderFinanceSyncOptions,
+  ): Promise<OrderFinanceSyncResult>;
 }

@@ -559,6 +559,10 @@ export interface operations {
         /** The identifier of the feed document. */
         feedDocumentId: string;
       };
+      query: {
+        /** When `true`, the Content-Encoding header on the returned URL is set to `gzip` instead of the default `identity` when `compressionAlgorithm` is `GZIP`. This allows automatic decompression by HTTP clients. */
+        enableContentEncodingUrlHeader?: boolean;
+      };
     };
     responses: {
       /** Success. */

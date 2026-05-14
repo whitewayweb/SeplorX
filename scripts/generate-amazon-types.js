@@ -28,6 +28,7 @@ async function main() {
         "reports-api-model",
         "feeds-api-model",
         "orders-api-model",
+        "finances-api-model",
     ];
 
     // Filter for valid OpenAPI JSON files in the `models/` folder
@@ -58,11 +59,10 @@ async function main() {
 
     for (const file of validFiles) {
         const parts = file.path.split("/");
-        const moduleName = parts[1].replace("-api-model", "").replace("-model", "");
+        const modelFolder = parts[1];
         const fileNameBase = parts[2].replace(".json", "");
 
-        // Clean names: strip out trailing _YYYY-MM-DD and redundant "definitions" prefix
-        let outName = fileNameBase.replace(/_20[0-9]{2}-[0-9]{2}-[0-9]{2}$/, "");
+        let outName = getOutputName(modelFolder, fileNameBase);
         // Remove "definitions" prefix if it exists (e.g. definitionsProductTypes -> productTypes)
         outName = outName.replace(/^definitions/i, "");
         // Ensure first char is lowercase for the filename
@@ -96,4 +96,21 @@ async function main() {
     console.log("\n✅ Done! All Amazon SP-API types have been generated in", OUT_DIR);
 }
 
-main().catch(console.error);
+function getOutputName(modelFolder, fileNameBase) {
+    if (modelFolder === "finances-api-model" && fileNameBase.includes("2024-06-19")) {
+        return "finances2024";
+    }
+
+    if (modelFolder === "orders-api-model" && fileNameBase.includes("2026-01-01")) {
+        return "orders2026";
+    }
+
+    // Clean names: strip out trailing _YYYY-MM-DD for models where the current
+    // codebase already uses the unversioned name.
+    return fileNameBase.replace(/_20[0-9]{2}-[0-9]{2}-[0-9]{2}$/, "");
+}
+
+main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+});

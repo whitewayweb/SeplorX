@@ -53,6 +53,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ skipped: true, reason: "Handler does not support fetchAndSaveOrders" });
     }
 
+    // Mark the channel as claimed before the background task starts. The
+    // dashboard on-demand scheduler uses this timestamp as its coarse lock, so
+    // active browser renders do not fan out overlapping workers for one channel.
+    await db.update(channels)
+      .set({ lastOrderSyncAt: new Date() })
+      .where(eq(channels.id, channel.id));
+
     // Use after() introduced in Next.js 15+ to run the heavy work after response is sent
     after(async () => {
       const startTime = Date.now();
@@ -79,4 +86,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Worker failed" }, { status: 500 });
   }
 }
-

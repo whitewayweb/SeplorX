@@ -9,6 +9,7 @@ import { AmazonAPIClient } from "./api/client";
 import { logger } from "@/lib/logger";
 import type { SalesOrderStatus } from "@/db/schema";
 import type { OrdersV0Schema } from "./api/types/ordersV0Schema";
+import { syncAmazonOrderFinances } from "./finances";
 
 import {
   configFields,
@@ -637,11 +638,27 @@ export const amazonHandler: ChannelHandler = {
       ...amazonShippedReconciliation,
     });
 
+    const financeReconciliation = await syncAmazonOrderFinances(userId, channelId).catch((err) => {
+      logger.error("[Amazon Sync] Finance reconciliation failed:", err);
+      return {
+        checked: 0,
+        synced: 0,
+        noData: 0,
+        failed: 1,
+        notSupported: 0,
+      };
+    });
+
     return {
       fetched: fetchedCount,
       saved: savedCount,
+      financeReconciliation,
       amazonShippedReconciliation,
     };
+  },
+
+  async syncOrderFinances(userId, channelId, options) {
+    return syncAmazonOrderFinances(userId, channelId, options);
   },
 };
 

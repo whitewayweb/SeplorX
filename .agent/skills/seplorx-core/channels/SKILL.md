@@ -164,6 +164,7 @@ Declare capabilities in the `ChannelDefinition` registry entry or in a `config.t
 | `canPushProductUpdates: true` | "Publish Updates" button on `/channels/[id]/publish` |
 | `canPushStock: true` | Stock push after inventory transactions |
 | `usesWebhooks: true` | "Register Webhooks" button on channel card |
+| `canSyncOrderFinances: true` | Order finance reconciliation, manual finance sync, and profit adjustments |
 
 ## Step 6 — Product Sync (optional, for `canFetchProducts`)
 
@@ -261,6 +262,33 @@ Channel mapping and sales-cost reconciliation are not inventory mutations.
 - Do not push stock to external channels just because a channel product was mapped.
 
 Order-driven inventory remains owned by `src/lib/stock/service.ts` and must stay gated by `STOCK_CUTOFF_DATE` plus the existing stock-processed/idempotency guards. Mapping improves attribution, reporting, and future processing; stock reservations and deductions happen only through the order stock-processing and return workflows.
+
+## Step 10.2 — Shared Order Finance Reconciliation
+
+Order finance is a shared reconciliation workflow, not a channel-specific reporting shortcut.
+
+1. Set `capabilities.canSyncOrderFinances = true` for supported channels.
+2. Implement `syncOrderFinances(userId, channelId, options)` on the channel handler.
+3. Keep provider parsing under `src/lib/channels/{id}/finances.ts`.
+4. Persist normalized rows only through `src/lib/order-finance/service.ts`.
+5. Do not mutate inventory, reservations, product mappings, or `sales_order_items` cost snapshots during finance sync.
+
+**Tables:**
+- `sales_order_finance_syncs` — one sync status row per order.
+- `sales_order_finance_events` — idempotent provider transaction/event rows.
+- `sales_order_finance_components` — normalized amount components linked to finance events and, when possible, order items.
+
+**Status values:** `pending`, `synced`, `no_data`, `failed`, `not_supported`.
+
+**Amount roles:** `principal`, `tax`, `shipping_revenue`, `discount`, `order_fee_revenue`, `marketplace_fee`, `payment_fee`, `withholding`, `refund`, `adjustment`, `other`.
+
+Only cost-side roles should adjust dashboard profit: `marketplace_fee`, `payment_fee`, `withholding`, `adjustment`, and provider-specific `other` costs. Do not double-count customer-facing revenue roles such as principal, tax, shipping revenue, discounts, or WooCommerce `fee_lines`.
+
+**Provider guidance:**
+- Amazon should use Finances API `2024-06-19` transactions by `relatedIdentifierName=ORDER_ID` after order finance data has settled.
+- WooCommerce should normalize the existing stored order payload (`line_items`, `tax`, `shipping_lines`, `discount_total`, `refunds`, `fee_lines`) and should not introduce a separate finance API call for v1.
+
+**Amazon type generation:** Keep Amazon SP-API generated types collocated in `src/lib/channels/amazon/api/types`. Update `scripts/generate-amazon-types.js` when adding a new Amazon model folder, then run `yarn generate:amazon-types` or `yarn generate:types`. Do not hand-edit generated type files.
 
 ## Step 10 — Stock Management Integration
 

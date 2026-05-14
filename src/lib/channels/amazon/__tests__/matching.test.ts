@@ -21,6 +21,16 @@ vi.mock("@/lib/channels/utils", () => ({
   }),
 }));
 
+vi.mock("../finances", () => ({
+  syncAmazonOrderFinances: vi.fn().mockResolvedValue({
+    checked: 0,
+    synced: 0,
+    noData: 0,
+    failed: 0,
+    notSupported: 0,
+  }),
+}));
+
 // We must mock the AmazonAPIClient to avoid real network calls
 vi.mock("../api/client", () => {
   return {

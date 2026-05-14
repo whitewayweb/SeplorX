@@ -54,6 +54,7 @@ export default async function OrdersPage({
         ...c,
         lastSyncAt: await getLastSyncDate(c.id),
         color: definition?.color,
+        canSyncOrderFinances: definition?.capabilities?.canSyncOrderFinances === true,
       };
     })
   );
@@ -86,4 +87,3 @@ export default async function OrdersPage({
     </>
   );
 }
-
