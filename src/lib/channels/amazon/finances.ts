@@ -139,7 +139,7 @@ export async function syncAmazonOrderFinances(
           orderId: order.id,
           channelId,
           source: SOURCE,
-          status: "pending",
+          status: "failed",
           nextAttemptAt: new Date(Date.now() + FINANCE_RETRY_COOLDOWN_MS),
           error: {
             code: "amazon_finance_rate_limited",
@@ -232,7 +232,7 @@ async function getCandidateOrders(
   const limit = Math.max(1, Math.min(options.limit ?? defaultLimit, maxLimit));
   const eligibleBefore = new Date(Date.now() - FINANCE_SYNC_DELAY_MS);
   const statusScope = options.orderId
-    ? sql`and sofs.status in ('pending', 'synced', 'no_data', 'failed')`
+    ? sql`and sofs.status in ('pending', 'no_data', 'failed')`
     : sql`and sofs.status in ('pending', 'no_data', 'failed')`;
   const attemptScope = options.orderId
     ? sql``
@@ -274,43 +274,30 @@ async function getCandidateOrders(
     on conflict ("order_id") do nothing
   `);
 
+  const statusEligibility = options.orderId
+    ? sql`and (
+        so.status in ('shipped', 'delivered', 'returned', 'refunded')
+        or sofs.status in ('pending', 'no_data', 'failed')
+      )`
+    : sql`and so.status in ('shipped', 'delivered', 'returned', 'refunded')`;
+
   const rows = await db.execute(sql`
-    with candidates as (
-      select sofs.id
-      from sales_order_finance_syncs sofs
-      join sales_orders so on so.id = sofs.order_id
-      join channels c on c.id = so.channel_id
-      where c.user_id = ${userId}
-        and so.channel_id = ${channelId}
-        and so.status in ('shipped', 'delivered', 'returned', 'refunded')
-        ${statusScope}
-        ${attemptScope}
-        ${orderScope}
-        ${retryScope}
-      order by coalesce(so.purchased_at, so.created_at) asc
-      limit ${limit}
-      for update skip locked
-    ),
-    claimed as (
-      update sales_order_finance_syncs sofs
-      set
-        status = 'pending'::finance_sync_status,
-        source = ${SOURCE},
-        last_attempt_at = now(),
-        next_attempt_at = now() + (${FINANCE_RETRY_COOLDOWN_MS} * interval '1 millisecond'),
-        attempt_count = sofs.attempt_count + 1,
-        updated_at = now()
-      from candidates
-      where sofs.id = candidates.id
-      returning sofs.order_id, sofs.channel_id
-    )
     select
       so.id,
       so.channel_id as "channelId",
       so.external_order_id as "externalOrderId"
-    from claimed
-    join sales_orders so on so.id = claimed.order_id
+    from sales_order_finance_syncs sofs
+    join sales_orders so on so.id = sofs.order_id
+    join channels c on c.id = so.channel_id
+    where c.user_id = ${userId}
+      and so.channel_id = ${channelId}
+      ${statusEligibility}
+      ${statusScope}
+      ${attemptScope}
+      ${orderScope}
+      ${retryScope}
     order by coalesce(so.purchased_at, so.created_at) asc
+    limit ${limit}
   `);
 
   return rows as unknown as CandidateOrder[];

@@ -657,6 +657,92 @@ export const amazonHandler: ChannelHandler = {
     };
   },
 
+  async refreshOrders(userId: number, channelId: number, externalOrderIds: string[]): Promise<OrderFetchResult> {
+    const { db } = await import("@/db");
+    const { channels, salesOrders } = await import("@/db/schema");
+    const { eq, and } = await import("drizzle-orm");
+    const { decryptChannelCredentials } = await import("@/lib/channels/utils");
+
+    const uniqueOrderIds = [...new Set(externalOrderIds.filter(Boolean))];
+    const [channel] = await db
+      .select({
+        storeUrl: channels.storeUrl,
+        credentials: channels.credentials,
+        channelType: channels.channelType,
+      })
+      .from(channels)
+      .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
+      .limit(1);
+
+    if (!channel) throw new Error("Channel not found.");
+    if (channel.channelType !== "amazon") throw new Error("Channel is not an Amazon channel");
+
+    const creds = await decryptChannelCredentials(channel.credentials);
+    const client = new AmazonAPIClient(creds, channel.storeUrl || "");
+    let fetched = 0;
+    let saved = 0;
+
+    for (const externalOrderId of uniqueOrderIds) {
+      try {
+        const latestOrder = await client.getOrder(externalOrderId);
+        fetched++;
+        if (!latestOrder) continue;
+
+        const [existing] = await db
+          .select({
+            id: salesOrders.id,
+            status: salesOrders.status,
+            purchasedAt: salesOrders.purchasedAt,
+            buyerName: salesOrders.buyerName,
+            rawData: salesOrders.rawData,
+          })
+          .from(salesOrders)
+          .where(and(eq(salesOrders.channelId, channelId), eq(salesOrders.externalOrderId, externalOrderId)))
+          .limit(1);
+
+        if (!existing) continue;
+
+        const newStatus = mapAmazonOrderStatus(latestOrder);
+        const mergedRawData = {
+          ...((existing.rawData as Record<string, unknown>) || {}),
+          lastAmzUpdate: latestOrder,
+        };
+        const resolvedBuyerName = latestOrder.BuyerInfo?.BuyerName || null;
+
+        await db
+          .update(salesOrders)
+          .set({
+            status: newStatus,
+            previousStatus: existing.status !== newStatus ? existing.status : undefined,
+            rawData: mergedRawData,
+            syncedAt: new Date(),
+            ...(latestOrder.OrderTotal?.Amount ? { totalAmount: latestOrder.OrderTotal.Amount } : {}),
+            ...(latestOrder.OrderTotal?.CurrencyCode ? { currency: latestOrder.OrderTotal.CurrencyCode } : {}),
+            ...(resolvedBuyerName && !existing.buyerName ? { buyerName: resolvedBuyerName } : {}),
+          })
+          .where(eq(salesOrders.id, existing.id));
+
+        if (existing.status !== newStatus) {
+          try {
+            const { processOrderStockChange, STOCK_CUTOFF_DATE } = await import("@/lib/stock/service");
+            if (existing.purchasedAt && existing.purchasedAt >= STOCK_CUTOFF_DATE) {
+              await processOrderStockChange(existing.id, newStatus, existing.status, userId);
+            }
+          } catch (stockErr) {
+            logger.error(`[Amazon Sync] Stock processing failed for selected order ${externalOrderId}:`, stockErr);
+          }
+        }
+
+        saved++;
+        await sleep(AMAZON_ORDER_DETAIL_DELAY_MS);
+      } catch (err) {
+        logger.error(`[Amazon Sync] Failed to refresh selected order ${externalOrderId}:`, err);
+      }
+    }
+
+    return { fetched, saved };
+  },
+
   async syncOrderFinances(userId, channelId, options) {
     return syncAmazonOrderFinances(userId, channelId, options);
   },

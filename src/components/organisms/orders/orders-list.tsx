@@ -1,13 +1,17 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { SyncStatusPill } from "@/components/molecules/orders/sync-status-pill";
 import { SyncFinancesButton } from "@/components/organisms/orders/sync-finances-button";
+import { BulkSyncSelectedOrdersModal } from "@/components/organisms/orders/bulk-sync-selected-orders-modal";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { DateRangePicker } from "@/components/organisms/orders/date-range-picker";
 import { getOrderStatusBadgeClass, getOrderStatusLabel } from "@/lib/utils/order-status";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface Order {
   id: number;
@@ -87,8 +91,9 @@ function isFinanceEligibleOrderStatus(status: string | null): boolean {
 }
 
 function getFinanceStatusMeta(order: Order) {
-  if (!isFinanceEligibleOrderStatus(order.status)) return FINANCE_STATUS_META.not_ready;
   const { financeSyncStatus: status } = order;
+  if (status) return FINANCE_STATUS_META[status];
+  if (!isFinanceEligibleOrderStatus(order.status)) return FINANCE_STATUS_META.not_ready;
   return FINANCE_STATUS_META[status ?? "unsynced"];
 }
 
@@ -112,6 +117,8 @@ export function OrdersList({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<number>>(new Set());
+  const [bulkSyncModalOpen, setBulkSyncModalOpen] = useState(false);
 
   const handleStatusChange = (status: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -128,9 +135,39 @@ export function OrdersList({
     "pending", "processing", "on-hold", "packed", "shipped",
     "delivered", "cancelled", "returned", "refunded", "failed", "draft"
   ];
-  const financeSyncChannelIds = new Set(
-    channels.filter((channel) => channel.canSyncOrderFinances).map((channel) => channel.id),
+  const financeSyncChannelIds = useMemo(
+    () => new Set(channels.filter((channel) => channel.canSyncOrderFinances).map((channel) => channel.id)),
+    [channels],
   );
+  const selectableOrderIds = useMemo(() => orders.map((order) => order.id), [orders]);
+  const selectableOrderIdSet = useMemo(() => new Set(selectableOrderIds), [selectableOrderIds]);
+  const effectiveSelectedOrderIds = useMemo(
+    () => [...selectedOrderIds].filter((orderId) => selectableOrderIdSet.has(orderId)),
+    [selectedOrderIds, selectableOrderIdSet],
+  );
+  const effectiveSelectedOrderIdSet = useMemo(() => new Set(effectiveSelectedOrderIds), [effectiveSelectedOrderIds]);
+  const selectedOrders = orders
+    .filter((order) => effectiveSelectedOrderIdSet.has(order.id))
+    .map((order) => ({
+      id: order.id,
+      externalOrderId: order.externalOrderId,
+    }));
+  const selectedCount = effectiveSelectedOrderIds.length;
+  const isAllSelected = selectableOrderIds.length > 0 && selectedCount === selectableOrderIds.length;
+  const isSomeSelected = selectedCount > 0 && selectedCount < selectableOrderIds.length;
+
+  function handleSelectAll(checked: boolean | "indeterminate") {
+    setSelectedOrderIds(checked === true ? new Set(selectableOrderIds) : new Set());
+  }
+
+  function handleSelectRow(orderId: number, checked: boolean) {
+    setSelectedOrderIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(orderId);
+      else next.delete(orderId);
+      return next;
+    });
+  }
 
   const statusTabs = [
     ...ALL_STATUSES.map((status) => ({
@@ -203,10 +240,46 @@ export function OrdersList({
         </div>
       </div>
 
+      {selectedCount > 0 && (
+        <div className="flex min-h-10 items-center justify-between pb-3">
+          <div className="flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <span className="mr-2 text-sm font-medium text-muted-foreground">
+              {selectedCount} selected
+            </span>
+            <Button
+              onClick={() => setBulkSyncModalOpen(true)}
+              variant="secondary"
+              size="sm"
+              className="h-8 border shadow-sm"
+            >
+              Sync Selected
+            </Button>
+            <Button
+              onClick={() => setSelectedOrderIds(new Set())}
+              variant="ghost"
+              size="sm"
+              className="h-8 text-muted-foreground"
+            >
+              Clear Selection
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white rounded-lg shadow border overflow-x-auto overflow-y-hidden max-w-full">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
+              <th className="w-[44px] px-4 py-3 text-left">
+                <span title={selectableOrderIds.length === 0 ? "No orders on this page." : undefined}>
+                  <Checkbox
+                    checked={isAllSelected || (isSomeSelected ? "indeterminate" : false)}
+                    onCheckedChange={handleSelectAll}
+                    disabled={selectableOrderIds.length === 0}
+                    aria-label="Select all orders"
+                  />
+                </span>
+              </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order ID</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Channel</th>
@@ -219,7 +292,7 @@ export function OrdersList({
           <tbody className="bg-white divide-y divide-gray-200">
             {orders.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-6 py-10 text-center text-gray-500">
+                <td colSpan={8} className="px-6 py-10 text-center text-gray-500">
                   No orders found. Use the button above to fetch orders.
                 </td>
               </tr>
@@ -230,6 +303,13 @@ export function OrdersList({
 
                 return (
                   <tr key={order.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-4" onClick={(event) => event.stopPropagation()}>
+                      <Checkbox
+                        checked={effectiveSelectedOrderIdSet.has(order.id)}
+                        onCheckedChange={(checked) => handleSelectRow(order.id, checked === true)}
+                        aria-label={`Select order ${order.externalOrderId ?? order.id}`}
+                      />
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {order.purchasedAt?.toLocaleString("en-IN", {
                         day: "numeric",
@@ -300,6 +380,12 @@ export function OrdersList({
           />
         </div>
       </div>
+      <BulkSyncSelectedOrdersModal
+        open={bulkSyncModalOpen}
+        onOpenChange={setBulkSyncModalOpen}
+        selectedOrders={selectedOrders}
+        onSuccessComplete={() => setSelectedOrderIds(new Set())}
+      />
     </div>
   );
 }

@@ -396,6 +396,17 @@ export interface ChannelHandler {
   ): Promise<OrderFetchResult>;
 
   /**
+   * Refresh specific existing orders from the remote channel by external order ID.
+   * Use this for selected-row sync workflows; implementations must avoid broad
+   * paginated channel imports.
+   */
+  refreshOrders?(
+    userId: number,
+    channelId: number,
+    externalOrderIds: string[],
+  ): Promise<OrderFetchResult>;
+
+  /**
    * Reconcile realized order finance data for this channel.
    *
    * Implementations must not mutate inventory or product cost snapshots.

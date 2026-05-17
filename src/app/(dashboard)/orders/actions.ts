@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { logger } from "@/lib/logger";
 
 import { db } from "@/db";
-import { channels, salesOrders } from "@/db/schema";
+import { channels, salesOrderFinanceSyncs, salesOrders } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { ChannelIdSchema } from "@/lib/validations/channels";
 import type { OrderFinanceSyncOptions, OrderFinanceSyncResult } from "@/lib/channels/types";
@@ -14,6 +14,50 @@ import type { OrderFinanceSyncOptions, OrderFinanceSyncResult } from "@/lib/chan
 type SyncOrderFinancesActionResult =
   | ({ success: true } & OrderFinanceSyncResult)
   | { success: false; error: string };
+
+type SmartSyncSelectedOrderActionResult =
+  | {
+      success: true;
+      orderSync: {
+        fetched: number;
+        updated: number;
+        failed: number;
+      };
+      financeSync: {
+        checked: number;
+        synced: number;
+        noData: number;
+        failed: number;
+        skipped: 0 | 1;
+        skipReason: string | null;
+      };
+    }
+  | { success: false; error: string };
+
+type SmartOrderFinanceSummary = Extract<
+  SmartSyncSelectedOrderActionResult,
+  { success: true }
+>["financeSync"];
+
+function isFinanceEligibleOrderStatus(status: string | null): boolean {
+  return status === "shipped" || status === "delivered" || status === "returned" || status === "refunded";
+}
+
+function isHistoricalFinanceBackfillStatus(financeSyncStatus: string | null): boolean {
+  return financeSyncStatus === "pending" || financeSyncStatus === "failed" || financeSyncStatus === "no_data";
+}
+
+function shouldSyncOrderFinance(status: string | null, financeSyncStatus: string | null): boolean {
+  if (!isFinanceEligibleOrderStatus(status) && !isHistoricalFinanceBackfillStatus(financeSyncStatus)) return false;
+  return financeSyncStatus !== "synced" && financeSyncStatus !== "not_supported";
+}
+
+function getFinanceSkipReason(status: string | null, financeSyncStatus: string | null): string | null {
+  if (!isFinanceEligibleOrderStatus(status) && !isHistoricalFinanceBackfillStatus(financeSyncStatus)) return "not ready";
+  if (financeSyncStatus === "synced") return "already synced";
+  if (financeSyncStatus === "not_supported") return "not supported";
+  return null;
+}
 
 /**
  * Server Action to fetch orders from a specific channel instance.
@@ -141,6 +185,146 @@ export async function syncOrderFinancesAction(
     });
     return { success: false, error: "Finance sync failed. Check server logs for details." };
   }
+}
+
+export async function smartSyncSelectedOrderAction(rawOrderId: unknown): Promise<SmartSyncSelectedOrderActionResult> {
+  const orderId = Number(rawOrderId);
+  if (!Number.isInteger(orderId) || orderId <= 0) {
+    return { success: false, error: "Invalid orderId" };
+  }
+
+  const userId = await getAuthenticatedUserId();
+  if (!userId) throw new Error("Unauthorized");
+
+  const [selectedOrder] = await db
+    .select({
+      id: salesOrders.id,
+      channelId: salesOrders.channelId,
+      channelType: channels.channelType,
+      externalOrderId: salesOrders.externalOrderId,
+    })
+    .from(salesOrders)
+    .innerJoin(channels, and(eq(salesOrders.channelId, channels.id), eq(channels.userId, userId)))
+    .where(eq(salesOrders.id, orderId))
+    .limit(1);
+
+  if (!selectedOrder) {
+    return { success: false, error: "Order not found." };
+  }
+
+  const orderSync = { fetched: 0, saved: 0, failed: 0 };
+  const handler = getChannelHandler(selectedOrder.channelType);
+
+  if (!handler?.refreshOrders) {
+    return { success: false, error: "Selected-order sync is not supported for this channel." };
+  }
+
+  try {
+    const result = await handler.refreshOrders(userId, selectedOrder.channelId, [selectedOrder.externalOrderId]);
+    orderSync.fetched += result.fetched;
+    orderSync.saved += result.saved;
+
+    await db
+      .update(channels)
+      .set({ lastOrderSyncAt: new Date() })
+      .where(and(eq(channels.id, selectedOrder.channelId), eq(channels.userId, userId)));
+  } catch (err) {
+    orderSync.failed += 1;
+    logger.error("[smartSyncSelectedOrderAction] order sync failed", {
+      channelId: selectedOrder.channelId,
+      orderId: selectedOrder.id,
+      userId,
+      error: String(err),
+    });
+  }
+
+  if (orderSync.failed > 0) {
+    return {
+      success: true,
+      orderSync: {
+        fetched: orderSync.fetched,
+        updated: orderSync.saved,
+        failed: orderSync.failed,
+      },
+      financeSync: {
+        checked: 0,
+        synced: 0,
+        noData: 0,
+        failed: 0,
+        skipped: 1,
+        skipReason: "order refresh failed",
+      },
+    };
+  }
+
+  const [refreshedOrder] = await db
+    .select({
+      id: salesOrders.id,
+      channelId: salesOrders.channelId,
+      channelType: channels.channelType,
+      status: salesOrders.status,
+      financeSyncStatus: salesOrderFinanceSyncs.status,
+    })
+    .from(salesOrders)
+    .innerJoin(channels, and(eq(salesOrders.channelId, channels.id), eq(channels.userId, userId)))
+    .leftJoin(salesOrderFinanceSyncs, eq(salesOrderFinanceSyncs.orderId, salesOrders.id))
+    .where(eq(salesOrders.id, selectedOrder.id))
+    .limit(1);
+
+  const financeSync: SmartOrderFinanceSummary = {
+    checked: 0,
+    synced: 0,
+    noData: 0,
+    failed: 0,
+    skipped: 0,
+    skipReason: null,
+  };
+
+  if (!refreshedOrder) {
+    return { success: false, error: "Order not found after refresh." };
+  }
+
+  const skipReason = getFinanceSkipReason(refreshedOrder.status, refreshedOrder.financeSyncStatus);
+  if (!handler.syncOrderFinances || !shouldSyncOrderFinance(refreshedOrder.status, refreshedOrder.financeSyncStatus)) {
+    financeSync.skipped = 1;
+    financeSync.skipReason = skipReason ?? "not supported";
+  } else {
+    try {
+      const result = await handler.syncOrderFinances(userId, selectedOrder.channelId, {
+        orderId: selectedOrder.id,
+        limit: 1,
+        retryFailed: true,
+      });
+      financeSync.checked += result.checked;
+      financeSync.synced += result.synced;
+      financeSync.noData += result.noData;
+      financeSync.failed += result.failed;
+      financeSync.skipped = result.notSupported > 0 ? 1 : 0;
+      financeSync.skipReason = result.notSupported > 0 ? "not supported" : null;
+    } catch (err) {
+      financeSync.failed += 1;
+      logger.error("[smartSyncSelectedOrderAction] finance sync failed", {
+        channelId: selectedOrder.channelId,
+        orderId: selectedOrder.id,
+        userId,
+        error: String(err),
+      });
+    }
+  }
+
+  revalidatePath("/orders");
+  revalidatePath(`/orders/channels/${selectedOrder.channelId}`);
+  revalidatePath(`/orders/${selectedOrder.id}`);
+
+  return {
+    success: true,
+    orderSync: {
+      fetched: orderSync.fetched,
+      updated: orderSync.saved,
+      failed: orderSync.failed,
+    },
+    financeSync,
+  };
 }
 
 /**

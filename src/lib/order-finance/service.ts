@@ -52,6 +52,7 @@ export async function persistOrderFinance(
         nextAttemptAt: input.nextAttemptAt ?? null,
         lastErrorCode: input.error?.code ?? null,
         lastErrorMessage: input.error?.message ?? null,
+        attemptCount: 1,
         updatedAt: now,
       })
       .onConflictDoUpdate({
@@ -64,6 +65,7 @@ export async function persistOrderFinance(
           nextAttemptAt: input.nextAttemptAt ?? null,
           lastErrorCode: input.error?.code ?? null,
           lastErrorMessage: input.error?.message ?? null,
+          attemptCount: sql`${salesOrderFinanceSyncs.attemptCount} + 1`,
           updatedAt: now,
         },
       });

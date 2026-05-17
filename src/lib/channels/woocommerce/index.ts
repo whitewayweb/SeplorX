@@ -890,6 +890,102 @@ export const woocommerceHandler: ChannelHandler = {
     return { fetched: fetchedCount, saved: savedCount, financeReconciliation };
   },
 
+  async refreshOrders(userId: number, channelId: number, externalOrderIds: string[]): Promise<OrderFetchResult> {
+    const { db } = await import("@/db");
+    const { channels, salesOrders } = await import("@/db/schema");
+    const { eq, and } = await import("drizzle-orm");
+    const { decryptChannelCredentials } = await import("@/lib/channels/utils");
+
+    const uniqueOrderIds = [...new Set(externalOrderIds.filter(Boolean))];
+    const [channel] = await db
+      .select({
+        storeUrl: channels.storeUrl,
+        credentials: channels.credentials,
+        channelType: channels.channelType,
+      })
+      .from(channels)
+      .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
+      .limit(1);
+
+    if (!channel) throw new Error("Channel not found.");
+    if (channel.channelType !== "woocommerce") throw new Error("Channel is not a WooCommerce channel");
+    if (!channel.storeUrl) throw new Error("Channel has no store URL");
+
+    const creds = await decryptChannelCredentials(channel.credentials);
+    const auth = basicAuth(creds.consumerKey, creds.consumerSecret);
+    let fetched = 0;
+    let saved = 0;
+
+    for (const externalOrderId of uniqueOrderIds) {
+      try {
+        const res = await wcFetch(channel.storeUrl, `/orders/${externalOrderId}`, {
+          method: "GET",
+          headers: { Authorization: auth },
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`WooCommerce order fetch failed (${res.status}): ${text.substring(0, 200)}`);
+        }
+
+        const wcOrder = (await res.json()) as WCOrderPayload;
+        fetched++;
+
+        const [existing] = await db
+          .select({
+            id: salesOrders.id,
+            status: salesOrders.status,
+            purchasedAt: salesOrders.purchasedAt,
+            rawData: salesOrders.rawData,
+          })
+          .from(salesOrders)
+          .where(and(eq(salesOrders.channelId, channelId), eq(salesOrders.externalOrderId, externalOrderId)))
+          .limit(1);
+
+        if (!existing) continue;
+
+        const newStatus = mapWooCommerceStatus(wcOrder.status);
+        const buyerName = wcOrder.billing
+          ? `${wcOrder.billing.first_name || ""} ${wcOrder.billing.last_name || ""}`.trim() || null
+          : null;
+
+        await db
+          .update(salesOrders)
+          .set({
+            status: newStatus,
+            previousStatus: existing.status !== newStatus ? existing.status : undefined,
+            rawData: {
+              ...((existing.rawData as Record<string, unknown>) || {}),
+              lastWcUpdate: wcOrder,
+            },
+            syncedAt: new Date(),
+            ...(wcOrder.total ? { totalAmount: String(wcOrder.total) } : {}),
+            ...(wcOrder.currency ? { currency: wcOrder.currency } : {}),
+            ...(buyerName ? { buyerName } : {}),
+            ...(wcOrder.billing?.email ? { buyerEmail: wcOrder.billing.email } : {}),
+          })
+          .where(eq(salesOrders.id, existing.id));
+
+        if (existing.status !== newStatus) {
+          try {
+            const { processOrderStockChange, STOCK_CUTOFF_DATE } = await import("@/lib/stock/service");
+            if (existing.purchasedAt && existing.purchasedAt >= STOCK_CUTOFF_DATE) {
+              await processOrderStockChange(existing.id, newStatus, existing.status, userId);
+            }
+          } catch (stockErr) {
+            logger.error(`[WooCommerce Sync] Stock processing failed for selected order ${externalOrderId}:`, stockErr);
+          }
+        }
+
+        saved++;
+      } catch (err) {
+        logger.error(`[WooCommerce Sync] Failed to refresh selected order ${externalOrderId}:`, err);
+      }
+    }
+
+    return { fetched, saved };
+  },
+
   async syncOrderFinances(userId, channelId, options) {
     return syncWooCommerceOrderFinances(userId, channelId, options);
   },
