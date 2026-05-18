@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -54,6 +54,7 @@ export function BulkSyncModal<TItem, TSummary>({
   blockUnloadMessage = "Sync in progress. Are you sure you want to leave?",
 }: BulkSyncModalProps<TItem, TSummary>) {
   const router = useRouter();
+  const cancelRequestedRef = useRef(false);
   const initialStatus = {
     isSyncing: false,
     progress: 0,
@@ -75,16 +76,22 @@ export function BulkSyncModal<TItem, TSummary>({
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [blockUnloadMessage, status.isSyncing]);
 
-  useEffect(() => {
-    if (!open || !status.isSyncing || status.completed || status.cancelRequested) return;
+  const total = items.length;
+  const progressPercent = total > 0 ? (status.progress / total) * 100 : 0;
+  const isReadyToStart = !status.isSyncing && !status.completed && !status.cancelRequested && status.progress === 0;
 
-    let isCancelled = false;
+  const handleStart = async () => {
+    cancelRequestedRef.current = false;
+    setStatus({
+      ...initialStatus,
+      isSyncing: true,
+    });
 
-    const processQueue = async () => {
-      let summary = initialSummary;
+    let summary = initialSummary;
 
+    try {
       for (const [index, item] of items.entries()) {
-        if (isCancelled || status.cancelRequested) break;
+        if (cancelRequestedRef.current) break;
 
         setStatus((prev) => ({ ...prev, currentItemLabel: getItemLabel(item) }));
 
@@ -92,52 +99,50 @@ export function BulkSyncModal<TItem, TSummary>({
           await new Promise((resolve) => setTimeout(resolve, delayMs));
         }
 
+        if (cancelRequestedRef.current) break;
+
         const itemSummary = await processItem(item, index);
         summary = mergeSummary(summary, itemSummary);
         setStatus((prev) => ({ ...prev, progress: index + 1 }));
       }
 
-      if (!isCancelled) {
+      if (cancelRequestedRef.current) {
         setStatus((prev) => ({
           ...prev,
           isSyncing: false,
-          completed: true,
+          cancelRequested: true,
           currentItemLabel: null,
         }));
-        toast.success(completedToastTitle, {
-          description: getSuccessDescription(summary, items.length),
-        });
-        router.refresh();
+        return;
       }
-    };
 
-    processQueue();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [
-    completedToastTitle,
-    delayMs,
-    getItemLabel,
-    getSuccessDescription,
-    initialSummary,
-    items,
-    mergeSummary,
-    open,
-    processItem,
-    router,
-    status.cancelRequested,
-    status.completed,
-    status.isSyncing,
-  ]);
-
-  const total = items.length;
-  const progressPercent = total > 0 ? (status.progress / total) * 100 : 0;
-  const isReadyToStart = !status.isSyncing && !status.completed && !status.cancelRequested && status.progress === 0;
+      setStatus((prev) => ({
+        ...prev,
+        isSyncing: false,
+        progress: total,
+        completed: true,
+        currentItemLabel: null,
+      }));
+      toast.success(completedToastTitle, {
+        description: getSuccessDescription(summary, total),
+      });
+      router.refresh();
+    } catch (error) {
+      console.error("[BulkSyncModal] Sync failed", error);
+      setStatus((prev) => ({
+        ...prev,
+        isSyncing: false,
+        currentItemLabel: null,
+      }));
+      toast.error("Bulk sync failed", {
+        description: "Could not finish the selected sync. Please try again.",
+      });
+    }
+  };
 
   const handleCancel = () => {
-    setStatus((prev) => ({ ...prev, cancelRequested: true, isSyncing: false }));
+    cancelRequestedRef.current = true;
+    setStatus((prev) => ({ ...prev, cancelRequested: true, isSyncing: false, currentItemLabel: null }));
     toast.info(cancelToastTitle);
   };
 
@@ -145,6 +150,7 @@ export function BulkSyncModal<TItem, TSummary>({
     if (!status.isSyncing) {
       onOpenChange(false);
       if (status.completed && !status.cancelRequested) onSuccessComplete();
+      cancelRequestedRef.current = false;
       setStatus(initialStatus);
     }
   };
@@ -207,7 +213,7 @@ export function BulkSyncModal<TItem, TSummary>({
               <Button variant="ghost" onClick={handleClose}>
                 Cancel
               </Button>
-              <Button onClick={() => setStatus((prev) => ({ ...prev, isSyncing: true }))} disabled={total === 0}>
+              <Button onClick={handleStart} disabled={total === 0}>
                 {startLabel}
               </Button>
             </>
