@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { SyncStatusPill } from "@/components/molecules/orders/sync-status-pill";
-import { SyncFinancesButton } from "@/components/organisms/orders/sync-finances-button";
 import { BulkSyncSelectedOrdersModal } from "@/components/organisms/orders/bulk-sync-selected-orders-modal";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -52,7 +51,7 @@ const FINANCE_STATUS_META = {
   unsynced: {
     label: "Missing",
     className: "bg-yellow-50 text-yellow-800 ring-yellow-200",
-    helper: "Finance not fetched",
+    helper: "Auto sync pending",
   },
   pending: {
     label: "Queued",
@@ -67,12 +66,12 @@ const FINANCE_STATUS_META = {
   no_data: {
     label: "No data",
     className: "bg-gray-100 text-gray-700 ring-gray-200",
-    helper: "Amazon returned no events",
+    helper: "Auto retry scheduled",
   },
   failed: {
     label: "Failed",
     className: "bg-red-50 text-red-800 ring-red-200",
-    helper: "Needs retry",
+    helper: "Auto retry scheduled",
   },
   not_supported: {
     label: "N/A",
@@ -95,12 +94,6 @@ function getFinanceStatusMeta(order: Order) {
   if (status) return FINANCE_STATUS_META[status];
   if (!isFinanceEligibleOrderStatus(order.status)) return FINANCE_STATUS_META.not_ready;
   return FINANCE_STATUS_META[status ?? "unsynced"];
-}
-
-function shouldShowRowFinanceSync(order: Order, financeSyncChannelIds: Set<number>): boolean {
-  if (!financeSyncChannelIds.has(order.channelId)) return false;
-  if (!isFinanceEligibleOrderStatus(order.status)) return false;
-  return order.financeSyncStatus === null || order.financeSyncStatus === "failed" || order.financeSyncStatus === "no_data";
 }
 
 export function OrdersList({
@@ -135,10 +128,6 @@ export function OrdersList({
     "pending", "processing", "on-hold", "packed", "shipped",
     "delivered", "cancelled", "returned", "refunded", "failed", "draft"
   ];
-  const financeSyncChannelIds = useMemo(
-    () => new Set(channels.filter((channel) => channel.canSyncOrderFinances).map((channel) => channel.id)),
-    [channels],
-  );
   const selectableOrderIds = useMemo(() => orders.map((order) => order.id), [orders]);
   const selectableOrderIdSet = useMemo(() => new Set(selectableOrderIds), [selectableOrderIds]);
   const effectiveSelectedOrderIds = useMemo(
@@ -299,7 +288,6 @@ export function OrdersList({
             ) : (
               orders.map((order) => {
                 const financeStatus = getFinanceStatusMeta(order);
-                const showRowFinanceSync = shouldShowRowFinanceSync(order, financeSyncChannelIds);
 
                 return (
                   <tr key={order.id} className="hover:bg-gray-50 transition-colors">
@@ -339,25 +327,13 @@ export function OrdersList({
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <div>
-                          <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${financeStatus.className}`}>
-                            {financeStatus.label}
-                          </span>
-                          <div className="mt-0.5 text-[11px] text-gray-400">
-                            {financeStatus.helper}
-                          </div>
+                      <div>
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${financeStatus.className}`}>
+                          {financeStatus.label}
+                        </span>
+                        <div className="mt-0.5 text-[11px] text-gray-400">
+                          {financeStatus.helper}
                         </div>
-                        {showRowFinanceSync && (
-                          <SyncFinancesButton
-                            channelId={order.channelId}
-                            orderId={order.id}
-                            label="Sync"
-                            syncingLabel="..."
-                            variant="ghost"
-                            size="sm"
-                          />
-                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right font-semibold">

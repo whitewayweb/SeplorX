@@ -144,7 +144,6 @@ export interface WebhookOrderEvent {
 export type OrderFetchResult = {
   fetched: number;
   saved: number;
-  financeReconciliation?: OrderFinanceSyncResult;
   amazonShippedReconciliation?: {
     checked: number;
     delivered: number;

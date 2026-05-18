@@ -7,6 +7,10 @@ import {
   releaseOrderSyncClaim,
 } from "@/lib/agents/order-sync-state";
 
+const BACKGROUND_FINANCE_SYNC_LIMIT = 10;
+
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   try {
     // 1. Authorization
@@ -30,6 +34,8 @@ export async function POST(request: Request) {
     }
 
     const channelId = Number(body.channelId);
+    const financeOnly = body.financeOnly === true;
+    const workerUrl = new URL("/api/agents/sync-worker", request.url).toString();
 
     // 4. Atomically claim the channel. This prevents concurrent scheduler
     // invocations from starting duplicate workers for the same channel while
@@ -42,26 +48,68 @@ export async function POST(request: Request) {
 
     // 5. Execute Handler (Fire-and-forget in background)
     const handler = getChannelHandler(channel.channelType);
-    if (!handler?.fetchAndSaveOrders) {
+    if (!handler?.fetchAndSaveOrders && !handler?.syncOrderFinances) {
       await releaseOrderSyncClaim(channel.id);
-      return NextResponse.json({ skipped: true, reason: "Handler does not support fetchAndSaveOrders" });
+      return NextResponse.json({ skipped: true, reason: "Handler does not support order or finance sync" });
     }
 
     // Use after() introduced in Next.js 15+ to run the heavy work after response is sent
     after(async () => {
       const startTime = Date.now();
+      let orderSyncSucceeded = false;
+      let financeBatchWasFull = false;
+
+      if (handler.syncOrderFinances) {
+        try {
+          const result = await handler.syncOrderFinances(channel.userId, channel.id, {
+            limit: BACKGROUND_FINANCE_SYNC_LIMIT,
+            retryFailed: true,
+          });
+          financeBatchWasFull = result.checked >= BACKGROUND_FINANCE_SYNC_LIMIT;
+          console.log(
+            `[sync-worker] [${channelId}] Finance sync: checked ${result.checked}, synced ${result.synced}, no data ${result.noData}, failed ${result.failed}.`,
+          );
+        } catch (err) {
+          console.error(`[sync-worker] [${channelId}] Finance sync failed:`, err);
+        }
+      }
+
+      if (!financeOnly && handler.fetchAndSaveOrders) {
+        try {
+          console.log(`[sync-worker] [${channelId}] Starting background sync for channel "${channel.name}"`);
+          const result = await handler.fetchAndSaveOrders(channel.userId, channel.id);
+          orderSyncSucceeded = true;
+
+          const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+          console.log(`[sync-worker] [${channelId}] Success: fetched ${result.fetched}, saved ${result.saved} orders. Duration: ${duration}s`);
+        } catch (err) {
+          const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+          console.error(`[sync-worker] [${channelId}] Order sync failed after ${duration}s:`, err);
+        }
+      }
+
       try {
-        console.log(`[sync-worker] [${channelId}] Starting background sync for channel "${channel.name}"`);
-        const result = await handler.fetchAndSaveOrders!(channel.userId, channel.id);
-        
-        // Update the last_order_sync_at cursor on success
-        await markOrderSyncSucceeded(channel.id);
-          
-        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-        console.log(`[sync-worker] [${channelId}] Success: fetched ${result.fetched}, saved ${result.saved} orders. Duration: ${duration}s`);
+        if (orderSyncSucceeded) {
+          await markOrderSyncSucceeded(channel.id);
+        } else {
+          await releaseOrderSyncClaim(channel.id);
+        }
       } catch (err) {
-        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-        console.error(`[sync-worker] [${channelId}] Background sync failed after ${duration}s:`, err);
+        console.error(`[sync-worker] [${channelId}] Failed to finalize sync claim:`, err);
+      }
+
+      if (financeBatchWasFull) {
+        fetch(workerUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${process.env.CRON_JOB_KEY}`,
+          },
+          body: JSON.stringify({ channelId: channel.id, financeOnly: true }),
+          cache: "no-store",
+        }).catch((err) => {
+          console.error(`[sync-worker] [${channelId}] Failed to continue finance backlog:`, err);
+        });
       }
     });
 

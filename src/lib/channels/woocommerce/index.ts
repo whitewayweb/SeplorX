@@ -876,18 +876,7 @@ export const woocommerceHandler: ChannelHandler = {
       logger.error("[WooCommerce Sync] Failed to map past items", err);
     }
 
-    const financeReconciliation = await syncWooCommerceOrderFinances(userId, channelId, { limit: 100 }).catch((err) => {
-      logger.error("[WooCommerce Sync] Finance reconciliation failed:", err);
-      return {
-        checked: 0,
-        synced: 0,
-        noData: 0,
-        failed: 1,
-        notSupported: 0,
-      };
-    });
-
-    return { fetched: fetchedCount, saved: savedCount, financeReconciliation };
+    return { fetched: fetchedCount, saved: savedCount };
   },
 
   async refreshOrders(userId: number, channelId: number, externalOrderIds: string[]): Promise<OrderFetchResult> {
