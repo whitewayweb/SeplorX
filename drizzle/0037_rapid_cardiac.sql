@@ -1,0 +1,1 @@
+ALTER TABLE "channels" ADD COLUMN "order_sync_started_at" timestamp;

@@ -5,8 +5,8 @@ import { headers } from "next/headers";
 import { getBaseUrl } from "@/lib/utils";
 import { logger } from "@/lib/logger";
 import { channelRegistry } from "@/lib/channels/registry";
+import { ORDER_SYNC_INTERVAL_MS } from "@/lib/agents/order-sync-state";
 
-const SYNC_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 const AMAZON_FINANCE_DELAY_MS = 48 * 60 * 60 * 1000;
 const FINANCE_RETRY_COOLDOWN_MS = 60 * 60 * 1000;
 const FINANCE_SUPPORTED_CHANNEL_TYPES = channelRegistry
@@ -24,9 +24,9 @@ const lastTriggerByUser = new Map<number, number>();
  */
 export async function triggerOnDemandSync(userId: number) {
     const lastTriggerAt = lastTriggerByUser.get(userId);
-    if (lastTriggerAt && Date.now() - lastTriggerAt < SYNC_INTERVAL_MS) return;
+    if (lastTriggerAt && Date.now() - lastTriggerAt < ORDER_SYNC_INTERVAL_MS) return;
 
-    const staleTime = new Date(Date.now() - SYNC_INTERVAL_MS);
+    const staleTime = new Date(Date.now() - ORDER_SYNC_INTERVAL_MS);
     const financeRetryBefore = new Date(Date.now() - FINANCE_RETRY_COOLDOWN_MS);
     
     // 1. Check for stale connected channels or finance work that is ready.
@@ -38,6 +38,10 @@ export async function triggerOnDemandSync(userId: number) {
             and(
                 eq(channels.userId, userId),
                 eq(channels.status, 'connected'),
+                or(
+                    isNull(channels.orderSyncStartedAt),
+                    lte(channels.orderSyncStartedAt, staleTime)
+                ),
                 or(
                     isNull(channels.lastOrderSyncAt),
                     lte(channels.lastOrderSyncAt, staleTime),

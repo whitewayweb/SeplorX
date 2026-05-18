@@ -4,6 +4,7 @@ import { getAuthenticatedUserId } from "@/lib/auth";
 import { getChannelHandler } from "@/lib/channels/handlers";
 import { revalidatePath } from "next/cache";
 import { logger } from "@/lib/logger";
+import { markOrderSyncSucceeded } from "@/lib/agents/order-sync-state";
 
 import { db } from "@/db";
 import { channels, salesOrderFinanceSyncs, salesOrders } from "@/db/schema";
@@ -89,10 +90,7 @@ export async function fetchChannelOrdersAction(rawChannelId: unknown) {
   try {
     const result = await handler.fetchAndSaveOrders(userId, channelId);
 
-    // Update the last_order_sync_at cursor on success (ensures manual syncs advance the cursor)
-    await db.update(channels)
-      .set({ lastOrderSyncAt: new Date() })
-      .where(and(eq(channels.id, channelId), eq(channels.userId, userId)));
+    await markOrderSyncSucceeded(channelId, { userId });
 
     revalidatePath("/orders");
     revalidatePath(`/orders/channels/${channelId}`);
@@ -223,11 +221,6 @@ export async function smartSyncSelectedOrderAction(rawOrderId: unknown): Promise
     const result = await handler.refreshOrders(userId, selectedOrder.channelId, [selectedOrder.externalOrderId]);
     orderSync.fetched += result.fetched;
     orderSync.saved += result.saved;
-
-    await db
-      .update(channels)
-      .set({ lastOrderSyncAt: new Date() })
-      .where(and(eq(channels.id, selectedOrder.channelId), eq(channels.userId, userId)));
   } catch (err) {
     orderSync.failed += 1;
     logger.error("[smartSyncSelectedOrderAction] order sync failed", {

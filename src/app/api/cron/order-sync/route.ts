@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { channels, settings } from "@/db/schema";
+import { channels } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
-import { AGENT_REGISTRY } from "@/lib/agents/registry";
+import { isOrderSyncEnabled } from "@/lib/agents/order-sync-state";
 import { getBaseUrl } from "@/lib/utils";
 
 export async function GET(request: Request) {
@@ -24,14 +24,7 @@ async function handleRequest(request: Request) {
     }
 
     // 2. Settings check
-    const [setting] = await db
-      .select()
-      .from(settings)
-      .where(eq(settings.key, "agent:orderSync:isActive"));
-
-    const isEnabled = setting !== undefined ? (setting.value as boolean) : AGENT_REGISTRY.orderSync.enabled;
-
-    if (!isEnabled) {
+    if (!(await isOrderSyncEnabled())) {
       return NextResponse.json({ error: "Order Sync agent is disabled." }, { status: 503 });
     }
 

@@ -1,9 +1,11 @@
 import { NextResponse, after } from "next/server";
-import { db } from "@/db";
-import { channels, settings } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
 import { getChannelHandler } from "@/lib/channels/handlers";
-import { AGENT_REGISTRY } from "@/lib/agents/registry";
+import {
+  claimOrderSyncChannel,
+  isOrderSyncEnabled,
+  markOrderSyncSucceeded,
+  releaseOrderSyncClaim,
+} from "@/lib/agents/order-sync-state";
 
 export async function POST(request: Request) {
   try {
@@ -17,14 +19,7 @@ export async function POST(request: Request) {
     }
 
     // 2. Settings check
-    const [setting] = await db
-      .select()
-      .from(settings)
-      .where(eq(settings.key, "agent:orderSync:isActive"));
-
-    const isEnabled = setting !== undefined ? (setting.value as boolean) : AGENT_REGISTRY.orderSync.enabled;
-
-    if (!isEnabled) {
+    if (!(await isOrderSyncEnabled())) {
       return NextResponse.json({ error: "Order Sync agent is disabled." }, { status: 503 });
     }
 
@@ -36,29 +31,21 @@ export async function POST(request: Request) {
 
     const channelId = Number(body.channelId);
 
-    // 4. Retrieve Channel
-    const [channel] = await db
-      .select()
-      .from(channels)
-      .where(and(eq(channels.id, channelId), eq(channels.status, "connected")))
-      .limit(1);
+    // 4. Atomically claim the channel. This prevents concurrent scheduler
+    // invocations from starting duplicate workers for the same channel while
+    // still allowing retry after a stale claim timeout.
+    const channel = await claimOrderSyncChannel(channelId);
 
     if (!channel) {
-      return NextResponse.json({ error: "Connected channel not found" }, { status: 404 });
+      return NextResponse.json({ skipped: true, reason: "Channel is disconnected or already syncing" }, { status: 202 });
     }
 
     // 5. Execute Handler (Fire-and-forget in background)
     const handler = getChannelHandler(channel.channelType);
     if (!handler?.fetchAndSaveOrders) {
+      await releaseOrderSyncClaim(channel.id);
       return NextResponse.json({ skipped: true, reason: "Handler does not support fetchAndSaveOrders" });
     }
-
-    // Mark the channel as claimed before the background task starts. The
-    // dashboard on-demand scheduler uses this timestamp as its coarse lock, so
-    // active browser renders do not fan out overlapping workers for one channel.
-    await db.update(channels)
-      .set({ lastOrderSyncAt: new Date() })
-      .where(eq(channels.id, channel.id));
 
     // Use after() introduced in Next.js 15+ to run the heavy work after response is sent
     after(async () => {
@@ -68,9 +55,7 @@ export async function POST(request: Request) {
         const result = await handler.fetchAndSaveOrders!(channel.userId, channel.id);
         
         // Update the last_order_sync_at cursor on success
-        await db.update(channels)
-          .set({ lastOrderSyncAt: new Date() })
-          .where(eq(channels.id, channel.id));
+        await markOrderSyncSucceeded(channel.id);
           
         const duration = ((Date.now() - startTime) / 1000).toFixed(1);
         console.log(`[sync-worker] [${channelId}] Success: fetched ${result.fetched}, saved ${result.saved} orders. Duration: ${duration}s`);
