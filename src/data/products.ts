@@ -17,6 +17,20 @@ const STOCK_PUSH_SUPPORTED_CHANNEL_TYPES = channelRegistry
   .filter((channel) => channel.capabilities?.canPushStock)
   .map((channel) => channel.id);
 
+export function productAvailableQuantitySql() {
+  return sql<number>`
+    CASE
+      WHEN ${products.isBundle} THEN COALESCE((
+        SELECT MIN(FLOOR(GREATEST(0, component.quantity_on_hand - component.reserved_quantity) / NULLIF(pb.quantity, 0)))::int
+        FROM product_bundles pb
+        JOIN products component ON component.id = pb.component_product_id
+        WHERE pb.bundle_product_id = ${products.id}
+      ), 0)
+      ELSE GREATEST(0, ${products.quantityOnHand} - ${products.reservedQuantity})
+    END
+  `;
+}
+
 export type StockSyncQueueStatusFilter = "all" | "ready" | "review" | "failed";
 
 export interface PendingStockSyncProductSummaryQuery {
@@ -324,6 +338,7 @@ export async function getPendingStockSyncProductDetails(userId: number, productI
       sku: products.sku,
       quantityOnHand: products.quantityOnHand,
       reservedQuantity: products.reservedQuantity,
+      availableQuantity: productAvailableQuantitySql(),
       reorderLevel: products.reorderLevel,
       mappingId: channelProductMappings.id,
       channelId: channelProductMappings.channelId,
@@ -373,7 +388,6 @@ export async function getPendingStockSyncProductDetails(userId: number, productI
   const grouped = new Map<number, PendingStockSyncProduct>();
 
   for (const row of rows) {
-    const availableQuantity = Math.max(0, row.quantityOnHand - row.reservedQuantity);
     const existing = grouped.get(row.productId);
 
     if (!existing) {
@@ -383,7 +397,7 @@ export async function getPendingStockSyncProductDetails(userId: number, productI
         sku: row.sku,
         quantityOnHand: row.quantityOnHand,
         reservedQuantity: row.reservedQuantity,
-        availableQuantity,
+        availableQuantity: row.availableQuantity,
         reorderLevel: row.reorderLevel,
         lastTransactionAt: row.lastTransactionAt,
         lastTransactionNotes: row.lastTransactionNotes,
@@ -563,48 +577,34 @@ export async function getActiveProductsForDropdown(tx: QueryClient = db) {
     .orderBy(products.name);
 }
 
+export async function getActiveCoreProductsForDropdown(tx: QueryClient = db) {
+  return await tx
+    .select({
+      id: products.id,
+      name: products.name,
+      sku: products.sku,
+      purchasePrice: products.purchasePrice,
+      unit: products.unit,
+      attributes: products.attributes,
+    })
+    .from(products)
+    .where(and(eq(products.isActive, true), eq(products.isBundle, false)))
+    .orderBy(products.name);
+}
+
 export async function getProductQuantity(
   productId: number,
   tx: QueryClient = db,
-  visited = new Set<number>()
 ): Promise<number | null> {
-  if (visited.has(productId)) {
-    console.warn(`[getProductQuantity] Cycle detected for product ${productId}. Returning 0.`);
-    return 0;
-  }
-  visited.add(productId);
-
   const productRows = await tx
-    .select({
-      quantityOnHand: products.quantityOnHand,
-      reservedQuantity: products.reservedQuantity,
-      isBundle: products.isBundle,
-    })
+    .select({ availableQuantity: productAvailableQuantitySql() })
     .from(products)
     .where(eq(products.id, productId))
     .limit(1);
 
   if (productRows.length === 0) return null;
 
-  const product = productRows[0];
-
-  if (product.isBundle) {
-    // Optimization: Compute bundle availability using a single query if we assume no nested bundles.
-    // If nested bundles were allowed, we would need a recursive CTE or recursive calls with visited set.
-    // Given we enforce no nested bundles in actions, a single join is efficient.
-    const results = await tx.execute(sql`
-      SELECT MIN(FLOOR(GREATEST(0, p.quantity_on_hand - p.reserved_quantity) / NULLIF(pb.quantity, 0))) AS "available"
-      FROM ${productBundles} pb
-      JOIN ${products} p ON p.id = pb.component_product_id
-      WHERE pb.bundle_product_id = ${productId}
-    `);
-
-    const available = (results[0] as Record<string, unknown>)?.available;
-    return available != null ? Number(available) : 0;
-  }
-
-  // Push availableQuantity to channels (on-hand minus reserved)
-  return Math.max(0, product.quantityOnHand - product.reservedQuantity);
+  return productRows[0].availableQuantity;
 }
 
 export async function getChannelMappingsForStockPush(

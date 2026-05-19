@@ -8,6 +8,8 @@ The `.agent/` directory contains broader Claude/ECC-oriented rules, skills, and 
 - Read existing patterns before editing.
 - Prefer current app architecture, shadcn components, data-access helpers, and server actions.
 - Before creating new UI helpers, icons, services, or workflows, search for an existing equivalent and reuse or extend it.
+- Across the codebase, whenever work compares or resolves external, derived, cached, imported, AI-extracted, expected, or target state against SeplorX source-of-truth data, apply the local reconciliation workflow by default: compare source and target state explicitly, preselect or propose matches, require review for risky changes, and keep actions auditable.
+- Across the codebase, for cleanup or maintainability requests, apply the local refactor-code workflow by default: keep edits scoped, collocate domain helpers near their owning feature, remove redundant one-off code, and preserve behavior unless a behavior change is explicitly requested.
 - For channel-specific display, use the channel registry/configuration as the source of truth instead of hardcoded channel metadata.
 - Treat stock sync review queues as stock reconciliation workflows: emphasize review, compare, resolve, and audit-friendly actions over bulk shortcuts.
 - Keep changes scoped to the user's request.

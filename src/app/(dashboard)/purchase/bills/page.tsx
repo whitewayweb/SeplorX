@@ -6,7 +6,7 @@ import { OcrApprovalCard } from "@/components/organisms/agents/ocr-approval-card
 import type { ExtractedInvoice } from "@/lib/agents/ocr-agent";
 import { getPendingAgentTasks } from "@/data/agents";
 import { getActiveSupplierCompanies } from "@/data/companies";
-import { getActiveProductsForDropdown } from "@/data/products";
+import { getActiveCoreProductsForDropdown } from "@/data/products";
 import { getExistingInvoicesForDuplicateCheck } from "@/data/invoices";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +18,7 @@ export default async function PurchaseBillsPage() {
   const [pendingOcrTasks, supplierCompanies, activeProducts] = await Promise.all([
     getPendingAgentTasks("invoice_ocr"),
     getActiveSupplierCompanies(),
-    getActiveProductsForDropdown()
+    getActiveCoreProductsForDropdown()
   ]);
 
   // 4. Batched Duplicate Check (Fix N+1 query)

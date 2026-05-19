@@ -6,6 +6,7 @@ import { decryptChannelCredentials } from "@/lib/channels/utils";
 import { logger } from "@/lib/logger";
 import { generateCategoryTemplate, type TemplateProductRow } from "./generator";
 import { getTemplateForProductType, type CategoryTemplateEntry } from "./template-registry";
+import { productAvailableQuantitySql } from "@/data/products";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Amazon Feeds Service
@@ -71,7 +72,7 @@ export async function submitPendingUpdates(
       productSku: products.sku,
       productCategory: products.category,
       sellingPrice: products.sellingPrice,
-      quantityOnHand: products.quantityOnHand,
+      availableQuantity: productAvailableQuantitySql(),
       channelName: channelProducts.name,
       channelSku: channelProducts.sku,
       // Only extract the specific subfields we actually use from rawData
@@ -155,7 +156,7 @@ export async function submitPendingUpdates(
           price: (m.sellingPrice !== null && m.sellingPrice !== undefined
             ? m.sellingPrice
             : m.channelPrice)?.toString(),
-          quantity: m.quantityOnHand,
+          quantity: m.availableQuantity,
           category: entry.label,
         };
       });
@@ -398,4 +399,3 @@ export async function deleteAmazonFeedRecordForUser(userId: number, feedRowId: n
 
   await db.delete(channelFeeds).where(eq(channelFeeds.id, feedRowId));
 }
-

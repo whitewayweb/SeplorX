@@ -28,6 +28,7 @@ type ProductOption = {
   sku: string | null;
   purchasePrice: string | null;
   unit: string;
+  attributes?: Record<string, string> | null;
 };
 
 type LinkedItem = {
@@ -59,22 +60,13 @@ function findSupplierMatch(suppliers: Supplier[], supplierName: string): string 
   return match ? String(match.id) : "";
 }
 
-function findProductMatch(products: ProductOption[], description: string, sku: string | null): string {
-  if (sku) {
-    const skuMatch = products.find((p) => p.sku?.toLowerCase() === sku.toLowerCase());
-    if (skuMatch) return String(skuMatch.id);
-  }
-  const needle = description.toLowerCase();
-  const nameMatch = products.find(
-    (p) =>
-      p.name.toLowerCase().includes(needle) ||
-      needle.includes(p.name.toLowerCase()),
-  );
-  return nameMatch ? String(nameMatch.id) : "";
-}
-
 function round2(n: number) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+function getTrustedMatchedProductId(products: ProductOption[], matchedProductId: number | null | undefined): string {
+  if (!matchedProductId) return "";
+  return products.some((product) => product.id === matchedProductId) ? String(matchedProductId) : "";
 }
 
 // ── Progress indicator ──────────────────────────────────────────────────────────
@@ -159,7 +151,7 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
   // ── Step 2 — Line Items ────────────────────────────────────────────────────────
   const [linkedItems, setLinkedItems] = useState<LinkedItem[]>(() =>
     plan.items.map((item) => ({
-      productId: findProductMatch(initialProducts, item.description, item.skuOrItemCode ?? null),
+      productId: getTrustedMatchedProductId(initialProducts, item.matchedProductId),
       description: item.description,
       quantity: item.quantity,
       unitPrice: item.unitPrice,
@@ -168,8 +160,7 @@ export function OcrApprovalCard({ taskId, plan, createdAt, suppliers: initialSup
   );
   const [itemModes, setItemModes] = useState<("existing" | "create")[]>(() =>
     plan.items.map((item) => {
-      const matched = findProductMatch(initialProducts, item.description, item.skuOrItemCode ?? null);
-      return matched ? "existing" : "create";
+      return getTrustedMatchedProductId(initialProducts, item.matchedProductId) ? "existing" : "create";
     }),
   );
   // Track pending new product names so we auto-link after routing refresh

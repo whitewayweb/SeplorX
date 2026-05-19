@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { agentActions } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
+import { getActiveCoreProductsForDropdown } from "@/data/products";
 
 /**
  * The expected structure returned by the Gemini AI Model.
@@ -37,6 +38,9 @@ export const invoiceSchema = z.object({
         "(e.g. 'CAR COIL SPRING BUFFER - A' → 'CCSB-A', 'BRAKE PAD SET REAR' → 'BPS-R'). " +
         "Generated SKUs must be unique within this invoice."
       ),
+      matchedProductId: z.number().int().positive().nullable().optional().describe(
+        "The matching SeplorX core product ID from the provided catalog, or null if no confident catalog match exists. Only use IDs that appear in the catalog."
+      ),
       quantity: z.number().describe("The quantity of the item purchased."),
       unitOfMeasure: z.string().nullable().describe("The unit of measure for this item. If the quantity description explicitly contains a unit (e.g. '15 Nos', '10 Pcs'), extract that unit and use it — it takes priority over any generic column header like 'BOX' or 'PKT'. Normalise 'Nos' to 'nos', 'Pcs' to 'pcs', etc. Output null only if truly unavailable."),
       unitPrice: z.number().describe("The price per single unit."),
@@ -60,6 +64,26 @@ export const invoiceSchema = z.object({
 
 export type ExtractedInvoice = z.infer<typeof invoiceSchema>;
 
+type CoreProductCatalogItem = Awaited<ReturnType<typeof getActiveCoreProductsForDropdown>>[number];
+
+function formatCoreProductCatalog(products: CoreProductCatalogItem[]): string {
+  if (products.length === 0) return "No active core SeplorX products are available.";
+
+  return products
+    .map((product) => {
+      const attributes = Object.entries(product.attributes ?? {})
+        .map(([key, value]) => `${key}=${value}`)
+        .join("; ");
+      return [
+        `id=${product.id}`,
+        `sku=${product.sku ?? ""}`,
+        `name=${product.name}`,
+        attributes ? `attributes=${attributes}` : null,
+      ].filter(Boolean).join(" | ");
+    })
+    .join("\n");
+}
+
 /**
  * Runs the OCR task using Google Gemini 2.0 Flash,
  * then saves the result to agent_actions as a pending draft for human review.
@@ -70,6 +94,9 @@ export async function runOcrAgent(
   fileBuffer: Buffer,
   mimeType: string,
 ): Promise<{ taskId: number; status: string }> {
+  const coreProducts = await getActiveCoreProductsForDropdown();
+  const coreProductCatalog = formatCoreProductCatalog(coreProducts);
+
   const result = await generateObject({
     model: google("gemini-2.5-flash"),
     schema: invoiceSchema,
@@ -80,6 +107,8 @@ Pay close attention to Part Numbers, HSN/SAC codes, and Units of Measure.
 HSN/SAC tax codes (typically 4–8 digit numbers) belong in hsnCode — never in skuOrItemCode.
 If no actual part number is present, generate a concise descriptive SKU from the product name.
 IMPORTANT: If a single invoice line describes multiple variations of a product (e.g., color differences with specific quantities like "TRANSPARENT - 15 + YELLOW - 10"), you MUST split this into separate distinct line items in your output, one for each variation, with its respective quantity. If a variation has a quantity of 0 (e.g., "TRANS-00" means transparent = 0 units), OMIT that variation entirely — do not include zero-quantity items. When splitting, append the variation detail to any generated SKU (e.g., "CCSB-A-YELLOW" instead of just "CCSB-A").
+Interpret supplier abbreviations semantically when extracting product descriptions, generated SKUs, and attributes, especially shortened variant, color, size, series, and pack terms. Preserve an explicitly printed supplier part number in skuOrItemCode, but when you generate a SKU from the description, use normalized variant words from the extracted meaning.
+For matchedProductId, compare each extracted line item against the provided active core SeplorX product catalog. Use only product IDs from that catalog. Match semantically using product name, SKU, variant attributes, abbreviations, punctuation differences, and supplier wording. If the best match is uncertain, output null so a human can review it.
 For unitOfMeasure: if the quantity text explicitly states a unit (e.g. "15 Nos", "10 Pcs"), always use that unit — do NOT use the generic column unit (e.g. "BOX") when a more specific unit is embedded in the quantity description.
 If a field is not present explicitly, output null.
 Be precise with numbers and do not invent any data.`,
@@ -87,7 +116,10 @@ Be precise with numbers and do not invent any data.`,
       {
         role: "user",
         content: [
-          { type: "text", text: "Please extract the invoice details from this document." },
+          {
+            type: "text",
+            text: `Please extract the invoice details from this document and match line items to this active core SeplorX product catalog when confident:\n\n${coreProductCatalog}`,
+          },
           {
             type: "file",
             data: new Uint8Array(fileBuffer),

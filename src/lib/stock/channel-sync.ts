@@ -73,7 +73,7 @@ export async function pushProductStockToChannelsService(
     results.push(await pushSingleStockMapping(quantity, m, decryptedCredsCache));
   }
 
-  await persistStockPushResults(results);
+  await persistStockPushResults(quantity, results);
 
   return { productId, quantity, results };
 }
@@ -175,7 +175,7 @@ export async function processStockPushJobBatchService(
       .where(eq(stockSyncJobItems.id, itemId));
   }
 
-  await persistStockPushResults(itemResults.map(({ result }) => result));
+  await persistStockPushResults(job.quantity, itemResults.map(({ result }) => result));
   await refreshStockPushJobCounts(jobId);
   return getStockPushJobStatus(userId, jobId);
 }
@@ -408,7 +408,7 @@ async function refreshStockPushJobCounts(jobId: number) {
     .where(eq(stockSyncJobs.id, jobId));
 }
 
-async function persistStockPushResults(results: StockPushItemResult[]) {
+async function persistStockPushResults(quantity: number, results: StockPushItemResult[]) {
   const successIds = results.filter((r) => r.ok).map((r) => r.mappingId);
   const failed = results.filter((r) => !r.ok && !r.skipped);
 
@@ -417,6 +417,16 @@ async function persistStockPushResults(results: StockPushItemResult[]) {
       .update(channelProductMappings)
       .set({ syncStatus: "in_sync", lastSyncError: null })
       .where(inArray(channelProductMappings.id, successIds));
+
+    await db.execute(sql`
+      UPDATE ${channelProducts}
+      SET stock_quantity = ${quantity},
+          last_synced_at = now()
+      FROM ${channelProductMappings}
+      WHERE ${channelProductMappings.id} IN (${sql.join(successIds.map((id) => sql`${id}`), sql`, `)})
+        AND ${channelProducts.channelId} = ${channelProductMappings.channelId}
+        AND ${channelProducts.externalId} = ${channelProductMappings.externalProductId}
+    `);
   }
 
   for (const failure of failed) {

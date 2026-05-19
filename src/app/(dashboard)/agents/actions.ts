@@ -9,7 +9,7 @@ import {
   products,
   inventoryTransactions,
 } from "@/db/schema";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import type { ReorderPlan } from "@/lib/agents/tools/inventory-tools";
@@ -219,6 +219,16 @@ export async function approveOcrInvoice(_prevState: unknown, formData: FormData)
   const { taskId, companyId, items, discountAmount, dueDate, notes, overwrite: overwriteStr, ...headerData } = parsed.data;
   const overwrite = overwriteStr === "true";
   const totals = ocrComputeInvoiceTotals(items, discountAmount);
+  const productIds = Array.from(new Set(items.map((item) => item.productId)));
+
+  const activeCoreProducts = await db
+    .select({ id: products.id })
+    .from(products)
+    .where(and(inArray(products.id, productIds), eq(products.isActive, true), eq(products.isBundle, false)));
+
+  if (activeCoreProducts.length !== productIds.length) {
+    return { error: "Link every invoice item to an active core product." };
+  }
 
   // 2. Duplicate check — fast early return before entering a transaction
   if (!overwrite) {
