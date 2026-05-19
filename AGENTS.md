@@ -77,6 +77,7 @@ The `.agent/` directory contains broader Claude/ECC-oriented rules, skills, and 
 - Stock quantities pushed externally must use the canonical available-stock definition: `Math.max(0, quantityOnHand - reservedQuantity)`.
 - Automatic order/finance sync should be self-healing and backlog-draining. Keep claim/cursor state in shared sync helpers, let the background worker orchestrate bounded order and finance batches, and reserve manual finance controls for fallback/admin actions rather than normal table-row workflows.
 - Do not hide finance reconciliation inside channel order-fetch handlers; channel handlers may expose `syncOrderFinances`, but automatic finance backlog processing should be driven by the sync worker so old eligible rows are retried without manual intervention.
+- When an order sync saves orders for a finance-capable channel, dispatch bounded finance-only continuation work so newly eligible orders are reconciled by the automatic flow rather than waiting for manual buttons.
 
 ## Bundle and Inventory Logic
 

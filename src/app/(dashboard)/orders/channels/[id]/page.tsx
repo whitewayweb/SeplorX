@@ -59,7 +59,6 @@ export default async function ChannelOrdersPage({
     ...channel,
     lastSyncAt: await getLastSyncDate(channel.id),
     color: definition?.color,
-    canSyncOrderFinances: definition?.capabilities?.canSyncOrderFinances === true,
   };
 
   return (

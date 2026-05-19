@@ -57,6 +57,7 @@ export async function POST(request: Request) {
     after(async () => {
       const startTime = Date.now();
       let orderSyncSucceeded = false;
+      let orderSyncSavedOrders = false;
       let financeBatchWasFull = false;
 
       if (handler.syncOrderFinances) {
@@ -79,6 +80,7 @@ export async function POST(request: Request) {
           console.log(`[sync-worker] [${channelId}] Starting background sync for channel "${channel.name}"`);
           const result = await handler.fetchAndSaveOrders(channel.userId, channel.id);
           orderSyncSucceeded = true;
+          orderSyncSavedOrders = result.saved > 0;
 
           const duration = ((Date.now() - startTime) / 1000).toFixed(1);
           console.log(`[sync-worker] [${channelId}] Success: fetched ${result.fetched}, saved ${result.saved} orders. Duration: ${duration}s`);
@@ -98,7 +100,7 @@ export async function POST(request: Request) {
         console.error(`[sync-worker] [${channelId}] Failed to finalize sync claim:`, err);
       }
 
-      if (financeBatchWasFull) {
+      if (handler.syncOrderFinances && (financeBatchWasFull || orderSyncSavedOrders)) {
         fetch(workerUrl, {
           method: "POST",
           headers: {

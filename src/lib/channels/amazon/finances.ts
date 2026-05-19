@@ -9,6 +9,10 @@ import {
   markOrderFinanceStatus,
   persistOrderFinance,
 } from "@/lib/order-finance/service";
+import {
+  FINANCE_ELIGIBLE_ORDER_STATUSES,
+  FINANCE_RETRYABLE_SYNC_STATUSES,
+} from "@/lib/order-finance/eligibility";
 import type {
   FinanceComponentInput,
   FinanceEventInput,
@@ -19,14 +23,22 @@ import { AmazonAPIClient, AmazonRateLimitError } from "./api/client";
 
 const SOURCE = "amazon_finances_2024";
 const SOURCE_API_VERSION = "finances/2024-06-19";
-const FINANCE_SYNC_DELAY_MS = 48 * 60 * 60 * 1000;
 const DEFAULT_FINANCE_SYNC_LIMIT = 3;
 const MANUAL_FINANCE_SYNC_LIMIT = 20;
 const FINANCE_REQUEST_DELAY_MS = 2500;
 const FINANCE_RETRY_COOLDOWN_MS = 60 * 60 * 1000;
 const NO_DATA_RETRY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const FAILURE_RETRY_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+const FINANCE_CLAIM_TIMEOUT_MINUTES = 15;
 const MAX_FINANCE_ATTEMPTS = 6;
+const FINANCE_ELIGIBLE_ORDER_STATUSES_SQL = sql`(${sql.join(
+  FINANCE_ELIGIBLE_ORDER_STATUSES.map((status) => sql`${status}`),
+  sql`, `,
+)})`;
+const FINANCE_RETRYABLE_SYNC_STATUSES_SQL = sql`(${sql.join(
+  FINANCE_RETRYABLE_SYNC_STATUSES.map((status) => sql`${status}`),
+  sql`, `,
+)})`;
 
 type AmazonTransaction = Record<string, unknown> & {
   transactionId?: string;
@@ -165,10 +177,10 @@ export async function syncAmazonOrderFinances(
       await markOrderFinanceStatus({
         orderId: order.id,
         channelId,
-          source: SOURCE,
-          status: "failed",
-          nextAttemptAt: new Date(Date.now() + FAILURE_RETRY_COOLDOWN_MS),
-          error: {
+        source: SOURCE,
+        status: "failed",
+        nextAttemptAt: new Date(Date.now() + FAILURE_RETRY_COOLDOWN_MS),
+        error: {
           code: "amazon_finance_sync_failed",
           message: "Amazon finance sync failed. Check server logs for details.",
         },
@@ -230,16 +242,13 @@ async function getCandidateOrders(
   const defaultLimit = options.orderId ? 1 : DEFAULT_FINANCE_SYNC_LIMIT;
   const maxLimit = options.orderId ? 1 : MANUAL_FINANCE_SYNC_LIMIT;
   const limit = Math.max(1, Math.min(options.limit ?? defaultLimit, maxLimit));
-  const eligibleBefore = new Date(Date.now() - FINANCE_SYNC_DELAY_MS);
-  const statusScope = options.orderId
-    ? sql`and sofs.status in ('pending', 'no_data', 'failed')`
-    : sql`and sofs.status in ('pending', 'no_data', 'failed')`;
+  const statusScope = sql`and sofs.status in ${FINANCE_RETRYABLE_SYNC_STATUSES_SQL}`;
   const attemptScope = options.orderId
     ? sql``
     : sql`and sofs.attempt_count < ${MAX_FINANCE_ATTEMPTS}`;
   const orderScope = options.orderId
     ? sql`and so.id = ${options.orderId}`
-    : sql`and so.purchased_at <= ${eligibleBefore.toISOString()}`;
+    : sql``;
   const retryScope = options.orderId
     ? sql``
     : sql`and (
@@ -269,35 +278,57 @@ async function getCandidateOrders(
     join channels c on c.id = so.channel_id
     where c.user_id = ${userId}
       and so.channel_id = ${channelId}
-      and so.status in ('shipped', 'delivered', 'returned', 'refunded')
+      and so.status in ${FINANCE_ELIGIBLE_ORDER_STATUSES_SQL}
       ${orderScope}
     on conflict ("order_id") do nothing
   `);
 
   const statusEligibility = options.orderId
     ? sql`and (
-        so.status in ('shipped', 'delivered', 'returned', 'refunded')
-        or sofs.status in ('pending', 'no_data', 'failed')
+        so.status in ${FINANCE_ELIGIBLE_ORDER_STATUSES_SQL}
+        or sofs.status in ${FINANCE_RETRYABLE_SYNC_STATUSES_SQL}
       )`
-    : sql`and so.status in ('shipped', 'delivered', 'returned', 'refunded')`;
+    : sql`and so.status in ${FINANCE_ELIGIBLE_ORDER_STATUSES_SQL}`;
 
   const rows = await db.execute(sql`
+    with candidates as (
+      select sofs.order_id
+      from sales_order_finance_syncs sofs
+      join sales_orders so on so.id = sofs.order_id
+      join channels c on c.id = so.channel_id
+      where c.user_id = ${userId}
+        and so.channel_id = ${channelId}
+        ${statusEligibility}
+        ${statusScope}
+        ${attemptScope}
+        ${orderScope}
+        ${retryScope}
+      order by
+        sofs.next_attempt_at asc nulls first,
+        sofs.last_attempt_at asc nulls first,
+        sofs.attempt_count asc,
+        so.id asc
+      limit ${limit}
+      for update of sofs skip locked
+    ),
+    claimed as (
+      update sales_order_finance_syncs sofs
+      set
+        last_attempt_at = now(),
+        next_attempt_at = now() + (${FINANCE_CLAIM_TIMEOUT_MINUTES} * interval '1 minute'),
+        updated_at = now()
+      from candidates
+      where sofs.order_id = candidates.order_id
+      returning sofs.order_id
+    )
     select
       so.id,
       so.channel_id as "channelId",
       so.external_order_id as "externalOrderId"
-    from sales_order_finance_syncs sofs
-    join sales_orders so on so.id = sofs.order_id
-    join channels c on c.id = so.channel_id
-    where c.user_id = ${userId}
-      and so.channel_id = ${channelId}
-      ${statusEligibility}
-      ${statusScope}
-      ${attemptScope}
-      ${orderScope}
-      ${retryScope}
-    order by coalesce(so.purchased_at, so.created_at) asc
-    limit ${limit}
+    from claimed
+    join sales_orders so on so.id = claimed.order_id
+    order by
+      so.id asc
   `);
 
   return rows as unknown as CandidateOrder[];

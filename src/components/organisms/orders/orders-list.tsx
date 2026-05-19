@@ -11,6 +11,7 @@ import { DateRangePicker } from "@/components/organisms/orders/date-range-picker
 import { getOrderStatusBadgeClass, getOrderStatusLabel } from "@/lib/utils/order-status";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { isFinanceEligibleOrderStatus } from "@/lib/order-finance/eligibility";
 
 interface Order {
   id: number;
@@ -32,7 +33,6 @@ interface Channel {
   name: string;
   lastSyncAt?: Date | null;
   color?: string;
-  canSyncOrderFinances?: boolean;
 }
 
 interface OrdersListProps {
@@ -54,9 +54,9 @@ const FINANCE_STATUS_META = {
     helper: "Auto sync pending",
   },
   pending: {
-    label: "Queued",
+    label: "Auto sync",
     className: "bg-blue-50 text-blue-800 ring-blue-200",
-    helper: "Waiting for next attempt",
+    helper: "Automatic retry pending",
   },
   synced: {
     label: "Synced",
@@ -85,15 +85,11 @@ const FINANCE_STATUS_META = {
   },
 } as const;
 
-function isFinanceEligibleOrderStatus(status: string | null): boolean {
-  return status === "shipped" || status === "delivered" || status === "returned" || status === "refunded";
-}
-
 function getFinanceStatusMeta(order: Order) {
   const { financeSyncStatus: status } = order;
   if (status) return FINANCE_STATUS_META[status];
   if (!isFinanceEligibleOrderStatus(order.status)) return FINANCE_STATUS_META.not_ready;
-  return FINANCE_STATUS_META[status ?? "unsynced"];
+  return FINANCE_STATUS_META.unsynced;
 }
 
 export function OrdersList({
@@ -191,7 +187,6 @@ export function OrdersList({
               lastSyncAt={channel.lastSyncAt}
               color={channel.color}
               showClear={showClear && totalCount > 0}
-              showFinanceSync={channel.canSyncOrderFinances}
             />
           ))}
         </div>

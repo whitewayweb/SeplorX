@@ -3,8 +3,6 @@
 import { formatDistanceToNow } from "date-fns";
 import { FetchOrdersButton } from "@/components/organisms/orders/fetch-orders-button";
 import { ClearOrdersButton } from "@/components/organisms/orders/clear-orders-button";
-import { SyncFinancesButton } from "@/components/organisms/orders/sync-finances-button";
-
 
 interface SyncStatusPillProps {
   channelId: number;
@@ -12,7 +10,6 @@ interface SyncStatusPillProps {
   lastSyncAt?: Date | null;
   color?: string;
   showClear?: boolean;
-  showFinanceSync?: boolean;
 }
 
 export function SyncStatusPill({
@@ -21,7 +18,6 @@ export function SyncStatusPill({
   lastSyncAt,
   color = "#64748b", // slate-500 default
   showClear = false,
-  showFinanceSync = false,
 }: SyncStatusPillProps) {
   // Generate a background color with 10% opacity for the tint effect
   const backgroundColor = `${color}1a`; // 1a is ~10% alpha in hex
@@ -55,9 +51,6 @@ export function SyncStatusPill({
           channelName={channelName}
           variant="ghost"
         />
-        {showFinanceSync && (
-          <SyncFinancesButton channelId={channelId} limit={20} variant="ghost" />
-        )}
         {showClear && (
           <ClearOrdersButton channelId={channelId} variant="ghost" />
         )}

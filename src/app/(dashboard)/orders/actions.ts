@@ -11,6 +11,10 @@ import { channels, salesOrderFinanceSyncs, salesOrders } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { ChannelIdSchema } from "@/lib/validations/channels";
 import type { OrderFinanceSyncOptions, OrderFinanceSyncResult } from "@/lib/channels/types";
+import {
+  getFinanceSkipReason,
+  shouldSyncOrderFinance,
+} from "@/lib/order-finance/eligibility";
 
 type SyncOrderFinancesActionResult =
   | ({ success: true } & OrderFinanceSyncResult)
@@ -39,26 +43,6 @@ type SmartOrderFinanceSummary = Extract<
   SmartSyncSelectedOrderActionResult,
   { success: true }
 >["financeSync"];
-
-function isFinanceEligibleOrderStatus(status: string | null): boolean {
-  return status === "shipped" || status === "delivered" || status === "returned" || status === "refunded";
-}
-
-function isHistoricalFinanceBackfillStatus(financeSyncStatus: string | null): boolean {
-  return financeSyncStatus === "pending" || financeSyncStatus === "failed" || financeSyncStatus === "no_data";
-}
-
-function shouldSyncOrderFinance(status: string | null, financeSyncStatus: string | null): boolean {
-  if (!isFinanceEligibleOrderStatus(status) && !isHistoricalFinanceBackfillStatus(financeSyncStatus)) return false;
-  return financeSyncStatus !== "synced" && financeSyncStatus !== "not_supported";
-}
-
-function getFinanceSkipReason(status: string | null, financeSyncStatus: string | null): string | null {
-  if (!isFinanceEligibleOrderStatus(status) && !isHistoricalFinanceBackfillStatus(financeSyncStatus)) return "not ready";
-  if (financeSyncStatus === "synced") return "already synced";
-  if (financeSyncStatus === "not_supported") return "not supported";
-  return null;
-}
 
 /**
  * Server Action to fetch orders from a specific channel instance.
