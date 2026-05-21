@@ -24,7 +24,7 @@ export function productAvailableQuantitySql() {
         SELECT MIN(FLOOR(GREATEST(0, component.quantity_on_hand - component.reserved_quantity) / NULLIF(pb.quantity, 0)))::int
         FROM product_bundles pb
         JOIN products component ON component.id = pb.component_product_id
-        WHERE pb.bundle_product_id = ${products.id}
+        WHERE pb.bundle_product_id = "products"."id"
       ), 0)
       ELSE GREATEST(0, ${products.quantityOnHand} - ${products.reservedQuantity})
     END
