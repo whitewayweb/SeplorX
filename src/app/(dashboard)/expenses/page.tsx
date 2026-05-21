@@ -1,11 +1,11 @@
 import { getAuthenticatedUserId } from "@/lib/auth";
-import { getExpenses } from "@/features/expenses/services/expense.service";
+import { getExpenses, getSupplierCompanies, getExpenseCategories } from "@/features/expenses/services/expense.service";
 import { ExpenseUploader } from "@/features/expenses/components/expense";
 import { db } from "@/db";
 import { agentActions } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ExpenseTableClient } from "@/features/expenses/components/expense-table-client";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, Filter, RefreshCw, Search } from "lucide-react";
@@ -16,19 +16,23 @@ export const dynamic = "force-dynamic";
 export default async function ExpensesPage() {
   await getAuthenticatedUserId();
 
-  const pendingTasks = await db
-    .select()
-    .from(agentActions)
-    .where(
-      and(
-        eq(agentActions.agentType, "expense_ocr"),
-        eq(agentActions.status, "pending_approval")
+  const [pendingTasks, expensesList, suppliers, uniqueCategories] = await Promise.all([
+    db
+      .select()
+      .from(agentActions)
+      .where(
+        and(
+          eq(agentActions.agentType, "expense_ocr"),
+          eq(agentActions.status, "pending_approval")
+        )
       )
-    )
-    .limit(1);
+      .limit(1),
+    getExpenses(),
+    getSupplierCompanies(),
+    getExpenseCategories()
+  ]);
 
   const pendingTask = pendingTasks.length > 0 ? pendingTasks[0] : null;
-  const expensesList = await getExpenses();
 
   // Metrics calculation
   const total = expensesList.reduce((sum, item) => sum + Number(item.expense.amount), 0);
@@ -37,7 +41,13 @@ export default async function ExpensesPage() {
   const billed = expensesList.filter(item => item.expense.isBillable && item.expense.isInvoiced).reduce((sum, item) => sum + Number(item.expense.amount), 0);
   const notInvoiced = expensesList.filter(item => item.expense.isBillable && !item.expense.isInvoiced).reduce((sum, item) => sum + Number(item.expense.amount), 0);
 
-  const formatCurrency = (amount: number) => `$${amount.toFixed(2)}`;
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: "INR",
+      minimumFractionDigits: 2,
+    }).format(amount);
+  };
 
   return (
     <div className="p-6 space-y-6 max-w-full">
@@ -120,55 +130,11 @@ export default async function ExpensesPage() {
           </div>
         </div>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/50">
-                <TableHead className="w-12">
-                  <input type="checkbox" className="rounded border-gray-300" />
-                </TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead>Vendor / Name</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Reference #</TableHead>
-                <TableHead>Payment Mode</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {expensesList.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                    No expenses found.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                expensesList.map(({ expense, categoryName }) => (
-                  <TableRow key={expense.id} className="cursor-pointer hover:bg-muted/50">
-                    <TableCell>
-                      <input type="checkbox" className="rounded border-gray-300" />
-                    </TableCell>
-                    <TableCell className="font-medium text-sm">
-                      {categoryName || "Uncategorized"}
-                    </TableCell>
-                    <TableCell>
-                      {expense.currency} {Number(expense.amount).toFixed(2)}
-                    </TableCell>
-                    <TableCell>
-                      <div className="font-medium text-sm">{expense.name}</div>
-                      {expense.description && (
-                        <div className="text-xs text-muted-foreground truncate max-w-[200px]">{expense.description}</div>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">{expense.date}</TableCell>
-                    <TableCell className="text-muted-foreground text-sm">{expense.reference || "-"}</TableCell>
-                    <TableCell>
-                      <span className="capitalize text-sm">{expense.paymentMode.replace("_", " ")}</span>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+          <ExpenseTableClient 
+            expensesList={expensesList} 
+            suppliers={suppliers}
+            uniqueCategories={uniqueCategories}
+          />
         </CardContent>
         <div className="p-4 border-t flex justify-between items-center text-sm text-muted-foreground">
           <div>

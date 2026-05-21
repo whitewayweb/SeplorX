@@ -732,11 +732,12 @@ export const expenseCategories = pgTable("expense_categories", {
 export const expenses = pgTable("expenses", {
   id: serial("id").primaryKey(),
   categoryId: integer("category_id").references(() => expenseCategories.id, { onDelete: "set null" }),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "set null" }),
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
   taxAmount: decimal("tax_amount", { precision: 12, scale: 2 }).default("0").notNull(),
   currency: varchar("currency", { length: 10 }).default("USD").notNull(),
   date: date("date").notNull(),
-  name: varchar("name", { length: 255 }).notNull(), // Extracted vendor name
+  name: varchar("name", { length: 255 }), // Extracted vendor name (fallback)
   description: text("description"),
   paymentMode: paymentModeEnum("payment_mode").default("bank_transfer").notNull(),
   reference: varchar("reference", { length: 255 }), // Receipt or transaction number

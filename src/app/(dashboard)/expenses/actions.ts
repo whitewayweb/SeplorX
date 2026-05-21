@@ -43,12 +43,14 @@ export async function executeExpenseDraftAction(_prevState: unknown, formData: F
     const taskId = Number(formData.get("taskId"));
     const amount = Number(formData.get("amount"));
     const taxAmount = Number(formData.get("taxAmount"));
-    const categoryId = formData.get("categoryId") ? Number(formData.get("categoryId")) : null;
+    const categoryName = formData.get("categoryName") ? String(formData.get("categoryName")) : null;
+    const companyId = formData.get("companyId") ? Number(formData.get("companyId")) : null;
     const salesOrderId = formData.get("salesOrderId") ? Number(formData.get("salesOrderId")) : null;
     const isBillable = formData.get("isBillable") === "true";
 
     const parsed = insertExpenseSchema.safeParse({
-      categoryId,
+      categoryName,
+      companyId,
       amount,
       taxAmount,
       currency: formData.get("currency") || "USD",
@@ -78,4 +80,52 @@ export async function executeExpenseDraftAction(_prevState: unknown, formData: F
   }
 }
 
+export async function updateExpenseAction(_prevState: unknown, formData: FormData): Promise<{
+  success?: boolean;
+  error?: string;
+  fieldErrors?: Record<string, string[] | undefined>;
+}> {
+  try {
+    await getAuthenticatedUserId();
+
+    const id = Number(formData.get("id"));
+    const amount = Number(formData.get("amount"));
+    const taxAmount = Number(formData.get("taxAmount"));
+    const categoryName = formData.get("categoryName") ? String(formData.get("categoryName")) : null;
+    const companyId = formData.get("companyId") ? Number(formData.get("companyId")) : null;
+    const salesOrderId = formData.get("salesOrderId") ? Number(formData.get("salesOrderId")) : null;
+    const isBillable = formData.get("isBillable") === "true";
+
+    const parsed = insertExpenseSchema.safeParse({
+      categoryName,
+      companyId,
+      amount,
+      taxAmount,
+      currency: formData.get("currency") || "USD",
+      date: formData.get("date"),
+      name: formData.get("name"),
+      description: formData.get("description"),
+      paymentMode: formData.get("paymentMode") || "bank_transfer",
+      reference: formData.get("reference"),
+      isBillable,
+      salesOrderId,
+    });
+
+    if (!parsed.success) {
+      return {
+        error: "Validation failed.",
+        fieldErrors: parsed.error.flatten().fieldErrors,
+      };
+    }
+
+    const { updateExpense } = await import("@/features/expenses/services/expense.service");
+    await updateExpense(id, parsed.data);
+
+    revalidatePath("/expenses");
+    return { success: true };
+  } catch (err) {
+    console.error("[updateExpenseAction]", err);
+    return { error: err instanceof Error ? err.message : "Failed to update expense." };
+  }
+}
 

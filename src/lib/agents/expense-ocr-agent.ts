@@ -16,6 +16,7 @@ export const expenseSchema = z.object({
   taxAmount: z.number().describe("The total tax or GST amount on the receipt. Use 0 if not present or identifiable."),
   currency: z.string().default("USD").describe("The 3-letter currency code, e.g. USD, EUR, INR. Default is USD if not specified."),
   reference: z.string().nullable().describe("The receipt number, invoice number, or transaction ID. Null if unavailable."),
+  categoryName: z.string().describe("The category of the expense. Suggest a category based on the provided list of existing categories, or create a new logical one if none fit."),
   description: z.string().nullable().describe("A brief description of what was purchased (e.g., 'Office Supplies', 'Uber Ride', 'Software Subscription')."),
 });
 
@@ -31,6 +32,12 @@ export async function runExpenseOcrAgent(
   mimeType: string,
 ): Promise<{ taskId: number; status: string }> {
 
+  // Fetch existing categories to guide the AI
+  const existingCategories = await db.query.expenseCategories.findMany({
+    columns: { name: true }
+  });
+  const categoryList = existingCategories.map(c => c.name).join(", ");
+
   const result = await generateObject({
     model: google("gemini-2.5-flash"),
     schema: expenseSchema,
@@ -38,7 +45,10 @@ export async function runExpenseOcrAgent(
 Your job is to extract billing information from expense receipts, bills, and invoices.
 Read the provided document carefully and map the data to the required JSON structure.
 If a field is not present explicitly, output null (for optional fields) or use your best judgement based on the context (like vendorName).
-Be precise with numbers and dates. Always format dates as YYYY-MM-DD.`,
+Be precise with numbers and dates. Always format dates as YYYY-MM-DD.
+
+For categoryName, try to match exactly one of these existing categories if appropriate: [${categoryList}]. 
+If none of them fit, suggest a new short, logical category name.`,
     messages: [
       {
         role: "user",

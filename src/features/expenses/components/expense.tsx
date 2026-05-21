@@ -3,7 +3,6 @@
 import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { UploadCloud, CheckCircle2, Loader2 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -98,9 +97,10 @@ function ExpenseReviewForm({ task, onClear }: { task: PendingTask; onClear: () =
     defaultValues: {
       amount: task.plan?.amount ? Number(task.plan.amount) : 0,
       taxAmount: task.plan?.taxAmount ? Number(task.plan.taxAmount) : 0,
-      currency: task.plan?.currency ? String(task.plan.currency) : "USD",
+      currency: task.plan?.currency ? String(task.plan.currency) : "INR",
       date: task.plan?.date ? String(task.plan.date) : new Date().toISOString().split("T")[0],
       name: task.plan?.vendorName ? String(task.plan.vendorName) : "",
+      categoryName: task.plan?.categoryName ? String(task.plan.categoryName) : "",
       description: task.plan?.description ? String(task.plan.description) : "",
       paymentMode: "bank_transfer",
       reference: task.plan?.reference ? String(task.plan.reference) : "",
@@ -116,10 +116,10 @@ function ExpenseReviewForm({ task, onClear }: { task: PendingTask; onClear: () =
       formData.append("taskId", task.id.toString());
       formData.append("amount", data.amount.toString());
       formData.append("taxAmount", (data.taxAmount ?? 0).toString());
-      formData.append("currency", data.currency ?? "USD");
+      formData.append("currency", data.currency ?? "INR");
       formData.append("date", data.date);
       formData.append("name", data.name);
-      if (data.categoryId) formData.append("categoryId", data.categoryId.toString());
+      if (data.categoryName) formData.append("categoryName", data.categoryName);
       if (data.description) formData.append("description", data.description);
       formData.append("paymentMode", data.paymentMode ?? "bank_transfer");
       if (data.reference) formData.append("reference", data.reference);
@@ -180,6 +180,18 @@ function ExpenseReviewForm({ task, onClear }: { task: PendingTask; onClear: () =
                 )}
               />
             </div>
+            
+            <FormField
+              control={form.control}
+              name="categoryName"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Category</FormLabel>
+                  <FormControl><Input {...field} placeholder="e.g. Travel, Office Supplies" value={field.value || ""} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <div className="grid grid-cols-3 gap-4">
               <FormField

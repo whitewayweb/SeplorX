@@ -18,6 +18,11 @@ vi.mock("@/db", () => {
   return {
     db: {
       transaction: vi.fn(),
+      query: {
+        expenseCategories: {
+          findMany: vi.fn().mockResolvedValue([{ name: "Travel" }]),
+        },
+      },
     },
   };
 });
