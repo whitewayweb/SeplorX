@@ -22,7 +22,7 @@ import { getConnectedChannels } from "@/data/channels";
 import { InventoryTransactionsTable } from "@/components/organisms/inventory/inventory-transactions-table";
 import {
   getProductById,
-  getProductMappings,
+  getProductMappingsSummary,
   getInventoryTransactionsForProduct,
   getProductPurchaseHistory,
 } from "@/data/products";
@@ -46,9 +46,9 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
 
   const userId = await getAuthenticatedUserId();
 
-  const [connectedChannels, mappings, transactions, purchaseHistory, stockSummary, activeReservations, pendingMappings] = await Promise.all([
+  const [connectedChannels, mappingsSummary, transactions, purchaseHistory, stockSummary, activeReservations, pendingMappings] = await Promise.all([
     getConnectedChannels(userId),
-    getProductMappings(productId),
+    getProductMappingsSummary(productId),
     getInventoryTransactionsForProduct(productId),
     getProductPurchaseHistory(productId),
     getProductStockSummary(productId),
@@ -267,7 +267,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
         <ChannelSyncCard
           productId={productId}
           connectedChannels={connectedChannels}
-          mappings={mappings}
+          mappingsSummary={mappingsSummary}
           pendingMappings={pendingMappings}
           availableStock={availableQuantity}
         />

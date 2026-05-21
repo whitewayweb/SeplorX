@@ -19,9 +19,11 @@ interface TablePaginationProps {
   totalItems: number;
   itemsPerPage: number;
   currentPage: number;
+  onPageChange?: (page: number) => void;
+  onLimitChange?: (limit: number) => void;
 }
 
-export function TablePagination({ totalItems, itemsPerPage, currentPage }: TablePaginationProps) {
+export function TablePagination({ totalItems, itemsPerPage, currentPage, onPageChange, onLimitChange }: TablePaginationProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -40,17 +42,32 @@ export function TablePagination({ totalItems, itemsPerPage, currentPage }: Table
   const handleJump = () => {
     const page = parseInt(draft, 10);
     if (!isNaN(page) && page >= 1 && page <= totalPages && page !== currentPage) {
-      router.push(createPageUrl(page));
+      if (onPageChange) {
+        onPageChange(page);
+      } else {
+        router.push(createPageUrl(page));
+      }
     } else {
       setDraft(currentPage.toString());
     }
   };
 
   const handleLimitChange = (value: string) => {
-    const params = new URLSearchParams(searchParams);
-    params.set("limit", value);
-    params.set("page", "1"); // Reset target page to 1 when changing items limit
-    router.push(`${pathname}?${params.toString()}`);
+    if (onLimitChange) {
+      onLimitChange(parseInt(value, 10));
+    } else {
+      const params = new URLSearchParams(searchParams);
+      params.set("limit", value);
+      params.set("page", "1"); // Reset target page to 1 when changing items limit
+      router.push(`${pathname}?${params.toString()}`);
+    }
+  };
+
+  const handlePageClick = (page: number, e: React.MouseEvent) => {
+    if (onPageChange) {
+      e.preventDefault();
+      onPageChange(page);
+    }
   };
 
   const hasPrevious = currentPage > 1;
@@ -134,7 +151,7 @@ export function TablePagination({ totalItems, itemsPerPage, currentPage }: Table
             disabled={!hasPrevious}
           >
             {hasPrevious ? (
-              <Link href={createPageUrl(currentPage - 1)} aria-label="Previous Page">
+              <Link href={createPageUrl(currentPage - 1)} onClick={(e) => handlePageClick(currentPage - 1, e)} aria-label="Previous Page">
                 <ChevronLeft className="h-4 w-4" />
               </Link>
             ) : (
@@ -160,7 +177,7 @@ export function TablePagination({ totalItems, itemsPerPage, currentPage }: Table
                 {currentPage === page ? (
                   <span>{page}</span>
                 ) : (
-                  <Link href={createPageUrl(page as number)}>{page}</Link>
+                  <Link href={createPageUrl(page as number)} onClick={(e) => handlePageClick(page as number, e)}>{page}</Link>
                 )}
               </Button>
             )
@@ -174,7 +191,7 @@ export function TablePagination({ totalItems, itemsPerPage, currentPage }: Table
             disabled={!hasNext}
           >
             {hasNext ? (
-              <Link href={createPageUrl(currentPage + 1)} aria-label="Next Page">
+              <Link href={createPageUrl(currentPage + 1)} onClick={(e) => handlePageClick(currentPage + 1, e)} aria-label="Next Page">
                 <ChevronRight className="h-4 w-4" />
               </Link>
             ) : (

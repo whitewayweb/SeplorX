@@ -10,7 +10,6 @@ import {
   ProductIdSchema,
   StockAdjustmentSchema,
 } from "@/lib/validations/products";
-import { ChannelMappingIdSchema } from "@/lib/validations/channels";
 import type { ExternalProduct } from "@/lib/channels/types";
 import {
   getConnectedChannel,
@@ -20,7 +19,9 @@ import {
   getExistingMappingsForChannel,
   insertChannelMappingQuietly,
   getUniqueAttributeKeys,
-  getAttributeValues
+  getAttributeValues,
+  getProductMappings,
+  type GetProductMappingsQuery
 } from "@/data/products";
 
 export type ChannelProductWithState = ExternalProduct & {
@@ -454,38 +455,42 @@ export async function adjustStock(_prevState: unknown, formData: FormData): Prom
 
 // ─── Channel Product Mappings ─────────────────────────────────────────────────
 
-export async function deleteChannelMapping(_prevState: unknown, formData: FormData): Promise<{ success?: boolean; error?: string }> {
-  const parsed = ChannelMappingIdSchema.safeParse({ id: formData.get("id") });
-  if (!parsed.success) return { error: "Invalid mapping ID." };
 
+
+export async function deleteChannelMappingsBatch(
+  ids: number[]
+): Promise<{ success?: boolean; error?: string }> {
   try {
+    if (!ids.length) return { error: "No mappings selected." };
     const userId = await getAuthenticatedUserId();
-    // Verify ownership via join
+
+    // Verify ownership
     const rows = await db
-      .select({ productId: channelProductMappings.productId })
+      .select({ id: channelProductMappings.id, productId: channelProductMappings.productId })
       .from(channelProductMappings)
       .innerJoin(channels, eq(channelProductMappings.channelId, channels.id))
       .where(
         and(
-          eq(channelProductMappings.id, parsed.data.id),
-          eq(channels.userId, userId),
-        ),
-      )
-      .limit(1);
+          inArray(channelProductMappings.id, ids),
+          eq(channels.userId, userId)
+        )
+      );
 
-    if (rows.length === 0) return { error: "Mapping not found." };
+    if (rows.length === 0) return { error: "No valid mappings found to delete." };
+
+    const validIds = rows.map((r) => r.id);
+    const productId = rows[0].productId;
 
     await db
       .delete(channelProductMappings)
-      .where(eq(channelProductMappings.id, parsed.data.id));
+      .where(inArray(channelProductMappings.id, validIds));
 
-    revalidatePath(`/products/${rows[0].productId}`);
+    revalidatePath(`/products/${productId}`);
+    return { success: true };
   } catch (err) {
-    console.error("[deleteChannelMapping]", { id: parsed.data.id, error: String(err) });
-    return { error: "Failed to delete mapping." };
+    console.error("[deleteChannelMappingsBatch]", err);
+    return { error: "Failed to delete mappings." };
   }
-
-  return { success: true };
 }
 
 import { type StockPushProductResult } from "@/lib/stock/channel-sync";
@@ -690,5 +695,18 @@ export async function getProductWithComponentsAction(id: number): Promise<Awaite
   } catch (err) {
     console.error("[getProductWithComponentsAction]", err);
     return null;
+  }
+}
+
+export async function fetchProductMappingsAction(
+  productId: number,
+  query: GetProductMappingsQuery
+) {
+  try {
+    await getAuthenticatedUserId();
+    return await getProductMappings(productId, query);
+  } catch (err) {
+    console.error("[fetchProductMappingsAction]", err);
+    return { error: "Failed to fetch mappings" };
   }
 }

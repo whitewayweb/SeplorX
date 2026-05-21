@@ -84,8 +84,62 @@ export async function getProductById(productId: number, tx: QueryClient = db) {
   return { ...product, components: [] };
 }
 
-export async function getProductMappings(productId: number, tx: QueryClient = db) {
-  return await tx
+export interface ProductMappingSummary {
+  channelId: number;
+  totalCount: number;
+  pendingCount: number;
+  failedCount: number;
+}
+
+export async function getProductMappingsSummary(productId: number, tx: QueryClient = db): Promise<ProductMappingSummary[]> {
+  const rows = await tx
+    .select({
+      channelId: channelProductMappings.channelId,
+      totalCount: count(),
+      pendingCount: sql<number>`SUM(CASE WHEN ${channelProductMappings.syncStatus} = 'pending_update' THEN 1 ELSE 0 END)::int`,
+      failedCount: sql<number>`SUM(CASE WHEN ${channelProductMappings.syncStatus} = 'failed' THEN 1 ELSE 0 END)::int`,
+    })
+    .from(channelProductMappings)
+    .where(eq(channelProductMappings.productId, productId))
+    .groupBy(channelProductMappings.channelId);
+
+  return rows;
+}
+
+export interface GetProductMappingsQuery {
+  channelId?: number;
+  search?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export async function getProductMappings(
+  productId: number,
+  query: GetProductMappingsQuery = {},
+  tx: QueryClient = db
+) {
+  const limit = Math.max(1, Math.min(query.limit ?? 50, 500));
+  const offset = Math.max(0, query.offset ?? 0);
+
+  const filters = [
+    eq(channelProductMappings.productId, productId),
+    query.channelId ? eq(channelProductMappings.channelId, query.channelId) : undefined,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    query.status && query.status !== "all" ? eq(channelProductMappings.syncStatus, query.status as any) : undefined,
+    query.search
+      ? sql`(${channelProductMappings.externalProductId} ILIKE ${`%${query.search}%`} OR ${channelProductMappings.label} ILIKE ${`%${query.search}%`})`
+      : undefined,
+  ].filter((f): f is NonNullable<typeof f> => !!f);
+
+  const filterSql = and(...filters);
+
+  const [countResult] = await tx
+    .select({ count: count() })
+    .from(channelProductMappings)
+    .where(filterSql);
+
+  const data = await tx
     .select({
       id: channelProductMappings.id,
       channelId: channelProductMappings.channelId,
@@ -102,7 +156,15 @@ export async function getProductMappings(productId: number, tx: QueryClient = db
         eq(channelProductMappings.externalProductId, channelProducts.externalId)
       )
     )
-    .where(eq(channelProductMappings.productId, productId));
+    .where(filterSql)
+    .orderBy(desc(channelProductMappings.createdAt))
+    .limit(limit)
+    .offset(offset);
+
+  return {
+    data,
+    total: countResult?.count ?? 0,
+  };
 }
 
 export interface PendingStockSyncMapping {
