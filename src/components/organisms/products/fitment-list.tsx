@@ -275,20 +275,54 @@ function MatrixSeriesCell({
 
   return (
     <div className="flex flex-wrap items-center justify-center gap-1">
-      {rules.map((rule) => (
-        <span
-          key={rule.id}
-          className="group/series inline-flex min-h-7 items-center justify-center gap-0.5 rounded-md px-1.5 font-medium text-muted-foreground transition-colors hover:bg-muted"
-        >
-          <span>{rule.series || "Set"}</span>
-          <FitmentDialog
-            rule={rule}
-            makes={makes}
-            rules={allRules}
-            triggerClassName="h-5 w-5 opacity-0 transition-opacity group-hover/series:opacity-100 focus:opacity-100"
-          />
-        </span>
-      ))}
+      {rules.map((rule) => {
+        const subLabel = formatRuleSubLabel(rule);
+
+        return (
+          <span
+            key={rule.id}
+            className="group/series inline-flex min-h-7 items-center justify-center gap-0.5 rounded-md px-1.5 font-medium text-muted-foreground transition-colors hover:bg-muted"
+            title={formatRuleTitle(rule)}
+          >
+            <span className="flex flex-col items-center leading-tight">
+              <span>{rule.series || "Set"}</span>
+              {subLabel ? (
+                <span className="text-[10px] font-normal text-muted-foreground/80">
+                  {subLabel}
+                </span>
+              ) : null}
+            </span>
+            <FitmentDialog
+              rule={rule}
+              makes={makes}
+              rules={allRules}
+              triggerClassName="h-5 w-5 opacity-0 transition-opacity group-hover/series:opacity-100 focus:opacity-100"
+            />
+          </span>
+        );
+      })}
     </div>
   );
+}
+
+function formatRuleSubLabel(rule: FitmentRule) {
+  return formatYearRange(rule) || (!rule.series ? "all" : "");
+}
+
+function formatYearRange(rule: FitmentRule) {
+  if (rule.yearStart && rule.yearEnd) return `${rule.yearStart}-${rule.yearEnd}`;
+  if (rule.yearStart) return `${rule.yearStart}+`;
+  if (rule.yearEnd) return `-${rule.yearEnd}`;
+  return "";
+}
+
+function formatRuleTitle(rule: FitmentRule) {
+  const yearRange = formatYearRange(rule);
+  return [
+    rule.make,
+    rule.model,
+    rule.position,
+    yearRange || "all years",
+    rule.series ? `Series ${rule.series}` : "Series pending",
+  ].join(" | ");
 }
