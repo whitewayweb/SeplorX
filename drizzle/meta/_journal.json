@@ -267,6 +267,20 @@
       "when": 1779094300138,
       "tag": "0037_rapid_cardiac",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1779373769984,
+      "tag": "0038_striped_pet_avengers",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1779380074670,
+      "tag": "0039_bent_shen",
+      "breakpoints": true
     }
   ]
 }

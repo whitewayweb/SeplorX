@@ -26,9 +26,14 @@ yarn dev
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DATABASE_URL` | Yes | Supabase PostgreSQL connection string |
+| Variable | Required | Description | Example |
+|----------|----------|-------------|---------|
+| `DATABASE_URL` | Yes | Supabase PostgreSQL connection string | `postgresql://...:6543/postgres` |
+| `ENCRYPTION_KEY` | Yes | 64-char hex string (32 bytes) for AES-256-GCM local encryption | `0001020304050607...` |
+| `BETTER_AUTH_SECRET` | Yes | Secret for Better Auth sessions | `your-secret-here` |
+| `BETTER_AUTH_URL` | Yes | App base URL | `http://localhost:3000` |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | No | API Key for Gemini (Expense OCR / Agents) | `your-gemini-api-key` |
+| `AWS_KMS_KEY_ID` | No | AWS KMS Key ID for SP-API Compliance | `arn:aws:kms...` |
 
 Supabase provides two connection URLs:
 - **Port 6543** (transaction pooler) — use for the app and local dev
@@ -36,16 +41,21 @@ Supabase provides two connection URLs:
 
 ## Scripts
 
+<!-- AUTO-GENERATED -->
 | Command | Description |
 |---------|-------------|
 | `yarn dev` | Start development server |
 | `yarn build` | Production build |
+| `yarn start` | Start production server |
 | `yarn lint` | Run ESLint |
 | `yarn knip` | Find unused code and dependencies |
-| `yarn generate:amazon-types` | Regenerate collocated Amazon SP-API types in `src/lib/channels/amazon/api/types` |
-| `yarn generate:types` | Regenerate channel API types, including Amazon and WooCommerce |
+| `yarn fix` | Run lint, knip, tests, and build |
+| `yarn test` | Run test suite |
+| `yarn test:coverage` | Run tests with coverage report |
+| `yarn generate:types` | Regenerate channel API types (Amazon, WooCommerce) |
 | `yarn db` | Generate and run database migrations |
 | `yarn db:studio` | Open Drizzle Studio (database GUI) |
+<!-- AUTO-GENERATED -->
 
 ## Channel Finance Reconciliation
 

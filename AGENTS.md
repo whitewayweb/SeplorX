@@ -17,6 +17,13 @@ The `.agent/` directory contains broader Claude/ECC-oriented rules, skills, and 
 - Prefer simple, readable implementations over clever or speculative designs.
 - Add comments only when they explain non-obvious intent or constraints.
 
+## Architecture and Refactoring
+
+- **Incremental Architecture Refactoring**: When adding new features, use a Domain-Driven structure (`src/features/<domain>/`). Move old features into this structure incrementally as they are updated, rather than doing a "Big Bang" rewrite.
+- **Skinny Server Actions**: Keep Next.js Server Actions "skinny". Offload business logic, heavy database queries, and external API interactions to a dedicated `src/services/` layer.
+- **Core Action Wrappers**: Use higher-order wrappers in `src/core/` (e.g., `authenticatedAction`) for Server Actions to ensure consistent authentication and role-based access control (RBAC) checks, avoiding duplicated logic.
+- **Infrastructure Decoupling**: Isolate 3rd-party API logic (Stripe, Amazon SP-API, etc.) completely within `src/lib/<service>/`. Business logic should interact with these via clean interfaces without knowing the underlying implementation details.
+
 ## Project Commands
 
 - Use Yarn for this repository; do not use npm commands unless the user explicitly asks.
