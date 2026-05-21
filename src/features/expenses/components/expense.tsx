@@ -61,12 +61,12 @@ export function ExpenseUploader({ pendingTask }: { pendingTask?: PendingTask | n
   return (
     <div className="space-y-6">
       {!task ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Upload Receipt</CardTitle>
-            <CardDescription>Upload a receipt or invoice to automatically extract the expense details.</CardDescription>
-          </CardHeader>
-          <CardContent>
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-lg font-medium leading-none tracking-tight">Upload Receipt</h3>
+            <p className="text-sm text-muted-foreground mt-1.5">Upload a receipt or invoice to automatically extract the expense details.</p>
+          </div>
+          <div>
             <div className="flex flex-col items-center justify-center p-12 border-2 border-dashed rounded-lg bg-muted/50 hover:bg-muted/80 transition-colors">
               <UploadCloud className="w-12 h-12 text-muted-foreground mb-4" />
               <Button onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
@@ -81,8 +81,8 @@ export function ExpenseUploader({ pendingTask }: { pendingTask?: PendingTask | n
                 onChange={handleFileSelect}
               />
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       ) : (
         <ExpenseReviewForm task={task} onClear={() => setTask(null)} />
       )}
@@ -145,15 +145,15 @@ function ExpenseReviewForm({ task, onClear }: { task: PendingTask; onClear: () =
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+    <div className="space-y-6">
+      <div>
+        <h3 className="flex items-center gap-2 text-lg font-medium leading-none tracking-tight">
           <CheckCircle2 className="w-5 h-5 text-green-500" />
           Review Extracted Expense
-        </CardTitle>
-        <CardDescription>The AI has extracted the following details. Please review and save.</CardDescription>
-      </CardHeader>
-      <CardContent>
+        </h3>
+        <p className="text-sm text-muted-foreground mt-1.5">The AI has extracted the following details. Please review and save.</p>
+      </div>
+      <div>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -279,7 +279,7 @@ function ExpenseReviewForm({ task, onClear }: { task: PendingTask; onClear: () =
             </div>
           </form>
         </Form>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

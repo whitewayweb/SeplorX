@@ -18,6 +18,7 @@ import {
   User,
   ShoppingCart,
   ClipboardCheck,
+  CreditCard,
 } from "lucide-react";
 import {
   Sidebar,
@@ -43,6 +44,7 @@ const navItems = [
   { title: "Products", href: "/products", icon: Package },
   { title: "Invoices", href: "/invoices", icon: FileText },
   { title: "Purchase Bills", href: "/purchase/bills", icon: Receipt },
+  { title: "Expenses", href: "/expenses", icon: CreditCard },
   { title: "Inventory", href: "/inventory", icon: Warehouse },
   { title: "Orders", href: "/orders", icon: ShoppingCart },
   { title: "Channels", href: "/channels", icon: Store },

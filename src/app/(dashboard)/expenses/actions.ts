@@ -2,7 +2,7 @@
 
 import { getAuthenticatedUserId } from "@/lib/auth";
 import { runExpenseOcrAgent } from "@/lib/agents/expense-ocr-agent";
-import { resolveExpenseOcrTask } from "@/services/expense.service";
+import { resolveExpenseOcrTask } from "@/features/expenses/services/expense.service";
 import { insertExpenseSchema } from "@/lib/validations/expenses";
 import { revalidatePath } from "next/cache";
 
