@@ -18,6 +18,8 @@ export default defineConfig({
         "src/lib/validations/products.ts",
         "src/lib/validations/invoices.ts",
         "src/lib/validations/channels.ts",
+        "src/services/expense.service.ts",
+        "src/lib/agents/expense-ocr-agent.ts",
       ],
       thresholds: {
         lines: 80,

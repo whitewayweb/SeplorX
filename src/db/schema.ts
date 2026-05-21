@@ -718,3 +718,36 @@ export const stockReservations = pgTable("stock_reservations", {
   index("stock_reservations_product_idx").on(table.productId),
   index("stock_reservations_status_idx").on(table.status),
 ]).enableRLS();
+
+// ─── Expenses ────────────────────────────────────────────────────────────────
+// Tracking operational costs, billable expenses, and receipt AI extractions.
+
+export const expenseCategories = pgTable("expense_categories", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}).enableRLS();
+
+export const expenses = pgTable("expenses", {
+  id: serial("id").primaryKey(),
+  categoryId: integer("category_id").references(() => expenseCategories.id, { onDelete: "set null" }),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  taxAmount: decimal("tax_amount", { precision: 12, scale: 2 }).default("0").notNull(),
+  currency: varchar("currency", { length: 10 }).default("USD").notNull(),
+  date: date("date").notNull(),
+  name: varchar("name", { length: 255 }).notNull(), // Extracted vendor name
+  description: text("description"),
+  paymentMode: paymentModeEnum("payment_mode").default("bank_transfer").notNull(),
+  reference: varchar("reference", { length: 255 }), // Receipt or transaction number
+  isBillable: boolean("is_billable").default(false).notNull(),
+  salesOrderId: integer("sales_order_id").references(() => salesOrders.id, { onDelete: "set null" }),
+  isInvoiced: boolean("is_invoiced").default(false).notNull(),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("expenses_category_idx").on(table.categoryId),
+  index("expenses_date_idx").on(table.date),
+  index("expenses_sales_order_idx").on(table.salesOrderId),
+]).enableRLS();
