@@ -38,9 +38,6 @@ export default async function ExpensesPage() {
   const total = expensesList.reduce((sum, item) => sum + Number(item.expense.amount), 0);
   const billable = expensesList.filter(item => item.expense.isBillable).reduce((sum, item) => sum + Number(item.expense.amount), 0);
   const nonBillable = expensesList.filter(item => !item.expense.isBillable).reduce((sum, item) => sum + Number(item.expense.amount), 0);
-  const billed = expensesList.filter(item => item.expense.isBillable && item.expense.isInvoiced).reduce((sum, item) => sum + Number(item.expense.amount), 0);
-  const notInvoiced = expensesList.filter(item => item.expense.isBillable && !item.expense.isInvoiced).reduce((sum, item) => sum + Number(item.expense.amount), 0);
-
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("en-IN", {
       style: "currency",
@@ -55,35 +52,23 @@ export default async function ExpensesPage() {
         <h1 className="text-2xl font-bold tracking-tight">Expenses</h1>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="shadow-sm">
           <CardContent className="p-4 flex flex-col gap-1">
-            <span className="text-sm font-medium text-amber-500">Total</span>
-            <span className="text-lg font-bold">{formatCurrency(total)}</span>
+            <span className="text-sm font-medium text-amber-500">Total Expenses</span>
+            <span className="text-xl font-bold">{formatCurrency(total)}</span>
           </CardContent>
         </Card>
         <Card className="shadow-sm">
           <CardContent className="p-4 flex flex-col gap-1">
-            <span className="text-sm font-medium text-emerald-600">Billable</span>
-            <span className="text-lg font-bold">{formatCurrency(billable)}</span>
+            <span className="text-sm font-medium text-emerald-600">Billable Expenses</span>
+            <span className="text-xl font-bold">{formatCurrency(billable)}</span>
           </CardContent>
         </Card>
         <Card className="shadow-sm">
           <CardContent className="p-4 flex flex-col gap-1">
-            <span className="text-sm font-medium text-amber-600">Non Billable</span>
-            <span className="text-lg font-bold">{formatCurrency(nonBillable)}</span>
-          </CardContent>
-        </Card>
-        <Card className="shadow-sm">
-          <CardContent className="p-4 flex flex-col gap-1">
-            <span className="text-sm font-medium text-red-500">Not Invoiced</span>
-            <span className="text-lg font-bold">{formatCurrency(notInvoiced)}</span>
-          </CardContent>
-        </Card>
-        <Card className="shadow-sm">
-          <CardContent className="p-4 flex flex-col gap-1">
-            <span className="text-sm font-medium text-emerald-600">Billed</span>
-            <span className="text-lg font-bold">{formatCurrency(billed)}</span>
+            <span className="text-sm font-medium text-amber-600">Non Billable Expenses</span>
+            <span className="text-xl font-bold">{formatCurrency(nonBillable)}</span>
           </CardContent>
         </Card>
       </div>

@@ -29,14 +29,17 @@ describe("Expense Service", () => {
     it("should resolve the task and insert an expense", async () => {
       // Mock transaction implementation
       vi.mocked(db.transaction).mockImplementation(async (cb: unknown) => {
-        const mockTx = {
+        const mockTx = [] as unknown[] & Record<string, unknown>;
+        Object.assign(mockTx, {
           update: vi.fn().mockReturnThis(),
           set: vi.fn().mockReturnThis(),
           where: vi.fn().mockReturnThis(),
           returning: vi.fn().mockResolvedValue([{ id: 1 }]), // agentAction update
           insert: vi.fn().mockReturnThis(),
           values: vi.fn().mockReturnThis(),
-        };
+          select: vi.fn().mockReturnThis(),
+          from: vi.fn().mockReturnThis(),
+        });
         return (cb as (tx: unknown) => unknown)(mockTx);
       });
 

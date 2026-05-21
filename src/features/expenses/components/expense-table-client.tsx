@@ -10,15 +10,15 @@ import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, For
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertExpenseSchema, type InsertExpenseParams } from "@/lib/validations/expenses";
-import { updateExpenseAction } from "@/app/(dashboard)/expenses/actions";
+import { updateExpenseAction, deleteExpenseAction } from "@/app/(dashboard)/expenses/actions";
 import { toast } from "sonner";
-import { Loader2, CheckCircle2, Edit2, FileText, IndianRupee, Banknote } from "lucide-react";
+import { Loader2, CheckCircle2, Edit2, FileText, IndianRupee, Banknote, Trash2 } from "lucide-react";
 
 type ExpenseData = {
   id: number;
   amount: string | number;
   currency: string;
-  name: string;
+  name: string | null;
   description: string | null;
   date: string;
   reference: string | null;
@@ -29,11 +29,11 @@ type ExpenseData = {
   isInvoiced: boolean;
 };
 
-export function ExpenseTableClient({ 
+export function ExpenseTableClient({
   expensesList,
   suppliers = [],
   uniqueCategories = []
-}: { 
+}: {
   expensesList: Array<{ expense: ExpenseData, categoryName: string | null, companyName: string | null }>;
   suppliers?: { id: number, name: string }[];
   uniqueCategories?: string[];
@@ -73,8 +73,8 @@ export function ExpenseTableClient({
             </TableRow>
           ) : (
             expensesList.map(({ expense, categoryName, companyName }) => (
-              <TableRow 
-                key={expense.id} 
+              <TableRow
+                key={expense.id}
                 className="cursor-pointer hover:bg-muted/50 transition-colors"
                 onClick={() => setSelectedExpense({ expense, categoryName, companyName })}
               >
@@ -105,18 +105,18 @@ export function ExpenseTableClient({
       </Table>
 
       <Sheet open={!!selectedExpense} onOpenChange={(open) => !open && setSelectedExpense(null)}>
-        <SheetContent className="sm:max-w-xl overflow-y-auto w-full sm:w-[540px]">
+        <SheetContent className="md:max-w-3xl overflow-y-auto w-full px-4 gap-2">
           <SheetHeader className="mb-4 border-b pb-4">
-            <SheetTitle className="flex items-center gap-2 text-xl">
+            <SheetTitle className="flex items-center text-xl">
               <Edit2 className="w-5 h-5 text-amber-500" />
               Edit Expense
             </SheetTitle>
             <p className="text-sm text-muted-foreground">Update the details of this expense below.</p>
           </SheetHeader>
-          
+
           {selectedExpense && (
-            <ExpenseEditForm 
-              initialData={selectedExpense} 
+            <ExpenseEditForm
+              initialData={selectedExpense}
               onClose={() => setSelectedExpense(null)}
               suppliers={suppliers}
               uniqueCategories={uniqueCategories}
@@ -128,18 +128,19 @@ export function ExpenseTableClient({
   );
 }
 
-function ExpenseEditForm({ 
-  initialData, 
+function ExpenseEditForm({
+  initialData,
   onClose,
   suppliers,
   uniqueCategories
-}: { 
+}: {
   initialData: { expense: ExpenseData, categoryName: string | null, companyName: string | null };
   onClose: () => void;
   suppliers: { id: number, name: string }[];
   uniqueCategories: string[];
 }) {
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const { expense, categoryName, companyName } = initialData;
 
   const form = useForm<InsertExpenseParams>({
@@ -152,7 +153,7 @@ function ExpenseEditForm({
       name: companyName || expense.name || "",
       categoryName: categoryName || "",
       description: expense.description || "",
-      paymentMode: expense.paymentMode as any,
+      paymentMode: expense.paymentMode as InsertExpenseParams["paymentMode"],
       reference: expense.reference || "",
       isBillable: expense.isBillable,
       salesOrderId: expense.salesOrderId || undefined,
@@ -169,7 +170,7 @@ function ExpenseEditForm({
       name: companyName || expense.name || "",
       categoryName: categoryName || "",
       description: expense.description || "",
-      paymentMode: expense.paymentMode as any,
+      paymentMode: expense.paymentMode as InsertExpenseParams["paymentMode"],
       reference: expense.reference || "",
       isBillable: expense.isBillable,
       salesOrderId: expense.salesOrderId || undefined,
@@ -210,16 +211,36 @@ function ExpenseEditForm({
     }
   };
 
+  const handleDelete = async () => {
+    if (!window.confirm("Are you sure you want to delete this expense?")) return;
+    setIsDeleting(true);
+    try {
+      const formData = new FormData();
+      formData.append("id", expense.id.toString());
+      const result = await deleteExpenseAction(null, formData);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Expense deleted successfully.");
+      onClose();
+    } catch {
+      toast.error("Failed to delete expense.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pb-6">
-        
+
         <datalist id="vendors-list">
           {suppliers.map((supplier) => (
             <option key={supplier.id} value={supplier.name} />
           ))}
         </datalist>
-        
+
         <datalist id="categories-list">
           {uniqueCategories.map((category, idx) => (
             <option key={idx} value={category} />
@@ -264,7 +285,7 @@ function ExpenseEditForm({
             )}
           />
         </div>
-        
+
         <FormField
           control={form.control}
           name="categoryName"
@@ -325,8 +346,8 @@ function ExpenseEditForm({
               <FormItem>
                 <FormLabel className="text-xs uppercase text-muted-foreground font-semibold">Payment Mode</FormLabel>
                 <FormControl>
-                  <select 
-                    {...field} 
+                  <select
+                    {...field}
                     className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-muted/20 px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <option value="cash">Cash</option>
@@ -358,7 +379,7 @@ function ExpenseEditForm({
           name="description"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="text-xs uppercase text-muted-foreground font-semibold flex items-center gap-2"><FileText className="w-3 h-3"/> Description</FormLabel>
+              <FormLabel className="text-xs uppercase text-muted-foreground font-semibold flex items-center gap-2"><FileText className="w-3 h-3" /> Description</FormLabel>
               <FormControl><Input className="bg-muted/20" {...field} value={field.value || ""} /></FormControl>
               <FormMessage />
             </FormItem>
@@ -410,12 +431,18 @@ function ExpenseEditForm({
           )}
         </div>
 
-        <div className="flex justify-end gap-3 pt-4 border-t mt-4">
-          <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>Cancel</Button>
-          <Button type="submit" disabled={isSaving} className="bg-amber-600 hover:bg-amber-700 text-white min-w-[120px]">
-            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-            Save Changes
+        <div className="flex justify-between items-center pt-4 border-t mt-4">
+          <Button type="button" variant="destructive" onClick={handleDelete} disabled={isSaving || isDeleting}>
+            {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+            Delete
           </Button>
+          <div className="flex gap-3">
+            <Button type="button" variant="outline" onClick={onClose} disabled={isSaving || isDeleting}>Cancel</Button>
+            <Button type="submit" disabled={isSaving || isDeleting} className="bg-amber-600 hover:bg-amber-700 text-white min-w-[120px]">
+              {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+              Save Changes
+            </Button>
+          </div>
         </div>
       </form>
     </Form>

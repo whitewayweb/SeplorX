@@ -129,3 +129,25 @@ export async function updateExpenseAction(_prevState: unknown, formData: FormDat
   }
 }
 
+export async function deleteExpenseAction(_prevState: unknown, formData: FormData): Promise<{
+  success?: boolean;
+  error?: string;
+}> {
+  try {
+    await getAuthenticatedUserId();
+
+    const id = Number(formData.get("id"));
+    if (!id) {
+      return { error: "Expense ID is required." };
+    }
+
+    const { deleteExpense } = await import("@/features/expenses/services/expense.service");
+    await deleteExpense(id);
+
+    revalidatePath("/expenses");
+    return { success: true };
+  } catch (err) {
+    console.error("[deleteExpenseAction]", err);
+    return { error: err instanceof Error ? err.message : "Failed to delete expense." };
+  }
+}

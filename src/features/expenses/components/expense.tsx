@@ -118,7 +118,7 @@ function ExpenseReviewForm({ task, onClear }: { task: PendingTask; onClear: () =
       formData.append("taxAmount", (data.taxAmount ?? 0).toString());
       formData.append("currency", data.currency ?? "INR");
       formData.append("date", data.date);
-      formData.append("name", data.name);
+      if (data.name) formData.append("name", data.name);
       if (data.categoryName) formData.append("categoryName", data.categoryName);
       if (data.description) formData.append("description", data.description);
       formData.append("paymentMode", data.paymentMode ?? "bank_transfer");

@@ -184,3 +184,7 @@ export async function updateExpense(
     return updatedExpense;
   });
 }
+
+export async function deleteExpense(id: number) {
+  return await db.delete(expenses).where(eq(expenses.id, id));
+}
