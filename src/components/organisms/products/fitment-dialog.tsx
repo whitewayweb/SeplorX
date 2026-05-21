@@ -45,6 +45,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 import type { FitmentRule } from "@/data/fitment";
 import { addFitmentRule, updateFitmentRule } from "@/app/(dashboard)/products/fitment/actions";
@@ -128,24 +129,45 @@ export function FitmentDialog({
   const [modelSearch, setModelSearch] = useState("");
   const [makeOpen, setMakeOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
+  const [useCustomMake, setUseCustomMake] = useState(false);
+  const [useCustomModel, setUseCustomModel] = useState(false);
 
   const handleCreateMake = () => {
-    if (makeSearch) {
-      form.setValue("make", makeSearch, { shouldValidate: true });
-      form.setValue("model", ""); // reset model
+    const make = makeSearch.trim();
+    if (make) {
+      form.setValue("make", make, { shouldValidate: true });
+      form.setValue("model", "");
+      setUseCustomMake(true);
+      setUseCustomModel(true);
       setMakeOpen(false);
     }
   };
 
   const handleCreateModel = () => {
-    if (modelSearch) {
-      form.setValue("model", modelSearch, { shouldValidate: true });
+    const model = modelSearch.trim();
+    if (model) {
+      form.setValue("model", model, { shouldValidate: true });
+      setUseCustomModel(true);
       setModelOpen(false);
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) {
+          setMakeOpen(false);
+          setModelOpen(false);
+          setMakeSearch("");
+          setModelSearch("");
+          setUseCustomMake(false);
+          setUseCustomModel(false);
+          if (!isEdit) form.reset();
+        }
+      }}
+    >
       <DialogTrigger asChild>
         {isEdit ? (
           <Button
@@ -189,66 +211,105 @@ export function FitmentDialog({
                 name="make"
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
-                    <FormLabel>Make</FormLabel>
-                    <Popover open={makeOpen} onOpenChange={setMakeOpen}>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            variant="outline"
-                            role="combobox"
-                            className={cn(
-                              "w-full justify-between font-normal",
-                              !field.value && "text-muted-foreground"
-                            )}
-                          >
-                            {field.value || "Select make..."}
-                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                        <Command>
-                          <CommandInput 
-                            placeholder="Search make..." 
-                            value={makeSearch}
-                            onValueChange={setMakeSearch}
-                          />
-                          <CommandList>
-                            <CommandEmpty>
-                              <Button 
-                                type="button" 
-                                variant="ghost" 
-                                className="w-full justify-start font-normal text-sm" 
-                                onClick={handleCreateMake}
-                              >
-                                Use &quot;{makeSearch}&quot;
-                              </Button>
-                            </CommandEmpty>
-                            <CommandGroup>
-                              {makes.map((m) => (
-                                <CommandItem
-                                  value={m}
-                                  key={m}
-                                  onSelect={() => {
-                                    form.setValue("make", m, { shouldValidate: true });
-                                    form.setValue("model", "");
-                                    setMakeOpen(false);
-                                  }}
+                    <div className="flex items-center justify-between gap-2">
+                      <FormLabel>Make</FormLabel>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => {
+                          const nextUseCustomMake = !useCustomMake;
+                          setUseCustomMake(nextUseCustomMake);
+                          form.setValue("make", "");
+                          form.setValue("model", "");
+                          if (nextUseCustomMake) {
+                            setUseCustomModel(true);
+                          } else {
+                            setUseCustomModel(false);
+                          }
+                        }}
+                      >
+                        <Plus className="h-3.5 w-3.5 mr-1" />
+                        {useCustomMake ? "Select existing" : "New make"}
+                      </Button>
+                    </div>
+                    {useCustomMake ? (
+                      <FormControl>
+                        <Input
+                          value={field.value}
+                          onChange={(event) => {
+                            field.onChange(event);
+                            form.setValue("model", "");
+                            setUseCustomModel(true);
+                          }}
+                          onBlur={field.onBlur}
+                          placeholder="Enter make..."
+                        />
+                      </FormControl>
+                    ) : (
+                      <Popover open={makeOpen} onOpenChange={setMakeOpen}>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant="outline"
+                              role="combobox"
+                              className={cn(
+                                "w-full justify-between font-normal",
+                                !field.value && "text-muted-foreground"
+                              )}
+                            >
+                              {field.value || "Select make..."}
+                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                          <Command>
+                            <CommandInput
+                              placeholder="Search make..."
+                              value={makeSearch}
+                              onValueChange={setMakeSearch}
+                            />
+                            <CommandList>
+                              <CommandEmpty>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  className="w-full justify-start font-normal text-sm"
+                                  onClick={handleCreateMake}
                                 >
-                                  <Check
-                                    className={cn(
-                                      "mr-2 h-4 w-4",
-                                      m === field.value ? "opacity-100" : "opacity-0"
-                                    )}
-                                  />
-                                  {m}
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
+                                  Use &quot;{makeSearch}&quot;
+                                </Button>
+                              </CommandEmpty>
+                              <CommandGroup>
+                                {makes.map((m) => (
+                                  <CommandItem
+                                    value={m}
+                                    key={m}
+                                    onSelect={() => {
+                                      form.setValue("make", m, { shouldValidate: true });
+                                      form.setValue("model", "");
+                                      setUseCustomMake(false);
+                                      setUseCustomModel(false);
+                                      setMakeOpen(false);
+                                    }}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mr-2 h-4 w-4",
+                                        m === field.value ? "opacity-100" : "opacity-0"
+                                      )}
+                                    />
+                                    {m}
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -260,66 +321,96 @@ export function FitmentDialog({
                 name="model"
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
-                    <FormLabel>Model</FormLabel>
-                    <Popover open={modelOpen} onOpenChange={setModelOpen}>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            variant="outline"
-                            role="combobox"
-                            disabled={!selectedMake}
-                            className={cn(
-                              "w-full justify-between font-normal",
-                              !field.value && "text-muted-foreground"
-                            )}
-                          >
-                            {field.value || (selectedMake ? "Select model..." : "Select make auto.")}
-                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                        <Command>
-                          <CommandInput 
-                            placeholder="Search model..." 
-                            value={modelSearch}
-                            onValueChange={setModelSearch}
-                          />
-                          <CommandList>
-                            <CommandEmpty>
-                              <Button 
-                                type="button" 
-                                variant="ghost" 
-                                className="w-full justify-start font-normal text-sm" 
-                                onClick={handleCreateModel}
-                              >
-                                Use &quot;{modelSearch}&quot;
-                              </Button>
-                            </CommandEmpty>
-                            <CommandGroup>
-                              {modelOptions.map((m) => (
-                                <CommandItem
-                                  value={m}
-                                  key={m}
-                                  onSelect={() => {
-                                    form.setValue("model", m, { shouldValidate: true });
-                                    setModelOpen(false);
-                                  }}
+                    <div className="flex items-center justify-between gap-2">
+                      <FormLabel>Model</FormLabel>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={!selectedMake}
+                        className="h-7 px-2 text-xs"
+                        onClick={() => {
+                          const nextUseCustomModel = !useCustomModel;
+                          setUseCustomModel(nextUseCustomModel);
+                          form.setValue("model", "");
+                        }}
+                      >
+                        <Plus className="h-3.5 w-3.5 mr-1" />
+                        {useCustomModel ? "Select existing" : "New model"}
+                      </Button>
+                    </div>
+                    {useCustomModel ? (
+                      <FormControl>
+                        <Input
+                          value={field.value}
+                          onChange={field.onChange}
+                          onBlur={field.onBlur}
+                          disabled={!selectedMake}
+                          placeholder={selectedMake ? "Enter model..." : "Select make first."}
+                        />
+                      </FormControl>
+                    ) : (
+                      <Popover open={modelOpen} onOpenChange={setModelOpen}>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant="outline"
+                              role="combobox"
+                              disabled={!selectedMake}
+                              className={cn(
+                                "w-full justify-between font-normal",
+                                !field.value && "text-muted-foreground"
+                              )}
+                            >
+                              {field.value || (selectedMake ? "Select model..." : "Select make first.")}
+                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                          <Command>
+                            <CommandInput
+                              placeholder="Search model..."
+                              value={modelSearch}
+                              onValueChange={setModelSearch}
+                            />
+                            <CommandList>
+                              <CommandEmpty>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  className="w-full justify-start font-normal text-sm"
+                                  onClick={handleCreateModel}
                                 >
-                                  <Check
-                                    className={cn(
-                                      "mr-2 h-4 w-4",
-                                      m === field.value ? "opacity-100" : "opacity-0"
-                                    )}
-                                  />
-                                  {m}
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
+                                  Use &quot;{modelSearch}&quot;
+                                </Button>
+                              </CommandEmpty>
+                              <CommandGroup>
+                                {modelOptions.map((m) => (
+                                  <CommandItem
+                                    value={m}
+                                    key={m}
+                                    onSelect={() => {
+                                      form.setValue("model", m, { shouldValidate: true });
+                                      setUseCustomModel(false);
+                                      setModelOpen(false);
+                                    }}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mr-2 h-4 w-4",
+                                        m === field.value ? "opacity-100" : "opacity-0"
+                                      )}
+                                    />
+                                    {m}
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
