@@ -1,5 +1,6 @@
 import { NextResponse, after } from "next/server";
 import { getChannelHandler } from "@/lib/channels/handlers";
+import type { OrderFinanceSyncResult } from "@/lib/channels/types";
 import {
   claimOrderSyncChannel,
   isOrderSyncEnabled,
@@ -9,6 +10,9 @@ import {
 import { logger } from "@/lib/logger";
 
 const BACKGROUND_FINANCE_SYNC_LIMIT = 10;
+const MAX_FINANCE_BATCHES_PER_WORKER = 3;
+const DEFAULT_FINANCE_BATCH_BUDGET_MS = 5_000;
+const AMAZON_FINANCE_BATCH_BUDGET_MS = 30_000;
 
 export const maxDuration = 60;
 
@@ -40,7 +44,6 @@ export async function POST(request: Request) {
 
     const channelId = Number(body.channelId);
     const financeOnly = body.financeOnly === true;
-    const workerUrl = new URL("/api/agents/sync-worker", request.url).toString();
 
     logger.info("[sync-worker] request received", {
       channelId,
@@ -79,37 +82,72 @@ export async function POST(request: Request) {
       const startTime = Date.now();
       let orderSyncSucceeded = false;
       let orderSyncSavedOrders = false;
-      let financeBatchWasFull = false;
+      let financeBatches = 0;
+
+      const financeTotals: OrderFinanceSyncResult = {
+        checked: 0,
+        synced: 0,
+        noData: 0,
+        failed: 0,
+        notSupported: 0,
+      };
+
+      const remainingTimeMs = () => maxDuration * 1000 - (Date.now() - startTime);
+      const minFinanceBatchBudgetMs =
+        channel.channelType === "amazon"
+          ? AMAZON_FINANCE_BATCH_BUDGET_MS
+          : DEFAULT_FINANCE_BATCH_BUDGET_MS;
+
+      const runFinanceBatch = async (reason: "initial" | "post_order" | "backlog"): Promise<boolean> => {
+        if (!handler.syncOrderFinances) return false;
+
+        const financeStartedAt = Date.now();
+        financeBatches++;
+
+        logger.info("[sync-worker] finance sync starting", {
+          channelId,
+          channelType: channel.channelType,
+          batch: financeBatches,
+          reason,
+          limit: BACKGROUND_FINANCE_SYNC_LIMIT,
+          retryFailed: true,
+        });
+
+        const result = await handler.syncOrderFinances(channel.userId, channel.id, {
+          limit: BACKGROUND_FINANCE_SYNC_LIMIT,
+          retryFailed: true,
+        });
+
+        financeTotals.checked += result.checked;
+        financeTotals.synced += result.synced;
+        financeTotals.noData += result.noData;
+        financeTotals.failed += result.failed;
+        financeTotals.notSupported += result.notSupported;
+
+        logger.info("[sync-worker] finance sync completed", {
+          channelId,
+          channelType: channel.channelType,
+          batch: financeBatches,
+          reason,
+          externalFinanceChecks: result.checked,
+          synced: result.synced,
+          noData: result.noData,
+          failed: result.failed,
+          notSupported: result.notSupported,
+          durationMs: Date.now() - financeStartedAt,
+        });
+
+        return result.checked >= BACKGROUND_FINANCE_SYNC_LIMIT;
+      };
 
       if (handler.syncOrderFinances) {
-        const financeStartedAt = Date.now();
         try {
-          logger.info("[sync-worker] finance sync starting", {
-            channelId,
-            channelType: channel.channelType,
-            limit: BACKGROUND_FINANCE_SYNC_LIMIT,
-            retryFailed: true,
-          });
-          const result = await handler.syncOrderFinances(channel.userId, channel.id, {
-            limit: BACKGROUND_FINANCE_SYNC_LIMIT,
-            retryFailed: true,
-          });
-          financeBatchWasFull = result.checked >= BACKGROUND_FINANCE_SYNC_LIMIT;
-          logger.info("[sync-worker] finance sync completed", {
-            channelId,
-            channelType: channel.channelType,
-            externalFinanceChecks: result.checked,
-            synced: result.synced,
-            noData: result.noData,
-            failed: result.failed,
-            notSupported: result.notSupported,
-            durationMs: Date.now() - financeStartedAt,
-          });
+          await runFinanceBatch("initial");
         } catch (err) {
           logger.error("[sync-worker] finance sync failed", {
             channelId,
             channelType: channel.channelType,
-            durationMs: Date.now() - financeStartedAt,
+            batch: financeBatches,
             error: err,
           });
         }
@@ -143,6 +181,39 @@ export async function POST(request: Request) {
         }
       }
 
+      if (handler.syncOrderFinances) {
+        let shouldContinueFinance = orderSyncSavedOrders || financeTotals.checked >= BACKGROUND_FINANCE_SYNC_LIMIT;
+        while (
+          shouldContinueFinance &&
+          financeBatches < MAX_FINANCE_BATCHES_PER_WORKER &&
+          remainingTimeMs() > minFinanceBatchBudgetMs
+        ) {
+          try {
+            shouldContinueFinance = await runFinanceBatch(orderSyncSavedOrders ? "post_order" : "backlog");
+            orderSyncSavedOrders = false;
+          } catch (err) {
+            logger.error("[sync-worker] finance continuation failed", {
+              channelId,
+              channelType: channel.channelType,
+              batch: financeBatches,
+              remainingTimeMs: remainingTimeMs(),
+              error: err,
+            });
+            shouldContinueFinance = false;
+          }
+        }
+
+        if (shouldContinueFinance) {
+          logger.info("[sync-worker] finance backlog deferred", {
+            channelId,
+            channelType: channel.channelType,
+            financeBatches,
+            maxFinanceBatches: MAX_FINANCE_BATCHES_PER_WORKER,
+            remainingTimeMs: remainingTimeMs(),
+          });
+        }
+      }
+
       try {
         if (orderSyncSucceeded) {
           await markOrderSyncSucceeded(channel.id);
@@ -157,31 +228,14 @@ export async function POST(request: Request) {
         });
       }
 
-      if (handler.syncOrderFinances && (financeBatchWasFull || orderSyncSavedOrders)) {
-        logger.info("[sync-worker] dispatching finance continuation", {
-          channelId,
-          financeBatchWasFull,
-          orderSyncSavedOrders,
-        });
-        fetch(workerUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${process.env.CRON_JOB_KEY}`,
-          },
-          body: JSON.stringify({ channelId: channel.id, financeOnly: true }),
-          cache: "no-store",
-        }).catch((err) => {
-          logger.error("[sync-worker] failed to continue finance backlog", {
-            channelId,
-            error: err,
-          });
-        });
-      }
-
       logger.info("[sync-worker] background work completed", {
         channelId,
         financeOnly,
+        financeBatches,
+        externalFinanceChecks: financeTotals.checked,
+        financeSynced: financeTotals.synced,
+        financeNoData: financeTotals.noData,
+        financeFailed: financeTotals.failed,
         durationMs: Date.now() - startTime,
       });
     });
