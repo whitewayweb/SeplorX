@@ -196,6 +196,7 @@ export default async function OrderDetailPage({
       <div className="mb-6">
         <Link
           href={`/orders/channels/${order.channelId}`}
+          prefetch={false}
           className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 mb-3"
         >
           <ArrowLeft className="h-4 w-4" /> Back to {order.channelName} Orders
@@ -259,6 +260,7 @@ export default async function OrderDetailPage({
                             return (
                               <Link
                                 href={`/products/channels/${order.channelId}?q=${encodeURIComponent(searchQuery)}`}
+                                prefetch={false}
                                 className="font-medium text-blue-600 hover:text-blue-800 text-sm leading-snug hover:underline"
                               >
                                 {item.title ?? "Unknown product"}

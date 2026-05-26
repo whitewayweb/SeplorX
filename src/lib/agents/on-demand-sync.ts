@@ -34,6 +34,7 @@ export async function triggerOnDemandSync(userId: number) {
     const headerList = await headers();
     if (isRouterPrefetch(headerList)) return;
 
+    const startedAt = Date.now();
     const lastTriggerAt = lastTriggerByUser.get(userId);
     if (lastTriggerAt && Date.now() - lastTriggerAt < ORDER_SYNC_INTERVAL_MS) return;
 
@@ -93,12 +94,26 @@ export async function triggerOnDemandSync(userId: number) {
         )
         .limit(1);
 
+    const checkDurationMs = Date.now() - startedAt;
+    if (checkDurationMs > 500) {
+        logger.warn("[on-demand-sync] slow stale-channel check", {
+            userId,
+            staleChannelFound: staleChannels.length > 0,
+            durationMs: checkDurationMs,
+        });
+    }
+
     if (staleChannels.length === 0) return;
 
     // 2. Trigger the scheduler in the background
     lastTriggerByUser.set(userId, Date.now());
     const baseUrl = getBaseUrl(headerList);
     const url = `${baseUrl}/api/cron/order-sync?userId=${userId}`;
+
+    logger.info("[on-demand-sync] triggering scheduler", {
+        userId,
+        durationMs: Date.now() - startedAt,
+    });
 
     // Fire and forget (don't await)
     fetch(url, {

@@ -217,7 +217,7 @@ function ChannelRowActions({ channel }: { channel: ChannelInstance }) {
       {channel.status === "connected" && (() => {
         const def = getChannelById(channel.channelType as Parameters<typeof getChannelById>[0]);
         return def?.capabilities?.canPushProductUpdates ? (
-          <Link href={`/channels/${channel.id}/publish`}>
+          <Link href={`/channels/${channel.id}/publish`} prefetch={false}>
             <Button variant="outline" size="sm">
               <RefreshCw className="h-3 w-3 mr-1" /> Publish Updates
             </Button>

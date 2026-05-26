@@ -44,7 +44,7 @@ export default async function InventorySyncPage({
         description="Review stock changes and push available stock to channels."
       >
         <Button variant="outline" asChild>
-          <Link href="/inventory" className="gap-2">
+          <Link href="/inventory" prefetch={false} className="gap-2">
             <ArrowLeft className="h-4 w-4" />
             Inventory
           </Link>

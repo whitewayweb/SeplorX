@@ -38,7 +38,7 @@ export default async function CompanyDetailPage({ params }: CompanyDetailPagePro
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
-            <Link href="/companies">
+            <Link href="/companies" prefetch={false}>
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>

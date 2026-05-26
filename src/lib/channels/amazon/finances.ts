@@ -82,6 +82,7 @@ export async function syncAmazonOrderFinances(
   channelId: number,
   options: OrderFinanceSyncOptions = {},
 ): Promise<OrderFinanceSyncResult> {
+  const startedAt = Date.now();
   const result: OrderFinanceSyncResult = {
     checked: 0,
     synced: 0,
@@ -110,6 +111,14 @@ export async function syncAmazonOrderFinances(
   const credentials = await decryptChannelCredentials(channel.credentials);
   const client = new AmazonAPIClient(credentials, channel.storeUrl || "");
   const candidates = await getCandidateOrders(userId, channelId, options);
+
+  logger.info("[Amazon Finance] batch selected", {
+    channelId,
+    candidateCount: candidates.length,
+    requestedLimit: options.limit ?? null,
+    orderScoped: Boolean(options.orderId),
+    retryFailed: options.retryFailed === true,
+  });
 
   for (const [index, order] of candidates.entries()) {
     if (index > 0) {
@@ -188,6 +197,16 @@ export async function syncAmazonOrderFinances(
       result.failed++;
     }
   }
+
+  logger.info("[Amazon Finance] batch completed", {
+    channelId,
+    externalFinanceChecks: result.checked,
+    synced: result.synced,
+    noData: result.noData,
+    failed: result.failed,
+    notSupported: result.notSupported,
+    durationMs: Date.now() - startedAt,
+  });
 
   return result;
 }

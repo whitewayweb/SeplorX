@@ -92,7 +92,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
               asChild
               className="h-8 w-8 rounded-lg shrink-0 text-muted-foreground hover:text-foreground"
             >
-              <Link href="/products">
+              <Link href="/products" prefetch={false}>
                 <ArrowLeft className="h-4 w-4" />
               </Link>
             </Button>

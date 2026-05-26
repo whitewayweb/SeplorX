@@ -4,6 +4,7 @@ import { channels } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { isOrderSyncEnabled } from "@/lib/agents/order-sync-state";
 import { getBaseUrl } from "@/lib/utils";
+import { logger } from "@/lib/logger";
 
 export async function GET(request: Request) {
   return handleRequest(request);
@@ -14,6 +15,7 @@ export async function POST(request: Request) {
 }
 
 async function handleRequest(request: Request) {
+  const startedAt = Date.now();
   try {
     // 1. Authorization
     const authHeader = request.headers.get("authorization");
@@ -43,6 +45,10 @@ async function handleRequest(request: Request) {
       );
 
     if (activeChannels.length === 0) {
+      logger.info("[agent/sync-scheduler] no active channels", {
+        userIdFiltered: Boolean(userIdParam),
+        durationMs: Date.now() - startedAt,
+      });
       return NextResponse.json({ triggered: 0, reason: "No active channels found" });
     }
 
@@ -50,7 +56,10 @@ async function handleRequest(request: Request) {
     const baseUrl = getBaseUrl(request.headers);
     const workerUrl = `${baseUrl}/api/agents/sync-worker`;
 
-    console.log(`[agent/sync-scheduler] Dispatching ${activeChannels.length} workers to ${workerUrl}`);
+    logger.info("[agent/sync-scheduler] dispatching workers", {
+      workerCount: activeChannels.length,
+      userIdFiltered: Boolean(userIdParam),
+    });
 
     const results = await Promise.allSettled(
       activeChannels.map((channel) =>
@@ -87,9 +96,17 @@ async function handleRequest(request: Request) {
       }
     });
 
+    logger.info("[agent/sync-scheduler] dispatch completed", {
+      ...stats,
+      durationMs: Date.now() - startedAt,
+    });
+
     return NextResponse.json(stats);
   } catch (error) {
-    console.error(`[agent/sync-scheduler] Fatal error:`, error);
+    logger.error("[agent/sync-scheduler] fatal error", {
+      durationMs: Date.now() - startedAt,
+      error,
+    });
     return NextResponse.json({ error: "Scheduler failed" }, { status: 500 });
   }
 }
