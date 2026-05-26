@@ -110,7 +110,7 @@ export function CompanyList({ companies }: CompanyListProps) {
           {companies.map((company) => (
             <TableRow key={company.id}>
               <TableCell className="font-medium">
-                <Link href={`/companies/${company.id}`} className="hover:underline text-primary">
+                <Link href={`/companies/${company.id}`} prefetch={false} className="hover:underline text-primary">
                   {company.name}
                 </Link>
               </TableCell>

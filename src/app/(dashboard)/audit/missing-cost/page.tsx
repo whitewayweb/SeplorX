@@ -32,7 +32,7 @@ export default async function MissingCostAuditPage({
         description="Review sales that still cannot contribute to known-cost P&L."
       >
         <Button variant="outline" asChild>
-          <Link href="/" className="gap-2">
+          <Link href="/" prefetch={false} className="gap-2">
             <ArrowLeft className="h-4 w-4" />
             Dashboard
           </Link>

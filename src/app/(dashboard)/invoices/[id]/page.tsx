@@ -77,7 +77,7 @@ export default async function InvoiceDetailPage({ params }: InvoiceDetailPagePro
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
-            <Link href="/invoices">
+            <Link href="/invoices" prefetch={false}>
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>
@@ -120,7 +120,7 @@ export default async function InvoiceDetailPage({ params }: InvoiceDetailPagePro
               <Building2 className="h-4 w-4 text-muted-foreground" />
               <div>
                 <p className="text-xs text-muted-foreground">Supplier</p>
-                <Link href={`/companies/${invoice.companyId}`} className="text-sm font-medium hover:underline">
+                <Link href={`/companies/${invoice.companyId}`} prefetch={false} className="text-sm font-medium hover:underline">
                   {invoice.companyName}
                 </Link>
               </div>

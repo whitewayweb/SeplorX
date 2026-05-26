@@ -117,12 +117,12 @@ export function InvoiceList({ invoices }: InvoiceListProps) {
             return (
               <TableRow key={inv.id}>
                 <TableCell className="font-mono font-medium">
-                  <Link href={`/invoices/${inv.id}`} className="hover:underline text-primary">
+                  <Link href={`/invoices/${inv.id}`} prefetch={false} className="hover:underline text-primary">
                     {inv.invoiceNumber}
                   </Link>
                 </TableCell>
                 <TableCell>
-                  <Link href={`/companies/${inv.companyId}`} className="hover:underline">
+                  <Link href={`/companies/${inv.companyId}`} prefetch={false} className="hover:underline">
                     {inv.companyName}
                   </Link>
                 </TableCell>

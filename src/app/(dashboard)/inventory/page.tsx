@@ -75,7 +75,7 @@ export default async function InventoryPage({
         description="Stock overview, alerts, and recent transactions."
       >
         <Button variant={pendingStockSyncCount > 0 ? "default" : "outline"} asChild>
-          <Link href="/inventory/sync">
+          <Link href="/inventory/sync" prefetch={false}>
             <ArrowUpFromLine className="h-4 w-4 mr-2" />
             Stock Sync {pendingStockSyncCount > 0 ? `(${pendingStockSyncCount})` : ""}
           </Link>
@@ -142,7 +142,7 @@ export default async function InventoryPage({
           </CardHeader>
           <CardContent>
             <p className={`text-2xl font-bold ${pendingStockSyncCount > 0 ? "text-yellow-700" : ""}`}>{pendingStockSyncCount}</p>
-            <Link href="/inventory/sync" className="text-xs text-blue-600 hover:underline mt-1 inline-block">
+            <Link href="/inventory/sync" prefetch={false} className="text-xs text-blue-600 hover:underline mt-1 inline-block">
               Review queue
             </Link>
           </CardContent>
@@ -174,7 +174,7 @@ export default async function InventoryPage({
                   {lowStockProducts.map((product) => (
                     <TableRow key={product.id}>
                       <TableCell className="font-medium">
-                        <Link href={`/products/${product.id}`} className="hover:underline text-primary">
+                        <Link href={`/products/${product.id}`} prefetch={false} className="hover:underline text-primary">
                           {product.name}
                         </Link>
                       </TableCell>

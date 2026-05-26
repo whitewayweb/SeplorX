@@ -172,6 +172,7 @@ export function InventoryTransactionsTable({
                     {txn.productId ? (
                       <Link
                         href={`/products/${txn.productId}`}
+                        prefetch={false}
                         className="font-medium hover:underline"
                       >
                         {txn.productName}
@@ -204,6 +205,7 @@ export function InventoryTransactionsTable({
                     txn.companyId && (
                       <Link
                         href={`/companies/${txn.companyId}`}
+                        prefetch={false}
                         className="text-blue-600 dark:text-blue-400 hover:underline block text-xs mb-1"
                       >
                         View Vendor
@@ -232,6 +234,7 @@ function NotesCell({ txn }: { txn: InventoryTransaction }) {
     const orderLink = (
       <Link
         href={`/orders/${txn.referenceId}`}
+        prefetch={false}
         className="text-primary hover:underline"
       >
         order #{txn.referenceId}
@@ -252,6 +255,7 @@ function NotesCell({ txn }: { txn: InventoryTransaction }) {
     return (
       <Link
         href={`/invoices/${txn.referenceId}`}
+        prefetch={false}
         className="text-blue-600 dark:text-blue-400 hover:underline"
       >
         {txn.notes}

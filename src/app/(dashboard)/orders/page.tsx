@@ -67,6 +67,7 @@ export default async function OrdersPage({
           </span>
           <Link
             href="/orders?status=returned"
+            prefetch={false}
             className="font-medium underline hover:text-amber-900"
           >
             View

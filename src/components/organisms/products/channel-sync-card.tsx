@@ -128,6 +128,7 @@ export function ChannelSyncCard({
             <p className="text-sm text-muted-foreground">No connected channels</p>
             <Link
               href="/channels"
+              prefetch={false}
               className="text-sm text-primary hover:underline underline-offset-2 mt-0.5 inline-block"
             >
               Connect a channel →

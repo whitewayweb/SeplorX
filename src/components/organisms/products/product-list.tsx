@@ -277,7 +277,7 @@ function ProductTable({
           <TableRow key={product.id} className={product.isDeleting ? "opacity-30 pointer-events-none" : !product.isActive ? "opacity-60 bg-muted/30" : ""}>
             <TableCell className="font-medium">
               <div className="flex flex-col gap-1">
-                <Link href={`/products/${product.id}`} className="hover:underline text-primary flex items-center gap-2">
+                <Link href={`/products/${product.id}`} prefetch={false} className="hover:underline text-primary flex items-center gap-2">
                   {isBundleTab && <Badge variant="outline" className="text-[10px] uppercase">Bundle</Badge>}
                   {product.name}
                 </Link>

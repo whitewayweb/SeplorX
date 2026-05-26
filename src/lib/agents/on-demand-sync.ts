@@ -15,6 +15,14 @@ const FINANCE_SUPPORTED_CHANNEL_TYPES = channelRegistry
 
 const lastTriggerByUser = new Map<number, number>();
 
+function isRouterPrefetch(headersList: Pick<Headers, "get">): boolean {
+    return (
+        headersList.get("next-router-prefetch") === "1" ||
+        headersList.get("purpose") === "prefetch" ||
+        headersList.get("sec-purpose")?.includes("prefetch") === true
+    );
+}
+
 /**
  * Checks if any of the user's channels are "stale" (not synced in > 15 mins)
  * and triggers a background sync if needed.
@@ -23,6 +31,9 @@ const lastTriggerByUser = new Map<number, number>();
  * the agent whenever the user is active in the portal.
  */
 export async function triggerOnDemandSync(userId: number) {
+    const headerList = await headers();
+    if (isRouterPrefetch(headerList)) return;
+
     const lastTriggerAt = lastTriggerByUser.get(userId);
     if (lastTriggerAt && Date.now() - lastTriggerAt < ORDER_SYNC_INTERVAL_MS) return;
 
@@ -32,7 +43,8 @@ export async function triggerOnDemandSync(userId: number) {
     // 1. Check for stale connected channels or finance work that is ready.
     // Order sync handlers also run finance reconciliation, so this reuses the
     // existing active-browser scheduler instead of creating another poller.
-    const staleChannels = await db.select({ id: channels.id })
+    const staleChannels = await logger.measure("on-demand-sync stale-channel check", { component: "on-demand-sync", userId }, async () =>
+        db.select({ id: channels.id })
         .from(channels)
         .where(
             and(
@@ -80,15 +92,17 @@ export async function triggerOnDemandSync(userId: number) {
                 )
             )
         )
-        .limit(1);
+        .limit(1)
+    );
 
     if (staleChannels.length === 0) return;
 
     // 2. Trigger the scheduler in the background
     lastTriggerByUser.set(userId, Date.now());
-    const headerList = await headers();
     const baseUrl = getBaseUrl(headerList);
     const url = `${baseUrl}/api/cron/order-sync?userId=${userId}`;
+
+    logger.info("triggering scheduler", { component: "on-demand-sync", userId });
 
     // Fire and forget (don't await)
     fetch(url, {
@@ -97,5 +111,5 @@ export async function triggerOnDemandSync(userId: number) {
             "x-vercel-cron": "1",
         },
         cache: "no-store",
-    }).catch(err => logger.error("[on-demand-sync] background trigger failed", err));
+    }).catch(err => logger.error("background trigger failed", { component: "on-demand-sync", userId, error: err }));
 }

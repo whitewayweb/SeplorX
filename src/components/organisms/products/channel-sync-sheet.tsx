@@ -256,11 +256,11 @@ export function ChannelSyncSheet({
                       </TableCell>
                       <TableCell className="w-full whitespace-normal break-words">
                         {row.label ? (
-                          <Link href={`/products/channels/${channelId}?q=${encodeURIComponent(row.externalProductId)}`} className="text-xs text-blue-600 hover:text-blue-800 hover:underline" title={row.label}>
+                          <Link href={`/products/channels/${channelId}?q=${encodeURIComponent(row.externalProductId)}`} prefetch={false} className="text-xs text-blue-600 hover:text-blue-800 hover:underline" title={row.label}>
                             {row.label}
                           </Link>
                         ) : (
-                          <Link href={`/products/channels/${channelId}?q=${encodeURIComponent(row.externalProductId)}`} className="text-xs text-blue-600 hover:text-blue-800 hover:underline italic" title="View in Channels">
+                          <Link href={`/products/channels/${channelId}?q=${encodeURIComponent(row.externalProductId)}`} prefetch={false} className="text-xs text-blue-600 hover:text-blue-800 hover:underline italic" title="View in Channels">
                             View Item
                           </Link>
                         )}

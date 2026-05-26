@@ -103,7 +103,7 @@ export function SalesCostAuditTable({ rows, products }: SalesCostAuditTableProps
                   </div>
                 ) : row.channelProductId ? (
                   <Button variant="link" className="h-auto p-0 text-xs" asChild>
-                    <Link href={`/products/channels/${row.channelId}?q=${encodeURIComponent(row.externalProductId ?? "")}`}>
+                    <Link href={`/products/channels/${row.channelId}?q=${encodeURIComponent(row.externalProductId ?? "")}`} prefetch={false}>
                       View channel listing
                       <ExternalLink className="ml-1 h-3 w-3" />
                     </Link>

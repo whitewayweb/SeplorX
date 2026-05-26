@@ -92,7 +92,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
               asChild
               className="h-8 w-8 rounded-lg shrink-0 text-muted-foreground hover:text-foreground"
             >
-              <Link href="/products">
+              <Link href="/products" prefetch={false}>
                 <ArrowLeft className="h-4 w-4" />
               </Link>
             </Button>
@@ -315,12 +315,12 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
                           : "—"}
                       </td>
                       <td className="px-4 py-3 font-medium">
-                        <Link href={`/invoices/${ph.invoiceId}`} className="text-blue-600 dark:text-blue-400 hover:underline">
+                        <Link href={`/invoices/${ph.invoiceId}`} prefetch={false} className="text-blue-600 dark:text-blue-400 hover:underline">
                           {ph.invoiceNumber}
                         </Link>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground truncate max-w-[200px]">
-                        <Link href={`/companies/${ph.companyId}`} className="hover:underline hover:text-foreground">
+                        <Link href={`/companies/${ph.companyId}`} prefetch={false} className="hover:underline hover:text-foreground">
                           {ph.companyName}
                         </Link>
                       </td>
@@ -398,7 +398,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
                           : "—"}
                       </td>
                       <td className="px-4 py-3">
-                        <Link href={`/orders/${res.orderId}`} className="text-blue-600 hover:underline font-mono text-xs">
+                        <Link href={`/orders/${res.orderId}`} prefetch={false} className="text-blue-600 hover:underline font-mono text-xs">
                           {res.orderId}
                         </Link>
                       </td>

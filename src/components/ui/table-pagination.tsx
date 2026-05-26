@@ -151,7 +151,7 @@ export function TablePagination({ totalItems, itemsPerPage, currentPage, onPageC
             disabled={!hasPrevious}
           >
             {hasPrevious ? (
-              <Link href={createPageUrl(currentPage - 1)} onClick={(e) => handlePageClick(currentPage - 1, e)} aria-label="Previous Page">
+              <Link href={createPageUrl(currentPage - 1)} prefetch={false} onClick={(e) => handlePageClick(currentPage - 1, e)} aria-label="Previous Page">
                 <ChevronLeft className="h-4 w-4" />
               </Link>
             ) : (
@@ -177,7 +177,7 @@ export function TablePagination({ totalItems, itemsPerPage, currentPage, onPageC
                 {currentPage === page ? (
                   <span>{page}</span>
                 ) : (
-                  <Link href={createPageUrl(page as number)} onClick={(e) => handlePageClick(page as number, e)}>{page}</Link>
+                  <Link href={createPageUrl(page as number)} prefetch={false} onClick={(e) => handlePageClick(page as number, e)}>{page}</Link>
                 )}
               </Button>
             )
@@ -191,7 +191,7 @@ export function TablePagination({ totalItems, itemsPerPage, currentPage, onPageC
             disabled={!hasNext}
           >
             {hasNext ? (
-              <Link href={createPageUrl(currentPage + 1)} onClick={(e) => handlePageClick(currentPage + 1, e)} aria-label="Next Page">
+              <Link href={createPageUrl(currentPage + 1)} prefetch={false} onClick={(e) => handlePageClick(currentPage + 1, e)} aria-label="Next Page">
                 <ChevronRight className="h-4 w-4" />
               </Link>
             ) : (

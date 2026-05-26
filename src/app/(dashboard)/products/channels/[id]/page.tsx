@@ -85,7 +85,7 @@ export default async function ChannelProductsPage({
           <TableSearch placeholder="Search by name, SKU..." />
           
           {channelDef?.capabilities?.canPushProductUpdates && (
-            <Link href={`/channels/${channelId}/publish`}>
+            <Link href={`/channels/${channelId}/publish`} prefetch={false}>
                <Button className="gap-2">
                  <RefreshCw className="h-4 w-4" />
                  Publish Updates

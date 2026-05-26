@@ -305,6 +305,7 @@ export function OrdersList({
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">
                       <Link
                         href={`/orders/${order.id}`}
+                        prefetch={false}
                         className="text-blue-600 hover:underline"
                       >
                         {order.externalOrderId}
