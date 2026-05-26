@@ -120,7 +120,7 @@ export default async function InvoiceDetailPage({ params }: InvoiceDetailPagePro
               <Building2 className="h-4 w-4 text-muted-foreground" />
               <div>
                 <p className="text-xs text-muted-foreground">Supplier</p>
-                <Link href={`/companies/${invoice.companyId}`} className="text-sm font-medium hover:underline">
+                <Link href={`/companies/${invoice.companyId}`} prefetch={false} className="text-sm font-medium hover:underline">
                   {invoice.companyName}
                 </Link>
               </div>

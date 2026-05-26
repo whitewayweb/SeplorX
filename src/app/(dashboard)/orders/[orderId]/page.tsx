@@ -590,7 +590,7 @@ export default async function OrderDetailPage({
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         {res.productId ? (
-                          <Link href={`/products/${res.productId}`} className="group block">
+                          <Link href={`/products/${res.productId}`} prefetch={false} className="group block">
                             <span className="line-clamp-2 font-medium text-blue-600 group-hover:underline">
                               {res.productName}
                             </span>

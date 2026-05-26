@@ -15,6 +15,14 @@ const FINANCE_SUPPORTED_CHANNEL_TYPES = channelRegistry
 
 const lastTriggerByUser = new Map<number, number>();
 
+function isRouterPrefetch(headersList: Pick<Headers, "get">): boolean {
+    return (
+        headersList.get("next-router-prefetch") === "1" ||
+        headersList.get("purpose") === "prefetch" ||
+        headersList.get("sec-purpose")?.includes("prefetch") === true
+    );
+}
+
 /**
  * Checks if any of the user's channels are "stale" (not synced in > 15 mins)
  * and triggers a background sync if needed.
@@ -23,6 +31,9 @@ const lastTriggerByUser = new Map<number, number>();
  * the agent whenever the user is active in the portal.
  */
 export async function triggerOnDemandSync(userId: number) {
+    const headerList = await headers();
+    if (isRouterPrefetch(headerList)) return;
+
     const lastTriggerAt = lastTriggerByUser.get(userId);
     if (lastTriggerAt && Date.now() - lastTriggerAt < ORDER_SYNC_INTERVAL_MS) return;
 
@@ -86,7 +97,6 @@ export async function triggerOnDemandSync(userId: number) {
 
     // 2. Trigger the scheduler in the background
     lastTriggerByUser.set(userId, Date.now());
-    const headerList = await headers();
     const baseUrl = getBaseUrl(headerList);
     const url = `${baseUrl}/api/cron/order-sync?userId=${userId}`;
 

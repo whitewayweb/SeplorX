@@ -174,7 +174,7 @@ export default async function InventoryPage({
                   {lowStockProducts.map((product) => (
                     <TableRow key={product.id}>
                       <TableCell className="font-medium">
-                        <Link href={`/products/${product.id}`} className="hover:underline text-primary">
+                        <Link href={`/products/${product.id}`} prefetch={false} className="hover:underline text-primary">
                           {product.name}
                         </Link>
                       </TableCell>

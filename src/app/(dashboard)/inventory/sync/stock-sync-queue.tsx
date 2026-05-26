@@ -749,7 +749,7 @@ export function StockSyncQueue({
                     <div className="flex items-center gap-2">
                       <SheetTitle className="truncate text-lg font-semibold">{displayProduct.name}</SheetTitle>
                       <Button variant="ghost" size="icon" asChild className="h-7 w-7 shrink-0">
-                        <Link href={`/products/${displayProduct.id}`} title="Open product">
+                        <Link href={`/products/${displayProduct.id}`} prefetch={false} title="Open product">
                           <ExternalLink className="h-4 w-4" />
                         </Link>
                       </Button>
@@ -761,7 +761,7 @@ export function StockSyncQueue({
 
                   <div className="flex shrink-0 gap-2">
                     <Button variant="outline" asChild>
-                      <Link href={`/products/${displayProduct.id}`} className="gap-2">
+                      <Link href={`/products/${displayProduct.id}`} prefetch={false} className="gap-2">
                         Open product
                         <ExternalLink className="h-4 w-4" />
                       </Link>
@@ -925,7 +925,7 @@ export function StockSyncQueue({
                 ) : (
                   <div className="flex gap-2">
                     <Button variant="outline" asChild>
-                      <Link href={`/products/${displayProduct.id}`} className="gap-2">
+                      <Link href={`/products/${displayProduct.id}`} prefetch={false} className="gap-2">
                         Open product
                         <ExternalLink className="h-4 w-4" />
                       </Link>

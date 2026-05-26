@@ -91,7 +91,7 @@ function MetricCard({
   );
 
   return metric.href ? (
-    <Link href={metric.href} className="block">
+    <Link href={metric.href} prefetch={false} className="block">
       {card}
     </Link>
   ) : (
@@ -119,7 +119,7 @@ function RangeSelector({ dashboard }: { dashboard: CommerceDashboardData }) {
           className="h-8"
           asChild
         >
-          <Link href={option.href}>{option.label}</Link>
+          <Link href={option.href} prefetch={false}>{option.label}</Link>
         </Button>
       ))}
     </div>
@@ -206,13 +206,13 @@ export function CommerceDashboard({ dashboard }: { dashboard: CommerceDashboardD
       >
         <RangeSelector dashboard={dashboard} />
         <Button variant="outline" asChild>
-          <Link href="/inventory/sync">
+          <Link href="/inventory/sync" prefetch={false}>
             <RefreshCw className="mr-2 h-4 w-4" />
             Stock Sync
           </Link>
         </Button>
         <Button asChild>
-          <Link href="/orders">
+          <Link href="/orders" prefetch={false}>
             <ShoppingCart className="mr-2 h-4 w-4" />
             Orders
           </Link>
@@ -318,7 +318,7 @@ export function CommerceDashboard({ dashboard }: { dashboard: CommerceDashboardD
                     <span className="text-2xl font-bold">{formatNumber(action.count)}</span>
                   </div>
                   <Button variant="link" className="mt-2 h-auto p-0 font-semibold" asChild>
-                    <Link href={action.href}>
+                    <Link href={action.href} prefetch={false}>
                       {action.cta}
                       <ArrowRight className="ml-1 h-4 w-4" />
                     </Link>
@@ -349,7 +349,7 @@ export function CommerceDashboard({ dashboard }: { dashboard: CommerceDashboardD
                 {dashboard.orderWork.map((item) => (
                   <TableRow key={item.status}>
                     <TableCell>
-                      <Link href={item.href} className="font-medium hover:underline">
+                      <Link href={item.href} prefetch={false} className="font-medium hover:underline">
                         {item.label}
                       </Link>
                     </TableCell>
@@ -469,7 +469,7 @@ export function CommerceDashboard({ dashboard }: { dashboard: CommerceDashboardD
               </div>
             ))}
             <Button variant="outline" className="w-full" asChild>
-              <Link href="/inventory">
+              <Link href="/inventory" prefetch={false}>
                 Review inventory
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
@@ -495,6 +495,7 @@ export function CommerceDashboard({ dashboard }: { dashboard: CommerceDashboardD
                   <Link
                     key={product.id}
                     href={`/products/${product.id}`}
+                    prefetch={false}
                     className="block rounded-lg border p-3 transition-colors hover:bg-muted/30"
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -529,7 +530,7 @@ export function CommerceDashboard({ dashboard }: { dashboard: CommerceDashboardD
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Recent orders</CardTitle>
             <Button variant="ghost" asChild>
-              <Link href="/orders">
+              <Link href="/orders" prefetch={false}>
                 View all
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
@@ -556,7 +557,7 @@ export function CommerceDashboard({ dashboard }: { dashboard: CommerceDashboardD
                   dashboard.recentOrders.map((order) => (
                     <TableRow key={order.id}>
                       <TableCell className="font-mono text-xs">
-                        <Link href={`/orders/${order.id}`} className="text-blue-600 hover:underline">
+                        <Link href={`/orders/${order.id}`} prefetch={false} className="text-blue-600 hover:underline">
                           {order.externalOrderId}
                         </Link>
                       </TableCell>
