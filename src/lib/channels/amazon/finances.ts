@@ -82,133 +82,137 @@ export async function syncAmazonOrderFinances(
   channelId: number,
   options: OrderFinanceSyncOptions = {},
 ): Promise<OrderFinanceSyncResult> {
-  const startedAt = Date.now();
-  const result: OrderFinanceSyncResult = {
-    checked: 0,
-    synced: 0,
-    noData: 0,
-    failed: 0,
-    notSupported: 0,
-  };
+  return logger.measure("amazon finance batch", { component: "amazon-finance", channelId }, async () => {
+    const result: OrderFinanceSyncResult = {
+      checked: 0,
+      synced: 0,
+      noData: 0,
+      failed: 0,
+      notSupported: 0,
+    };
 
-  const [channel] = await db
-    .select({
-      id: channels.id,
-      userId: channels.userId,
-      channelType: channels.channelType,
-      storeUrl: channels.storeUrl,
-      credentials: channels.credentials,
-    })
-    .from(channels)
-    .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
-    .limit(1);
+    const [channel] = await db
+      .select({
+        id: channels.id,
+        userId: channels.userId,
+        channelType: channels.channelType,
+        storeUrl: channels.storeUrl,
+        credentials: channels.credentials,
+      })
+      .from(channels)
+      .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
+      .limit(1);
 
-  if (!channel) throw new Error("Channel not found.");
-  if (channel.channelType !== "amazon") {
-    throw new Error("Channel is not an Amazon channel");
-  }
-
-  const credentials = await decryptChannelCredentials(channel.credentials);
-  const client = new AmazonAPIClient(credentials, channel.storeUrl || "");
-  const candidates = await getCandidateOrders(userId, channelId, options);
-
-  logger.info("[Amazon Finance] batch selected", {
-    channelId,
-    candidateCount: candidates.length,
-    requestedLimit: options.limit ?? null,
-    orderScoped: Boolean(options.orderId),
-    retryFailed: options.retryFailed === true,
-  });
-
-  for (const [index, order] of candidates.entries()) {
-    if (index > 0) {
-      await sleep(FINANCE_REQUEST_DELAY_MS);
+    if (!channel) throw new Error("Channel not found.");
+    if (channel.channelType !== "amazon") {
+      throw new Error("Channel is not an Amazon channel");
     }
 
-    result.checked++;
-    try {
-      const transactions = await client.getFinanceTransactionsByOrderId(
-        order.externalOrderId,
-      );
+    const credentials = await decryptChannelCredentials(channel.credentials);
+    const client = new AmazonAPIClient(credentials, channel.storeUrl || "");
+    const candidates = await getCandidateOrders(userId, channelId, options);
 
-      if (transactions.length === 0) {
-        await markOrderFinanceStatus({
+    logger.info("batch selected", {
+      component: "amazon-finance",
+      channelId,
+      candidateCount: candidates.length,
+      requestedLimit: options.limit ?? null,
+      orderScoped: Boolean(options.orderId),
+      retryFailed: options.retryFailed === true,
+    });
+
+    for (const [index, order] of candidates.entries()) {
+      if (index > 0) {
+        await sleep(FINANCE_REQUEST_DELAY_MS);
+      }
+
+      result.checked++;
+      try {
+        const transactions = await client.getFinanceTransactionsByOrderId(
+          order.externalOrderId,
+        );
+
+        if (transactions.length === 0) {
+          await markOrderFinanceStatus({
+            orderId: order.id,
+            channelId,
+            source: SOURCE,
+            status: "no_data",
+            nextAttemptAt: new Date(Date.now() + NO_DATA_RETRY_COOLDOWN_MS),
+          });
+          result.noData++;
+          continue;
+        }
+
+        await persistOrderFinance({
           orderId: order.id,
           channelId,
           source: SOURCE,
-          status: "no_data",
-          nextAttemptAt: new Date(Date.now() + NO_DATA_RETRY_COOLDOWN_MS),
+          status: "synced",
+          events: normalizeAmazonFinanceTransactions(
+            transactions,
+            order.externalOrderId,
+          ),
         });
-        result.noData++;
-        continue;
-      }
+        result.synced++;
+      } catch (error) {
+        if (error instanceof AmazonRateLimitError) {
+          await markOrderFinanceStatus({
+            orderId: order.id,
+            channelId,
+            source: SOURCE,
+            status: "failed",
+            nextAttemptAt: new Date(Date.now() + FINANCE_RETRY_COOLDOWN_MS),
+            error: {
+              code: "amazon_finance_rate_limited",
+              message: "Amazon finance sync was rate limited and will retry later.",
+            },
+          });
+          logger.warn("rate limited; deferring remaining finance batch", {
+            component: "amazon-finance",
+            channelId,
+            checked: result.checked,
+            remaining: candidates.length - result.checked,
+          });
+          result.failed++;
+          break;
+        }
 
-      await persistOrderFinance({
-        orderId: order.id,
-        channelId,
-        source: SOURCE,
-        status: "synced",
-        events: normalizeAmazonFinanceTransactions(
-          transactions,
-          order.externalOrderId,
-        ),
-      });
-      result.synced++;
-    } catch (error) {
-      if (error instanceof AmazonRateLimitError) {
+        logger.error("failed to sync order finance", {
+          component: "amazon-finance",
+          channelId,
+          orderId: order.id,
+          externalOrderId: order.externalOrderId,
+          error,
+        });
+
         await markOrderFinanceStatus({
           orderId: order.id,
           channelId,
           source: SOURCE,
           status: "failed",
-          nextAttemptAt: new Date(Date.now() + FINANCE_RETRY_COOLDOWN_MS),
+          nextAttemptAt: new Date(Date.now() + FAILURE_RETRY_COOLDOWN_MS),
           error: {
-            code: "amazon_finance_rate_limited",
-            message: "Amazon finance sync was rate limited and will retry later.",
+            code: "amazon_finance_sync_failed",
+            message: "Amazon finance sync failed. Check server logs for details.",
           },
         });
-        logger.warn("[Amazon Finance] Rate limited; deferring remaining finance batch", {
-          channelId,
-          checked: result.checked,
-          remaining: candidates.length - result.checked,
-        });
         result.failed++;
-        break;
       }
-
-      logger.error("[Amazon Finance] Failed to sync order finance", {
-        channelId,
-        orderId: order.id,
-        externalOrderId: order.externalOrderId,
-        error: String(error),
-      });
-
-      await markOrderFinanceStatus({
-        orderId: order.id,
-        channelId,
-        source: SOURCE,
-        status: "failed",
-        nextAttemptAt: new Date(Date.now() + FAILURE_RETRY_COOLDOWN_MS),
-        error: {
-          code: "amazon_finance_sync_failed",
-          message: "Amazon finance sync failed. Check server logs for details.",
-        },
-      });
-      result.failed++;
     }
-  }
 
-  logger.info("[Amazon Finance] batch completed", {
-    channelId,
-    externalFinanceChecks: result.checked,
-    synced: result.synced,
-    noData: result.noData,
-    failed: result.failed,
-    notSupported: result.notSupported,
-    durationMs: Date.now() - startedAt,
+    logger.info("batch completed", {
+      component: "amazon-finance",
+      channelId,
+      externalFinanceChecks: result.checked,
+      synced: result.synced,
+      noData: result.noData,
+      failed: result.failed,
+      notSupported: result.notSupported,
+    });
+
+    return result;
   });
-
-  return result;
 }
 
 export function normalizeAmazonFinanceTransactions(
