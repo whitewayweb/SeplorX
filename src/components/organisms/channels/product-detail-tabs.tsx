@@ -4,7 +4,7 @@ import React, { useActionState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SheetFooter } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FieldLabel as Label } from "@/components/ui/field";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { updateChannelProductDetails } from "@/app/(dashboard)/channels/actions";

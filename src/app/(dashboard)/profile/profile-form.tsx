@@ -2,8 +2,9 @@
 
 import { useState, useActionState } from "react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/atoms/password-input";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { User, Lock, Mail, Loader2 } from "lucide-react";
@@ -68,9 +69,10 @@ export function ProfileForm({ userName, userEmail }: ProfileFormProps) {
                         </CardDescription>
                     </CardHeader>
                     <form action={nameAction}>
-                        <CardContent className="space-y-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="name">Full Name</Label>
+                        <CardContent>
+                            <FieldGroup className="gap-4">
+                            <Field>
+                                <FieldLabel htmlFor="name">Full Name</FieldLabel>
                                 <Input
                                     id="name"
                                     name="name"
@@ -79,9 +81,9 @@ export function ProfileForm({ userName, userEmail }: ProfileFormProps) {
                                     placeholder="Your Name"
                                     required
                                 />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="email">Email Address</Label>
+                            </Field>
+                            <Field>
+                                <FieldLabel htmlFor="email">Email Address</FieldLabel>
                                 <div className="relative">
                                     <Input
                                         id="email"
@@ -91,10 +93,11 @@ export function ProfileForm({ userName, userEmail }: ProfileFormProps) {
                                     />
                                     <Mail className="absolute top-2.5 left-3 h-4 w-4 text-muted-foreground" />
                                 </div>
-                                <p className="text-[0.8rem] text-muted-foreground">
+                                <FieldDescription className="text-[0.8rem]">
                                     Email cannot be changed here.
-                                </p>
-                            </div>
+                                </FieldDescription>
+                            </Field>
+                            </FieldGroup>
                         </CardContent>
                         <CardFooter>
                             <Button type="submit" disabled={isUpdatingName || name === userName}>
@@ -120,35 +123,34 @@ export function ProfileForm({ userName, userEmail }: ProfileFormProps) {
                         </CardDescription>
                     </CardHeader>
                     <form id="password-form" action={passwordAction}>
-                        <CardContent className="space-y-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="currentPassword">Current Password</Label>
-                                <Input
+                        <CardContent>
+                            <FieldGroup className="gap-4">
+                            <Field>
+                                <FieldLabel htmlFor="currentPassword">Current Password</FieldLabel>
+                                <PasswordInput
                                     id="currentPassword"
                                     name="currentPassword"
-                                    type="password"
                                     required
                                 />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="newPassword">New Password</Label>
-                                <Input
+                            </Field>
+                            <Field>
+                                <FieldLabel htmlFor="newPassword">New Password</FieldLabel>
+                                <PasswordInput
                                     id="newPassword"
                                     name="newPassword"
-                                    type="password"
                                     required
                                     minLength={8}
                                 />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="confirmPassword">Confirm New Password</Label>
-                                <Input
+                            </Field>
+                            <Field>
+                                <FieldLabel htmlFor="confirmPassword">Confirm New Password</FieldLabel>
+                                <PasswordInput
                                     id="confirmPassword"
                                     name="confirmPassword"
-                                    type="password"
                                     required
                                 />
-                            </div>
+                            </Field>
+                            </FieldGroup>
                         </CardContent>
                         <CardFooter>
                             <Button type="submit" variant="default" disabled={isUpdatingPassword}>

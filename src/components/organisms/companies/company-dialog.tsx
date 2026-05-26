@@ -10,8 +10,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -101,20 +101,20 @@ export function CompanyDialog({ company }: CompanyDialogProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <form key={formKey} action={action} className="space-y-4">
+        <form key={formKey} action={action}>
           {isEdit && <input type="hidden" name="id" value={company.id} />}
 
-          {/* Company Type */}
-          <div className="space-y-2">
-            <Label htmlFor="type">
+          <FieldGroup className="gap-4">
+          <Field data-invalid={Boolean(state?.fieldErrors?.type)}>
+            <FieldLabel htmlFor="type">
               Type
               <span className="text-destructive ml-1">*</span>
-            </Label>
+            </FieldLabel>
             <Select
               name="type"
               defaultValue={isEdit ? company.type : "supplier"}
             >
-              <SelectTrigger>
+              <SelectTrigger id="type" aria-invalid={Boolean(state?.fieldErrors?.type)}>
                 <SelectValue placeholder="Select type" />
               </SelectTrigger>
               <SelectContent>
@@ -123,12 +123,8 @@ export function CompanyDialog({ company }: CompanyDialogProps) {
                 <SelectItem value="both">Both (Supplier & Customer)</SelectItem>
               </SelectContent>
             </Select>
-            {state?.fieldErrors?.type && (
-              <p className="text-sm text-destructive">
-                {(state.fieldErrors.type as string[])?.[0]}
-              </p>
-            )}
-          </div>
+            <FieldError>{(state?.fieldErrors?.type as string[] | undefined)?.[0]}</FieldError>
+          </Field>
 
           {COMPANY_FIELDS.map((field) => {
             const defaultValue =
@@ -137,13 +133,16 @@ export function CompanyDialog({ company }: CompanyDialogProps) {
                 : "";
 
             return (
-              <div key={field.key} className="space-y-2">
-                <Label htmlFor={field.key}>
+              <Field
+                key={field.key}
+                data-invalid={Boolean(state?.fieldErrors?.[field.key as keyof typeof state.fieldErrors])}
+              >
+                <FieldLabel htmlFor={field.key}>
                   {field.label}
                   {field.required && (
                     <span className="text-destructive ml-1">*</span>
                   )}
-                </Label>
+                </FieldLabel>
 
                 {field.type === "textarea" ? (
                   <Textarea
@@ -159,21 +158,19 @@ export function CompanyDialog({ company }: CompanyDialogProps) {
                     type={field.type}
                     defaultValue={defaultValue}
                     required={field.required}
+                    aria-invalid={Boolean(state?.fieldErrors?.[field.key as keyof typeof state.fieldErrors])}
                   />
                 )}
 
-                {state?.fieldErrors?.[field.key as keyof typeof state.fieldErrors] && (
-                  <p className="text-sm text-destructive">
-                    {(state.fieldErrors[field.key as keyof typeof state.fieldErrors] as string[])?.[0]}
-                  </p>
-                )}
-              </div>
+                <FieldError>
+                  {(state?.fieldErrors?.[field.key as keyof typeof state.fieldErrors] as string[] | undefined)?.[0]}
+                </FieldError>
+              </Field>
             );
           })}
 
-          {/* Notes field */}
-          <div className="space-y-2">
-            <Label htmlFor="notes">Notes</Label>
+          <Field>
+            <FieldLabel htmlFor="notes">Notes</FieldLabel>
             <Textarea
               id="notes"
               name="notes"
@@ -181,11 +178,9 @@ export function CompanyDialog({ company }: CompanyDialogProps) {
               rows={3}
               placeholder="Internal notes about this company..."
             />
-          </div>
+          </Field>
 
-          {state?.error && !state.fieldErrors && (
-            <p className="text-sm text-destructive">{state.error}</p>
-          )}
+          {state?.error && !state.fieldErrors && <FieldError>{state.error}</FieldError>}
 
           <DialogFooter>
             <Button
@@ -205,6 +200,7 @@ export function CompanyDialog({ company }: CompanyDialogProps) {
                   : "Create Company"}
             </Button>
           </DialogFooter>
+          </FieldGroup>
         </form>
       </DialogContent>
     </Dialog>

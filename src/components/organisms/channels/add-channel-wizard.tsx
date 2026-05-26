@@ -11,8 +11,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/atoms/password-input";
 import {
   Select,
   SelectContent,
@@ -183,18 +184,22 @@ function ConnectStep({
   const fieldErrors = state?.fieldErrors;
 
   return (
-    <div className="space-y-4">
-      <p className="text-muted-foreground text-sm">
+    <FieldGroup className="gap-4">
+      <FieldDescription>
         {definition?.connectionHint ?? "Enter your store details to connect."}
-      </p>
+      </FieldDescription>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {definition?.configFields?.map((field) => (
-          <div key={field.key} className={cn("space-y-2", !field.halfWidth && "md:col-span-2")}>
-            <Label htmlFor={`config-${field.key}`}>
+          <Field
+            key={field.key}
+            className={cn(!field.halfWidth && "md:col-span-2")}
+            data-invalid={Boolean(fieldErrors?.[field.key as keyof typeof fieldErrors]?.[0])}
+          >
+            <FieldLabel htmlFor={`config-${field.key}`}>
               {field.label}
               {field.required && <span className="text-destructive ml-1">*</span>}
-            </Label>
+            </FieldLabel>
             {field.type === "select" && field.options ? (
               <Select
                 value={config[field.key] ?? ""}
@@ -214,30 +219,36 @@ function ConnectStep({
                   ))}
                 </SelectContent>
               </Select>
+            ) : field.type === "password" ? (
+              <PasswordInput
+                id={`config-${field.key}`}
+                placeholder={field.placeholder}
+                value={config[field.key] ?? ""}
+                aria-invalid={Boolean(fieldErrors?.[field.key as keyof typeof fieldErrors]?.[0])}
+                onChange={(e) => {
+                  onConfigChange(field.key, e.target.value);
+                  setConfigError("");
+                }}
+              />
             ) : (
               <Input
                 id={`config-${field.key}`}
-                type={field.type === "password" ? "password" : field.type === "url" ? "url" : "text"}
+                type={field.type === "url" ? "url" : "text"}
                 placeholder={field.placeholder}
                 value={config[field.key] ?? ""}
+                aria-invalid={Boolean(fieldErrors?.[field.key as keyof typeof fieldErrors]?.[0])}
                 onChange={(e) => {
                   onConfigChange(field.key, e.target.value);
                   setConfigError("");
                 }}
               />
             )}
-            {fieldErrors?.[field.key as keyof typeof fieldErrors]?.[0] && (
-              <p className="text-destructive text-xs">
-                {fieldErrors[field.key as keyof typeof fieldErrors]![0]}
-              </p>
-            )}
-          </div>
+            <FieldError>{fieldErrors?.[field.key as keyof typeof fieldErrors]?.[0]}</FieldError>
+          </Field>
         ))}
       </div>
 
-      {(configError || state?.error) && (
-        <p className="text-destructive text-sm">{configError || state?.error}</p>
-      )}
+      {(configError || state?.error) && <FieldError>{configError || state?.error}</FieldError>}
 
       <div className="flex justify-between pt-2">
         <Button type="button" variant="outline" onClick={onBack}>
@@ -247,7 +258,7 @@ function ConnectStep({
           {pending ? "Connecting…" : "Integrate in 1-Click"}
         </Button>
       </div>
-    </div>
+    </FieldGroup>
   );
 }
 
@@ -401,14 +412,15 @@ export function AddChannelWizard() {
             {/* Step 2: Channel Name */}
             {step === 2 && (
               <div className="space-y-4">
-                <p className="text-muted-foreground text-sm">
+                <FieldDescription>
                   Give this channel a name to identify it.
-                </p>
-                <div className="space-y-2">
-                  <Label htmlFor="channelName">Channel Name</Label>
+                </FieldDescription>
+                <Field data-invalid={Boolean(nameError)}>
+                  <FieldLabel htmlFor="channelName">Channel Name</FieldLabel>
                   <Input
                     id="channelName"
                     placeholder="e.g. hiyaautomotive.com"
+                    aria-invalid={Boolean(nameError)}
                     value={channelName}
                     onChange={(e) => {
                       setChannelName(e.target.value);
@@ -417,10 +429,8 @@ export function AddChannelWizard() {
                     onKeyDown={(e) => e.key === "Enter" && handleNameNext()}
                     autoFocus
                   />
-                  {nameError && (
-                    <p className="text-destructive text-xs">{nameError}</p>
-                  )}
-                </div>
+                  <FieldError>{nameError}</FieldError>
+                </Field>
                 <div className="flex justify-between pt-2">
                   <Button
                     type="button"
@@ -439,13 +449,13 @@ export function AddChannelWizard() {
             {/* Step 3: Default Preference */}
             {step === 3 && (
               <div className="space-y-4">
-                <p className="text-muted-foreground text-sm">
+                <FieldDescription>
                   Set the default pickup location for orders from this channel.
-                </p>
-                <div className="space-y-2">
-                  <Label htmlFor="pickupLocation">
+                </FieldDescription>
+                <Field>
+                  <FieldLabel htmlFor="pickupLocation">
                     Default Pickup Location
-                  </Label>
+                  </FieldLabel>
                   <Input
                     id="pickupLocation"
                     placeholder="e.g. Main Warehouse"
@@ -453,7 +463,7 @@ export function AddChannelWizard() {
                     onChange={(e) => setPickupLocation(e.target.value)}
                     autoFocus
                   />
-                </div>
+                </Field>
                 <div className="flex justify-between pt-2">
                   <Button
                     type="button"

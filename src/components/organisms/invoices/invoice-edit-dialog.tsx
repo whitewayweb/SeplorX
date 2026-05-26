@@ -10,8 +10,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -73,25 +73,26 @@ export function InvoiceEditDialog({ invoice }: InvoiceEditDialogProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <form key={formKey} action={action} className="space-y-4">
+        <form key={formKey} action={action}>
           <input type="hidden" name="id" value={invoice.id} />
 
+          <FieldGroup className="gap-4">
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="invoiceNumber">
+            <Field>
+              <FieldLabel htmlFor="invoiceNumber">
                 Invoice Number <span className="text-destructive">*</span>
-              </Label>
+              </FieldLabel>
               <Input
                 id="invoiceNumber"
                 name="invoiceNumber"
                 defaultValue={invoice.invoiceNumber}
                 required
               />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="status">Status</Label>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="status">Status</FieldLabel>
               <Select name="status" defaultValue={invoice.status}>
-                <SelectTrigger>
+                <SelectTrigger id="status">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -102,14 +103,14 @@ export function InvoiceEditDialog({ invoice }: InvoiceEditDialogProps) {
                   <SelectItem value="cancelled">Cancelled</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
+            </Field>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="invoiceDate">
+            <Field>
+              <FieldLabel htmlFor="invoiceDate">
                 Invoice Date <span className="text-destructive">*</span>
-              </Label>
+              </FieldLabel>
               <Input
                 id="invoiceDate"
                 name="invoiceDate"
@@ -117,20 +118,20 @@ export function InvoiceEditDialog({ invoice }: InvoiceEditDialogProps) {
                 defaultValue={invoice.invoiceDate}
                 required
               />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="dueDate">Due Date</Label>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="dueDate">Due Date</FieldLabel>
               <Input
                 id="dueDate"
                 name="dueDate"
                 type="date"
                 defaultValue={invoice.dueDate ?? ""}
               />
-            </div>
+            </Field>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="discountAmount">Discount (₹)</Label>
+          <Field>
+            <FieldLabel htmlFor="discountAmount">Discount (₹)</FieldLabel>
             <Input
               id="discountAmount"
               name="discountAmount"
@@ -139,10 +140,10 @@ export function InvoiceEditDialog({ invoice }: InvoiceEditDialogProps) {
               min="0"
               defaultValue={invoice.discountAmount}
             />
-          </div>
+          </Field>
 
-          <div className="space-y-2">
-            <Label htmlFor="notes">Notes</Label>
+          <Field>
+            <FieldLabel htmlFor="notes">Notes</FieldLabel>
             <Textarea
               id="notes"
               name="notes"
@@ -150,11 +151,9 @@ export function InvoiceEditDialog({ invoice }: InvoiceEditDialogProps) {
               defaultValue={invoice.notes ?? ""}
               placeholder="Invoice notes..."
             />
-          </div>
+          </Field>
 
-          {state?.error && !state.fieldErrors && (
-            <p className="text-sm text-destructive">{state.error}</p>
-          )}
+          {state?.error && !state.fieldErrors && <FieldError>{state.error}</FieldError>}
 
           <DialogFooter>
             <Button variant="outline" type="button" onClick={() => setOpen(false)}>
@@ -164,6 +163,7 @@ export function InvoiceEditDialog({ invoice }: InvoiceEditDialogProps) {
               {pending ? "Saving..." : "Save Changes"}
             </Button>
           </DialogFooter>
+          </FieldGroup>
         </form>
       </DialogContent>
     </Dialog>

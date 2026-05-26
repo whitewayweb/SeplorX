@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { signIn } from "@/lib/auth/client";
 import { useRouter } from "next/navigation";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/atoms/password-input";
 import { Button } from "@/components/ui/button";
 import { Package } from "lucide-react";
 
@@ -52,45 +53,44 @@ export default function LoginPage() {
                     <form onSubmit={handleSubmit}>
                         <CardHeader className="space-y-1">
                             <CardTitle className="text-xl">Sign in</CardTitle>
-                            <CardDescription>
+                            <FieldDescription>
                                 Enter your email and password below to login
-                            </CardDescription>
+                            </FieldDescription>
                         </CardHeader>
-                        <CardContent className="space-y-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="email">Email</Label>
-                                <Input
-                                    id="email"
-                                    name="email"
-                                    type="email"
-                                    placeholder="m@example.com"
-                                    required
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                    <Label htmlFor="password">Password</Label>
-                                    <a href="#" className="text-xs font-medium text-primary hover:underline">
-                                        Forgot password?
-                                    </a>
-                                </div>
-                                <Input
-                                    id="password"
-                                    name="password"
-                                    type="password"
-                                    required
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                />
-                            </div>
+                        <CardContent>
+                            <FieldGroup className="gap-4">
+                                <Field data-invalid={Boolean(error)}>
+                                    <FieldLabel htmlFor="email">Email</FieldLabel>
+                                    <Input
+                                        id="email"
+                                        name="email"
+                                        type="email"
+                                        placeholder="m@example.com"
+                                        required
+                                        aria-invalid={Boolean(error)}
+                                        value={email}
+                                        onChange={(e) => setEmail(e.target.value)}
+                                    />
+                                </Field>
+                                <Field data-invalid={Boolean(error)}>
+                                    <div className="flex items-center justify-between">
+                                        <FieldLabel htmlFor="password">Password</FieldLabel>
+                                        <a href="#" className="text-xs font-medium text-primary hover:underline">
+                                            Forgot password?
+                                        </a>
+                                    </div>
+                                    <PasswordInput
+                                        id="password"
+                                        name="password"
+                                        required
+                                        aria-invalid={Boolean(error)}
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                    />
+                                </Field>
 
-                            {error && (
-                                <div className="text-sm font-medium text-destructive">
-                                    {error}
-                                </div>
-                            )}
+                                <FieldError>{error}</FieldError>
+                            </FieldGroup>
                         </CardContent>
                         <CardFooter>
                             <Button type="submit" className="w-full" disabled={isPending}>

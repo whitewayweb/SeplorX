@@ -10,8 +10,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -75,13 +75,14 @@ export function PaymentDialog({ invoiceId, remainingBalance }: PaymentDialogProp
           </DialogDescription>
         </DialogHeader>
 
-        <form key={formKey} action={action} className="space-y-4">
+        <form key={formKey} action={action}>
           <input type="hidden" name="invoiceId" value={invoiceId} />
 
-          <div className="space-y-2">
-            <Label htmlFor="amount">
+          <FieldGroup className="gap-4">
+          <Field data-invalid={Boolean(state?.fieldErrors?.amount)}>
+            <FieldLabel htmlFor="amount">
               Amount (₹) <span className="text-destructive">*</span>
-            </Label>
+            </FieldLabel>
             <Input
               id="amount"
               name="amount"
@@ -91,19 +92,16 @@ export function PaymentDialog({ invoiceId, remainingBalance }: PaymentDialogProp
               max={remainingBalance}
               defaultValue={remainingBalance.toFixed(2)}
               required
+              aria-invalid={Boolean(state?.fieldErrors?.amount)}
             />
-            {state?.fieldErrors?.amount && (
-              <p className="text-sm text-destructive">
-                {(state.fieldErrors.amount as string[])?.[0]}
-              </p>
-            )}
-          </div>
+            <FieldError>{(state?.fieldErrors?.amount as string[] | undefined)?.[0]}</FieldError>
+          </Field>
 
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="paymentDate">
+            <Field>
+              <FieldLabel htmlFor="paymentDate">
                 Date <span className="text-destructive">*</span>
-              </Label>
+              </FieldLabel>
               <Input
                 id="paymentDate"
                 name="paymentDate"
@@ -111,13 +109,13 @@ export function PaymentDialog({ invoiceId, remainingBalance }: PaymentDialogProp
                 defaultValue={today}
                 required
               />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="paymentMode">
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="paymentMode">
                 Mode <span className="text-destructive">*</span>
-              </Label>
+              </FieldLabel>
               <Select name="paymentMode" defaultValue="bank_transfer">
-                <SelectTrigger>
+                <SelectTrigger id="paymentMode">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -128,22 +126,20 @@ export function PaymentDialog({ invoiceId, remainingBalance }: PaymentDialogProp
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </Field>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="reference">Reference (UTR / Cheque No.)</Label>
+          <Field>
+            <FieldLabel htmlFor="reference">Reference (UTR / Cheque No.)</FieldLabel>
             <Input id="reference" name="reference" placeholder="Transaction reference..." />
-          </div>
+          </Field>
 
-          <div className="space-y-2">
-            <Label htmlFor="notes">Notes</Label>
+          <Field>
+            <FieldLabel htmlFor="notes">Notes</FieldLabel>
             <Textarea id="notes" name="notes" rows={2} placeholder="Payment notes..." />
-          </div>
+          </Field>
 
-          {state?.error && !state.fieldErrors && (
-            <p className="text-sm text-destructive">{state.error}</p>
-          )}
+          {state?.error && !state.fieldErrors && <FieldError>{state.error}</FieldError>}
 
           <DialogFooter>
             <Button variant="outline" type="button" onClick={() => setOpen(false)}>
@@ -153,6 +149,7 @@ export function PaymentDialog({ invoiceId, remainingBalance }: PaymentDialogProp
               {pending ? "Recording..." : "Record Payment"}
             </Button>
           </DialogFooter>
+          </FieldGroup>
         </form>
       </DialogContent>
     </Dialog>

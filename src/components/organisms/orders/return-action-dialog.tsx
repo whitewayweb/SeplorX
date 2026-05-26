@@ -12,7 +12,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -103,10 +103,9 @@ export function ReturnActionDialog({ item }: ReturnActionDialogProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
-          {/* Action selector */}
-          <div className="space-y-2">
-            <Label>Action</Label>
+        <FieldGroup className="gap-4 py-4">
+          <Field>
+            <FieldLabel>Action</FieldLabel>
             <Select
               value={action}
               onValueChange={(v) => setAction(v as "restock" | "discard")}
@@ -123,16 +122,15 @@ export function ReturnActionDialog({ item }: ReturnActionDialogProps) {
                 </SelectItem>
               </SelectContent>
             </Select>
-          </div>
+          </Field>
 
-          {/* Quantity picker */}
-          <div className="space-y-2">
-            <Label>
+          <Field>
+            <FieldLabel>
               Quantity{" "}
               <span className="text-muted-foreground text-xs font-normal">
                 (max {maxReturnable})
               </span>
-            </Label>
+            </FieldLabel>
             <Input
               type="number"
               min={1}
@@ -140,24 +138,23 @@ export function ReturnActionDialog({ item }: ReturnActionDialogProps) {
               value={quantity}
               onChange={(e) => setQuantity(Number(e.target.value))}
             />
-          </div>
+          </Field>
 
-          {/* Notes */}
-          <div className="space-y-2">
-            <Label>
+          <Field>
+            <FieldLabel>
               Notes{" "}
               <span className="text-muted-foreground text-xs font-normal">
                 (optional)
               </span>
-            </Label>
+            </FieldLabel>
             <Textarea
               placeholder="e.g. Product in good condition, resealed"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
             />
-          </div>
-        </div>
+          </Field>
+        </FieldGroup>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)} disabled={pending}>

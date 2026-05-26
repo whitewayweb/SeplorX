@@ -100,6 +100,7 @@ The `.agent/` directory contains broader Claude/ECC-oriented rules, skills, and 
 ## Frontend Work
 
 - Match the existing visual system and component conventions.
+- When shadcn/ui provides an available component or registry block for the requested UI, install it with the shadcn CLI and use or extend that component before adding a custom local helper.
 - Avoid generic template-looking UI.
 - Make responsive states usable on mobile and desktop.
 - Ensure interactive elements have clear hover, focus, disabled, and loading states when applicable.

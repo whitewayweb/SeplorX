@@ -14,7 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
+import { FieldLabel } from "@/components/ui/field";
 import { ProductDialog } from "@/components/organisms/products/product-dialog";
 import { StockAdjustmentDialog } from "@/components/organisms/products/stock-adjustment-dialog";
 import { toggleProductActive, deleteProduct } from "@/app/(dashboard)/products/actions";
@@ -189,9 +189,9 @@ export function ProductList({ products, pendingMappingIds = [] }: ProductListPro
             checked={showInactive} 
             onCheckedChange={setShowInactive} 
           />
-          <Label htmlFor="show-inactive" className="text-sm font-medium cursor-pointer">
+          <FieldLabel htmlFor="show-inactive" className="text-sm font-medium cursor-pointer">
             Show Inactive Products
-          </Label>
+          </FieldLabel>
         </div>
         
         {pendingMappingIds.length > 0 && (
@@ -201,10 +201,10 @@ export function ProductList({ products, pendingMappingIds = [] }: ProductListPro
               checked={showPending} 
               onCheckedChange={setShowPending} 
             />
-            <Label htmlFor="show-pending" className="text-sm font-medium cursor-pointer text-amber-600 flex items-center gap-1">
+            <FieldLabel htmlFor="show-pending" className="text-sm font-medium cursor-pointer text-amber-600 flex items-center gap-1">
               <span className="flex h-2 w-2 rounded-full bg-amber-500 animate-pulse"></span>
               Pending AI Mappings ({pendingMappingIds.length})
-            </Label>
+            </FieldLabel>
           </div>
         )}
       </div>

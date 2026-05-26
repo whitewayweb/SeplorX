@@ -9,8 +9,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { installApp, configureApp, uninstallApp } from "@/app/(dashboard)/apps/actions";
 import type { AppWithStatus } from "@/lib/apps";
@@ -57,9 +57,7 @@ function InstallDialog({ app, open, onOpenChange }: AppConfigDialogProps) {
         <p className="text-sm text-muted-foreground">
           This will add {app.name} to your integrations. You can configure it after installation.
         </p>
-        {state?.error && (
-          <p className="text-sm text-destructive">{state.error}</p>
-        )}
+        {state?.error && <FieldError>{state.error}</FieldError>}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
@@ -86,11 +84,13 @@ function SecretInput({
   hasExistingValue,
   placeholder,
   required,
+  ariaInvalid,
 }: {
   fieldKey: string;
   hasExistingValue: boolean;
   placeholder?: string;
   required: boolean;
+  ariaInvalid?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -103,6 +103,7 @@ function SecretInput({
       placeholder={hasExistingValue ? "Leave blank to keep current" : placeholder}
       defaultValue={hasExistingValue ? MASKED_SENTINEL : ""}
       required={required && !hasExistingValue}
+      aria-invalid={ariaInvalid}
       onFocus={() => {
         if (inputRef.current?.value === MASKED_SENTINEL) {
           inputRef.current.value = "";
@@ -141,19 +142,20 @@ function ConfigureDialog({ app, open, onOpenChange }: AppConfigDialogProps) {
         </DialogHeader>
 
         {/* Configure form — uses an id so the footer button can reference it via form= */}
-        <form id={configFormId} action={configAction} className="space-y-4">
+        <form id={configFormId} action={configAction}>
           <input type="hidden" name="appId" value={app.id} />
 
+          <FieldGroup className="gap-4">
           {app.configFields.map((field) => {
             const existingValue = existingConfig[field.key] ?? "";
             const hasExistingValue = field.type === "password" && existingValue === MASKED_SENTINEL;
 
             return (
-              <div key={field.key} className="space-y-2">
-                <Label htmlFor={field.key}>
+              <Field key={field.key} data-invalid={Boolean(configState?.fieldErrors?.[field.key])}>
+                <FieldLabel htmlFor={field.key}>
                   {field.label}
                   {field.required && <span className="text-destructive ml-1">*</span>}
-                </Label>
+                </FieldLabel>
 
                 {field.type === "password" ? (
                   <SecretInput
@@ -161,6 +163,7 @@ function ConfigureDialog({ app, open, onOpenChange }: AppConfigDialogProps) {
                     hasExistingValue={hasExistingValue}
                     placeholder={field.placeholder}
                     required={field.required}
+                    ariaInvalid={Boolean(configState?.fieldErrors?.[field.key])}
                   />
                 ) : (
                   <Input
@@ -170,24 +173,18 @@ function ConfigureDialog({ app, open, onOpenChange }: AppConfigDialogProps) {
                     placeholder={field.placeholder}
                     defaultValue={existingValue}
                     required={field.required}
+                    aria-invalid={Boolean(configState?.fieldErrors?.[field.key])}
                   />
                 )}
 
-                {configState?.fieldErrors?.[field.key] && (
-                  <p className="text-sm text-destructive">
-                    {configState.fieldErrors[field.key]?.[0]}
-                  </p>
-                )}
-              </div>
+                <FieldError>{configState?.fieldErrors?.[field.key]?.[0]}</FieldError>
+              </Field>
             );
           })}
 
-          {configState?.error && !configState.fieldErrors && (
-            <p className="text-sm text-destructive">{configState.error}</p>
-          )}
-          {uninstallState?.error && (
-            <p className="text-sm text-destructive">{uninstallState.error}</p>
-          )}
+          {configState?.error && !configState.fieldErrors && <FieldError>{configState.error}</FieldError>}
+          {uninstallState?.error && <FieldError>{uninstallState.error}</FieldError>}
+          </FieldGroup>
         </form>
 
         {/* Footer with sibling forms — avoids invalid nested <form> elements */}

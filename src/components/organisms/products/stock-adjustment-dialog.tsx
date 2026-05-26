@@ -11,8 +11,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { adjustStock } from "@/app/(dashboard)/products/actions";
@@ -59,44 +59,40 @@ export function StockAdjustmentDialog({ productId, productName }: StockAdjustmen
           </DialogDescription>
         </DialogHeader>
 
-        <form key={formKey} action={action} className="space-y-4">
+        <form key={formKey} action={action}>
           <input type="hidden" name="productId" value={productId} />
 
-          <div className="space-y-2">
-            <Label htmlFor="quantity">
+          <FieldGroup className="gap-4">
+          <Field data-invalid={Boolean(state?.fieldErrors?.quantity)}>
+            <FieldLabel htmlFor="quantity">
               Quantity Adjustment
               <span className="text-destructive ml-1">*</span>
-            </Label>
+            </FieldLabel>
             <Input
               id="quantity"
               name="quantity"
               type="number"
               placeholder="e.g. +50 or -10"
               required
+              aria-invalid={Boolean(state?.fieldErrors?.quantity)}
             />
-            {state?.fieldErrors?.quantity && (
-              <p className="text-sm text-destructive">
-                {(state.fieldErrors.quantity as string[])?.[0]}
-              </p>
-            )}
-            <p className="text-xs text-muted-foreground">
+            <FieldError>{(state?.fieldErrors?.quantity as string[] | undefined)?.[0]}</FieldError>
+            <FieldDescription className="text-xs">
               Positive = stock in, Negative = stock out
-            </p>
-          </div>
+            </FieldDescription>
+          </Field>
 
-          <div className="space-y-2">
-            <Label htmlFor="notes">Notes</Label>
+          <Field>
+            <FieldLabel htmlFor="notes">Notes</FieldLabel>
             <Textarea
               id="notes"
               name="notes"
               rows={2}
               placeholder="Reason for adjustment..."
             />
-          </div>
+          </Field>
 
-          {state?.error && !state.fieldErrors && (
-            <p className="text-sm text-destructive">{state.error}</p>
-          )}
+          {state?.error && !state.fieldErrors && <FieldError>{state.error}</FieldError>}
 
           <DialogFooter>
             <Button
@@ -110,6 +106,7 @@ export function StockAdjustmentDialog({ productId, productName }: StockAdjustmen
               {pending ? "Adjusting..." : "Adjust Stock"}
             </Button>
           </DialogFooter>
+          </FieldGroup>
         </form>
       </DialogContent>
     </Dialog>

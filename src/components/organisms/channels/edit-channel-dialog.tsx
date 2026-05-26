@@ -8,8 +8,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/atoms/password-input";
 import { updateChannel, getChannelConfig } from "@/app/(dashboard)/channels/actions";
 import { getChannelById } from "@/lib/channels/registry";
 import type { ChannelType } from "@/lib/channels/types";
@@ -72,41 +73,40 @@ export function EditChannelDialog({ channel, onOpenChange }: EditChannelDialogPr
         <DialogHeader>
           <DialogTitle>Edit Channel</DialogTitle>
         </DialogHeader>
-        <form key={channel?.id || "empty"} onSubmit={handleSubmit} className="space-y-4 py-4">
+        <form key={channel?.id || "empty"} onSubmit={handleSubmit} className="py-4">
           <input type="hidden" name="id" value={channel?.id || ""} />
 
-          <div className="space-y-2">
-            <Label htmlFor="edit-name">Channel Name</Label>
+          <FieldGroup className="gap-4">
+          <Field data-invalid={Boolean(state?.fieldErrors?.name)}>
+            <FieldLabel htmlFor="edit-name">Channel Name</FieldLabel>
             <Input
               id="edit-name"
               name="name"
               defaultValue={channel?.name || ""}
               placeholder="e.g. My Awesome Store"
               required
+              aria-invalid={Boolean(state?.fieldErrors?.name)}
             />
-            {state?.fieldErrors?.name && (
-              <p className="text-destructive text-xs">{state.fieldErrors.name[0]}</p>
-            )}
-          </div>
+            <FieldError>{state?.fieldErrors?.name?.[0]}</FieldError>
+          </Field>
 
-          <div className="space-y-2">
-            <Label htmlFor="edit-pickup">Default Pickup Location</Label>
+          <Field data-invalid={Boolean(state?.fieldErrors?.defaultPickupLocation)}>
+            <FieldLabel htmlFor="edit-pickup">Default Pickup Location</FieldLabel>
             <Input
               id="edit-pickup"
               name="defaultPickupLocation"
               defaultValue={channel?.defaultPickupLocation || ""}
               placeholder="e.g. Main Warehouse"
+              aria-invalid={Boolean(state?.fieldErrors?.defaultPickupLocation)}
             />
-            {state?.fieldErrors?.defaultPickupLocation && (
-              <p className="text-destructive text-xs">{state.fieldErrors.defaultPickupLocation[0]}</p>
-            )}
-          </div>
+            <FieldError>{state?.fieldErrors?.defaultPickupLocation?.[0]}</FieldError>
+          </Field>
 
           {!fetchingConfig && channelDef?.configFields?.map((field) => (
-            <div key={field.key} className="space-y-2">
-              <Label htmlFor={`config-${field.key}`}>
+            <Field key={field.key}>
+              <FieldLabel htmlFor={`config-${field.key}`}>
                 {field.label}
-              </Label>
+              </FieldLabel>
               {field.type === "select" && field.options ? (
                 <Select
                   name={field.key}
@@ -123,21 +123,26 @@ export function EditChannelDialog({ channel, onOpenChange }: EditChannelDialogPr
                     ))}
                   </SelectContent>
                 </Select>
+              ) : field.type === "password" ? (
+                <PasswordInput
+                  id={`config-${field.key}`}
+                  name={field.key}
+                  placeholder="Leave blank to keep unchanged"
+                  defaultValue={configState[field.key] ?? ""}
+                />
               ) : (
                 <Input
                   id={`config-${field.key}`}
                   name={field.key}
-                  type={field.type === "password" ? "password" : field.type === "url" ? "url" : "text"}
-                  placeholder={field.type === "password" ? "Leave blank to keep unchanged" : field.placeholder}
+                  type={field.type === "url" ? "url" : "text"}
+                  placeholder={field.placeholder}
                   defaultValue={configState[field.key] ?? ""}
                 />
               )}
-            </div>
+            </Field>
           ))}
 
-          {state?.error && (
-            <p className="text-destructive text-sm">{state.error}</p>
-          )}
+          {state?.error && <FieldError>{state.error}</FieldError>}
 
           <div className="flex justify-end gap-2 pt-2">
             <Button
@@ -152,6 +157,7 @@ export function EditChannelDialog({ channel, onOpenChange }: EditChannelDialogPr
               {pending ? "Saving..." : "Save Changes"}
             </Button>
           </div>
+          </FieldGroup>
         </form>
       </DialogContent>
     </Dialog>
