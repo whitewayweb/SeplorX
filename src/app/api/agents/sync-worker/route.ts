@@ -165,21 +165,6 @@ export async function POST(request: Request) {
               );
             };
 
-            if (handler.syncOrderFinances) {
-              try {
-                await runFinanceBatch("initial");
-              } catch (err) {
-                logger.error("finance sync failed", {
-                  component: "sync-worker",
-                  channelId,
-                  financeOnly,
-                  channelType: channel.channelType,
-                  batch: financeBatches,
-                  error: err,
-                });
-              }
-            }
-
             if (!financeOnly && handler.fetchAndSaveOrders) {
               const fetchAndSaveOrders = handler.fetchAndSaveOrders;
               try {
@@ -224,14 +209,16 @@ export async function POST(request: Request) {
             }
 
             if (handler.syncOrderFinances) {
-              let shouldContinueFinance = orderSyncSavedOrders || financeTotals.checked >= BACKGROUND_FINANCE_SYNC_LIMIT;
+              let shouldContinueFinance = financeOnly || orderSyncSucceeded || !handler.fetchAndSaveOrders;
               while (
                 shouldContinueFinance &&
                 financeBatches < MAX_FINANCE_BATCHES_PER_WORKER &&
                 remainingTimeMs() > minFinanceBatchBudgetMs
               ) {
                 try {
-                  shouldContinueFinance = await runFinanceBatch(orderSyncSavedOrders ? "post_order" : "backlog");
+                  shouldContinueFinance = await runFinanceBatch(
+                    orderSyncSavedOrders ? "post_order" : financeOnly ? "initial" : "backlog",
+                  );
                   orderSyncSavedOrders = false;
                 } catch (err) {
                   logger.error("finance continuation failed", {
