@@ -92,6 +92,7 @@ export async function POST(request: Request) {
             const startTime = Date.now();
             let orderSyncSucceeded = false;
             let orderSyncSavedOrders = false;
+            let orderSyncClaimFinalized = false;
             let financeBatches = 0;
 
             const financeTotals: OrderFinanceSyncResult = {
@@ -186,6 +187,18 @@ export async function POST(request: Request) {
                     const result = await fetchAndSaveOrders(channel.userId, channel.id);
                     orderSyncSucceeded = true;
                     orderSyncSavedOrders = result.saved > 0;
+                    try {
+                      await markOrderSyncSucceeded(channel.id);
+                      orderSyncClaimFinalized = true;
+                    } catch (err) {
+                      logger.error("failed to mark order sync succeeded", {
+                        component: "sync-worker",
+                        channelId,
+                        financeOnly,
+                        channelType: channel.channelType,
+                        error: err,
+                      });
+                    }
 
                     logger.info("order sync completed", {
                       component: "sync-worker",
@@ -248,10 +261,12 @@ export async function POST(request: Request) {
             }
 
             try {
-              if (orderSyncSucceeded) {
-                await markOrderSyncSucceeded(channel.id);
-              } else {
-                await releaseOrderSyncClaim(channel.id);
+              if (!orderSyncClaimFinalized) {
+                if (orderSyncSucceeded) {
+                  await markOrderSyncSucceeded(channel.id);
+                } else {
+                  await releaseOrderSyncClaim(channel.id);
+                }
               }
             } catch (err) {
               logger.error("failed to finalize sync claim", {

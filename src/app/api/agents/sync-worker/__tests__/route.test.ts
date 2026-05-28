@@ -75,6 +75,9 @@ describe("sync-worker route", () => {
       calls.push("finance");
       return { checked: 0, synced: 0, noData: 0, failed: 0, notSupported: 0 };
     });
+    mocks.markOrderSyncSucceeded.mockImplementation(async () => {
+      calls.push("mark");
+    });
 
     mocks.getChannelHandler.mockReturnValue({
       fetchAndSaveOrders,
@@ -86,7 +89,7 @@ describe("sync-worker route", () => {
 
     await mocks.afterCallbacks[0]();
 
-    expect(calls).toEqual(["orders", "finance"]);
+    expect(calls).toEqual(["orders", "mark", "finance"]);
     expect(fetchAndSaveOrders).toHaveBeenCalledWith(1, 12);
     expect(syncOrderFinances).toHaveBeenCalledWith(1, 12, {
       limit: 10,
