@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { channels } from "@/db/schema";
 import { and, eq, or, lte, isNull, sql } from "drizzle-orm";
 import { headers } from "next/headers";
+import { after } from "next/server";
 import { getBaseUrl } from "@/lib/utils";
 import { logger } from "@/lib/logger";
 import { channelRegistry } from "@/lib/channels/registry";
@@ -104,12 +105,13 @@ export async function triggerOnDemandSync(userId: number) {
 
     logger.info("triggering scheduler", { component: "on-demand-sync", userId });
 
-    // Fire and forget (don't await)
-    fetch(url, {
-        method: "GET",
-        headers: {
-            "x-vercel-cron": "1",
-        },
-        cache: "no-store",
-    }).catch(err => logger.error("background trigger failed", { component: "on-demand-sync", userId, error: err }));
+    after(async () => {
+        await fetch(url, {
+            method: "GET",
+            headers: {
+                "x-vercel-cron": "1",
+            },
+            cache: "no-store",
+        }).catch(err => logger.error("background trigger failed", { component: "on-demand-sync", userId, error: err }));
+    });
 }

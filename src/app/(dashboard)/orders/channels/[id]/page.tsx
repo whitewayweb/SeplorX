@@ -6,6 +6,7 @@ import { OrdersList } from "@/components/organisms/orders/orders-list";
 import { notFound, redirect } from "next/navigation";
 import { parsePaginationParams } from "@/lib/utils/pagination";
 import { salesOrderStatusEnum } from "@/db/schema";
+import { triggerOnDemandSync } from "@/lib/agents/on-demand-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +43,7 @@ export default async function ChannelOrdersPage({
 
   const userId = await getAuthenticatedUserId();
   if (!userId) redirect("/login");
+  await triggerOnDemandSync(userId);
 
   // Fetching channels for the user so we can confirm ownership and get channel name
   const userChannels = await getConnectedChannelsForUser(userId);

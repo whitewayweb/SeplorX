@@ -8,6 +8,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { parsePaginationParams } from "@/lib/utils/pagination";
 import { salesOrderStatusEnum } from "@/db/schema";
+import { triggerOnDemandSync } from "@/lib/agents/on-demand-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,7 @@ export default async function OrdersPage({
 
   const userId = await getAuthenticatedUserId();
   if (!userId) redirect("/login");
+  await triggerOnDemandSync(userId);
 
   const [allOrders, totalCount, statusCounts, baseConnectedChannels, returnsAwaiting] = await Promise.all([
     getAllOrders(userId, limit, offset, statusFilter, dateFrom, dateTo),
