@@ -22,7 +22,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { useDropzone } from "@/components/ui/dropzone";
 import { FileUploadDropzone } from "@/components/molecules/file-upload-dropzone";
-import { DOCUMENT_UPLOAD_ACCEPT, DOCUMENT_UPLOAD_MAX_SIZE } from "@/lib/file-upload";
+
 
 interface PendingTask {
   id: number;

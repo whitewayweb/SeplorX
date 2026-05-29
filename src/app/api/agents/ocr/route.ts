@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     const parsedFile = documentUploadSchema.safeParse(rawFile);
     if (!parsedFile.success) {
       return Response.json(
-        { error: parsedFile.error.errors[0].message },
+        { error: parsedFile.error.issues[0]?.message ?? "Invalid file." },
         { status: 400 }
       );
     }

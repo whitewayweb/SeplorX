@@ -21,7 +21,7 @@ export async function processExpenseReceiptAction(_prevState: unknown, formData:
     
     if (!parsedFile.success) {
       // Return the first validation error message securely
-      return { error: parsedFile.error.errors[0].message };
+      return { error: parsedFile.error.issues[0]?.message ?? "Invalid file." };
     }
 
     const file = parsedFile.data;
