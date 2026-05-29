@@ -81,7 +81,7 @@ export default async function ExpensesPage() {
                 <Plus className="w-4 h-4 mr-2" /> Record Expense
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Add New Expense</DialogTitle>
               </DialogHeader>

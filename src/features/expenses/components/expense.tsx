@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { UploadCloud, CheckCircle2, Loader2 } from "lucide-react";
+import { CheckCircle2, Loader2 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertExpenseSchema, type InsertExpenseParams } from "@/lib/validations/expenses";
+import { normalizeDropzoneFile, defaultDocumentDropzoneValidation } from "@/lib/dropzone";
 import { processExpenseReceiptAction, executeExpenseDraftAction } from "@/app/(dashboard)/expenses/actions";
 import { toast } from "sonner";
 import {
@@ -19,6 +20,9 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Switch } from "@/components/ui/switch";
+import { useDropzone } from "@/components/ui/dropzone";
+import { FileUploadDropzone } from "@/components/molecules/file-upload-dropzone";
+import { DOCUMENT_UPLOAD_ACCEPT, DOCUMENT_UPLOAD_MAX_SIZE } from "@/lib/file-upload";
 
 interface PendingTask {
   id: number;
@@ -28,34 +32,37 @@ interface PendingTask {
 export function ExpenseUploader({ pendingTask }: { pendingTask?: PendingTask | null }) {
   const [isUploading, setIsUploading] = useState(false);
   const [task, setTask] = useState<PendingTask | null>(pendingTask || null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const dropzone = useDropzone<null, string>({
+    onDropFile: async (incomingFile) => {
+      setIsUploading(true);
+      try {
+        // Eagerly normalize the file into memory to strip native filesystem handle bindings
+        const memoryFile = await normalizeDropzoneFile(incomingFile);
 
-    setIsUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("receipt", file);
+        const formData = new FormData();
+        formData.append("receipt", memoryFile);
 
-      const result = await processExpenseReceiptAction(null, formData);
-      if (result.error) {
-        toast.error(result.error);
-        return;
+        const result = await processExpenseReceiptAction(null, formData);
+        if (result.error) {
+          toast.error(result.error);
+          return { status: "error", error: result.error };
+        }
+
+        toast.success("Receipt processed successfully!");
+        window.location.reload();
+        return { status: "success", result: null };
+      } catch {
+        toast.error("An unexpected error occurred.");
+        return { status: "error", error: "An unexpected error occurred." };
+      } finally {
+        setIsUploading(false);
       }
-      
-      // Usually, in a real app, we'd fetch the task data, but here we expect the 
-      // page to revalidate and pass down the new pendingTask.
-      toast.success("Receipt processed successfully!");
-      // reload to get the pending task
-      window.location.reload();
-    } catch {
-      toast.error("An unexpected error occurred.");
-    } finally {
-      setIsUploading(false);
-    }
-  };
+    },
+    validation: defaultDocumentDropzoneValidation,
+    maxRetryCount: 2,
+    shiftOnMaxFiles: true,
+  });
 
   return (
     <div className="space-y-6">
@@ -65,22 +72,11 @@ export function ExpenseUploader({ pendingTask }: { pendingTask?: PendingTask | n
             <h3 className="text-lg font-medium leading-none tracking-tight">Upload Receipt</h3>
             <p className="text-sm text-muted-foreground mt-1.5">Upload a receipt or invoice to automatically extract the expense details.</p>
           </div>
-          <div>
-            <div className="flex flex-col items-center justify-center p-12 border-2 border-dashed rounded-lg bg-muted/50 hover:bg-muted/80 transition-colors">
-              <UploadCloud className="w-12 h-12 text-muted-foreground mb-4" />
-              <Button onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
-                {isUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {isUploading ? "Extracting Details..." : "Select File"}
-              </Button>
-              <input
-                type="file"
-                className="hidden"
-                accept="image/*,application/pdf"
-                ref={fileInputRef}
-                onChange={handleFileSelect}
-              />
-            </div>
-          </div>
+          <FileUploadDropzone
+            dropzone={dropzone}
+            showRetry
+            title={isUploading ? "Uploading receipt..." : "Drop your receipt here, or browse"}
+          />
         </div>
       ) : (
         <ExpenseReviewForm task={task} onClear={() => setTask(null)} />

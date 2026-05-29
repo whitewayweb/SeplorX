@@ -6,6 +6,8 @@ import { resolveExpenseOcrTask } from "@/features/expenses/services/expense.serv
 import { insertExpenseSchema } from "@/lib/validations/expenses";
 import { revalidatePath } from "next/cache";
 
+import { documentUploadSchema } from "@/lib/dropzone";
+
 export async function processExpenseReceiptAction(_prevState: unknown, formData: FormData): Promise<{
   success?: boolean;
   taskId?: number;
@@ -14,11 +16,15 @@ export async function processExpenseReceiptAction(_prevState: unknown, formData:
   try {
     await getAuthenticatedUserId();
 
-    const file = formData.get("receipt") as File | null;
-    if (!file) {
-      return { error: "No receipt file provided." };
+    const rawFile = formData.get("receipt");
+    const parsedFile = documentUploadSchema.safeParse(rawFile);
+    
+    if (!parsedFile.success) {
+      // Return the first validation error message securely
+      return { error: parsedFile.error.errors[0].message };
     }
 
+    const file = parsedFile.data;
     const buffer = Buffer.from(await file.arrayBuffer());
     const mimeType = file.type;
 

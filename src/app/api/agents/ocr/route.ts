@@ -6,8 +6,7 @@ import { eq } from "drizzle-orm";
 
 export const maxDuration = 60; // Vercel Hobby max — Gemini PDF extraction can take 15–30s
 
-const ALLOWED_MIME_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+import { documentUploadSchema } from "@/lib/dropzone";
 
 export async function POST(req: Request) {
   // 1. Check if the agent is enabled via platform settings (falls back to registry default)
@@ -38,25 +37,17 @@ export async function POST(req: Request) {
   try {
     // 3. Parse multipart FormData — avoids base64 overhead and JSON body size limits
     const formData = await req.formData();
-    const file = formData.get("file") as File | null;
-
-    if (!file) {
-      return Response.json({ error: "No file uploaded." }, { status: 400 });
-    }
-
-    if (!ALLOWED_MIME_TYPES.includes(file.type)) {
+    const rawFile = formData.get("file");
+    
+    const parsedFile = documentUploadSchema.safeParse(rawFile);
+    if (!parsedFile.success) {
       return Response.json(
-        { error: "Unsupported file type. Please upload a PDF, JPEG, PNG, or WebP." },
+        { error: parsedFile.error.errors[0].message },
         { status: 400 }
       );
     }
-
-    if (file.size > MAX_FILE_SIZE) {
-      return Response.json(
-        { error: "File too large. Maximum size is 10 MB." },
-        { status: 400 }
-      );
-    }
+    
+    const file = parsedFile.data;
 
     // 4. Convert File → Buffer and pass raw bytes to the agent
     const arrayBuffer = await file.arrayBuffer();
