@@ -549,6 +549,13 @@ export const amazonHandler: ChannelHandler = {
     }
 
     try {
+      const { markOrderSyncSucceeded } = await import("@/lib/agents/order-sync-state");
+      await markOrderSyncSucceeded(channelId, { userId });
+    } catch (err) {
+      logger.error("[Amazon Sync] Failed to update channel sync marker after order ingestion:", err);
+    }
+
+    try {
       const staleShippedOrders = await db
         .select({
           id: salesOrders.id,

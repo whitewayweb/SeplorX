@@ -21,6 +21,10 @@ vi.mock("@/lib/channels/utils", () => ({
   }),
 }));
 
+vi.mock("@/lib/agents/order-sync-state", () => ({
+  markOrderSyncSucceeded: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("../finances", () => ({
   syncAmazonOrderFinances: vi.fn().mockResolvedValue({
     checked: 0,
