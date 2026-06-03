@@ -1,3 +1,4 @@
+import { MARKETPLACE_MAP } from "./amazon/config";
 import { decrypt, isEncrypted } from "@/lib/crypto";
 import { logger } from "@/lib/logger";
 
@@ -47,4 +48,19 @@ export async function decryptChannelCredentials(
   );
 
   return result;
+}
+
+export function getAmazonTimeZone(marketplaceId?: string): string {
+  if (!marketplaceId) return "UTC";
+  return MARKETPLACE_MAP[marketplaceId]?.timezone || "UTC";
+}
+
+export async function getChannelTimeZone(channelType: string, rawCredentials: Record<string, unknown> | null): Promise<string> {
+  const credentials = await decryptChannelCredentials(rawCredentials);
+  
+  if (channelType === "amazon") {
+    return getAmazonTimeZone(credentials.marketplaceId);
+  }
+  
+  return "UTC";
 }

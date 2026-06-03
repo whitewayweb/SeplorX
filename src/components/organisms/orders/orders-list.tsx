@@ -12,6 +12,8 @@ import { getOrderStatusBadgeClass, getOrderStatusLabel } from "@/lib/utils/order
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { isFinanceEligibleOrderStatus } from "@/lib/order-finance/eligibility";
+import { formatDistanceToNow } from "date-fns";
+import type { OrderItemRow } from "@/lib/orders/queries";
 
 interface Order {
   id: number;
@@ -26,6 +28,7 @@ interface Order {
   financeSyncStatus: "pending" | "synced" | "no_data" | "failed" | "not_supported" | null;
   financeSyncedAt: Date | null;
   financeNextAttemptAt: Date | null;
+  items?: OrderItemRow[];
 }
 
 interface Channel {
@@ -33,6 +36,7 @@ interface Channel {
   name: string;
   lastSyncAt?: Date | null;
   color?: string;
+  timeZone?: string;
 }
 
 interface OrdersListProps {
@@ -90,6 +94,26 @@ function getFinanceStatusMeta(order: Order) {
   if (status) return FINANCE_STATUS_META[status];
   if (!isFinanceEligibleOrderStatus(order.status)) return FINANCE_STATUS_META.not_ready;
   return FINANCE_STATUS_META.unsynced;
+}
+
+function getImageUrl(item: OrderItemRow): string {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = item.productRawData as any;
+  if (!data) return "";
+
+  // Amazon mainImage in summaries
+  if (data?.summaries?.[0]?.mainImage?.link) {
+    return data.summaries[0].mainImage.link;
+  }
+  // Amazon images array fallback
+  if (data?.images?.[0]?.images?.[0]?.link) {
+    return data.images[0].images[0].link;
+  }
+  // WooCommerce images array
+  if (data?.images?.[0]?.src) {
+    return data.images[0].src;
+  }
+  return "";
 }
 
 export function OrdersList({
@@ -177,7 +201,7 @@ export function OrdersList({
         <div className="flex-shrink-0">
           <DateRangePicker />
         </div>
-        
+
         <div className="flex flex-wrap gap-3 shrink-0 lg:justify-end">
           {channels.map((channel) => (
             <SyncStatusPill
@@ -264,28 +288,28 @@ export function OrdersList({
                   />
                 </span>
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order ID</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Channel</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order Date</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order Details</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Image</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product Name</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Finance</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-right">Total</th>
+              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {orders.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-6 py-10 text-center text-gray-500">
+                <td colSpan={7} className="px-6 py-10 text-center text-gray-500">
                   No orders found. Use the button above to fetch orders.
                 </td>
               </tr>
             ) : (
               orders.map((order) => {
                 const financeStatus = getFinanceStatusMeta(order);
+                const timeZone = channels.find((c) => c.id === order.channelId)?.timeZone || "UTC";
 
                 return (
-                  <tr key={order.id} className="hover:bg-gray-50 transition-colors">
+                  <tr key={order.id} className="hover:bg-gray-50 transition-colors align-top">
                     <td className="px-4 py-4" onClick={(event) => event.stopPropagation()}>
                       <Checkbox
                         checked={effectiveSelectedOrderIdSet.has(order.id)}
@@ -293,49 +317,105 @@ export function OrdersList({
                         aria-label={`Select order ${order.externalOrderId ?? order.id}`}
                       />
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {order.purchasedAt?.toLocaleString("en-IN", {
-                        day: "numeric",
-                        month: "short",
-                        year: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit"
-                      }) ?? "—"}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">
-                      <Link
-                        href={`/orders/${order.id}`}
-                        prefetch={false}
-                        className="text-blue-600 hover:underline"
-                      >
-                        {order.externalOrderId}
-                      </Link>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {order.channelName ?? "—"}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                      {order.buyerName ?? <span className="text-gray-400 italic text-xs">Amazon Anonymized</span>}
-                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${getOrderStatusBadgeClass(order.status)}`}>
-                        {order.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div>
-                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${financeStatus.className}`}>
-                          {financeStatus.label}
+                      <div className="flex flex-col">
+                        <span className="font-semibold text-gray-900 text-sm">
+                          {order.purchasedAt ? formatDistanceToNow(order.purchasedAt, { addSuffix: true }) : "—"}
                         </span>
-                        <div className="mt-0.5 text-[11px] text-gray-400">
-                          {financeStatus.helper}
+                        <span className="text-xs text-gray-500 mt-1">
+                          {order.purchasedAt?.toLocaleString("en-IN", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            timeZone,
+                          }) ?? "—"}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col items-start text-sm">
+                        <Link
+                          href={`/orders/${order.id}`}
+                          prefetch={false}
+                          className="text-blue-600 hover:underline font-bold mb-1"
+                        >
+                          {order.externalOrderId}
+                        </Link>
+                        <span className="text-xs text-gray-600 mt-1 whitespace-nowrap">
+                          Buyer name: {order.buyerName ? <span className="font-medium text-gray-900">{order.buyerName}</span> : <span className="text-gray-400 italic">Amazon Anonymized</span>}
+                        </span>
+                        <span className="text-xs text-gray-600 mt-0.5 whitespace-nowrap">
+                          Sales channel: <span className="font-medium text-gray-900">{order.channelName ?? "—"}</span>
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col gap-4">
+                        {(order.items?.length ? order.items : [null]).map((item, idx) => {
+                          if (!item) return <div key={idx} className="h-16 w-16" />;
+                          const imgUrl = getImageUrl(item);
+                          return (
+                            <div key={item.id} className="h-16 w-16 flex-shrink-0 bg-white rounded border border-gray-200 flex items-center justify-center p-1">
+                              { }
+                              {imgUrl ? (
+                                <img src={imgUrl} alt="product" className="h-full w-full object-contain mix-blend-multiply" />
+                              ) : (
+                                <span className="text-gray-300 text-[10px] text-center leading-tight">No Image</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 min-w-[300px]">
+                      <div className="flex flex-col gap-4">
+                        {(order.items?.length ? order.items : [null]).map((item, idx) => {
+                          if (!item) return <div key={idx} className="text-sm text-gray-400 italic">No items</div>;
+                          return (
+                            <div key={item.id} className="flex flex-col">
+                              <Link href={`/orders/${order.id}`} prefetch={false} className="text-sm font-medium text-blue-600 hover:underline line-clamp-2 leading-tight">
+                                {item.productName || item.title || "Unknown Product"}
+                              </Link>
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
+                                <span className="text-xs text-gray-500">SKU: <span className="font-medium text-gray-700">{item.sku || item.productSku || "—"}</span></span>
+                                <span className="text-xs text-gray-500">ASIN: <span className="font-medium text-gray-700">{item.externalItemId || "—"}</span></span>
+                              </div>
+                              <div className="mt-1 flex items-center gap-2">
+                                <span className="text-xs font-semibold text-gray-900 bg-gray-100 px-1.5 py-0.5 rounded">Qty: {item.quantity}</span>
+                                {item.price && (
+                                  <span className="text-xs text-gray-500">Price: {item.price}</span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex flex-col gap-2 items-start">
+                        <span className={`px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${getOrderStatusBadgeClass(order.status)}`}>
+                          {order.status}
+                        </span>
+                        <div>
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${financeStatus.className}`}>
+                            {financeStatus.label}
+                          </span>
+                          <div className="mt-0.5 text-[11px] text-gray-400">
+                            {financeStatus.helper}
+                          </div>
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right font-semibold">
-                      {order.currency && order.totalAmount
-                        ? `${order.currency} ${parseFloat(order.totalAmount).toFixed(2)}`
-                        : "—"}
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <div className="flex flex-col gap-3 items-end">
+                        <div className="text-sm font-bold text-gray-900">
+                          {order.currency && order.totalAmount
+                            ? `${order.currency} ${parseFloat(order.totalAmount).toFixed(2)}`
+                            : "—"}
+                        </div>
+                      </div>
                     </td>
                   </tr>
                 );

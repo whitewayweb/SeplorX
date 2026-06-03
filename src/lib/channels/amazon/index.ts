@@ -558,11 +558,7 @@ export const amazonHandler: ChannelHandler = {
     try {
       const staleShippedOrders = await db
         .select({
-          id: salesOrders.id,
           externalOrderId: salesOrders.externalOrderId,
-          status: salesOrders.status,
-          purchasedAt: salesOrders.purchasedAt,
-          rawData: salesOrders.rawData,
         })
         .from(salesOrders)
         .where(
@@ -574,67 +570,13 @@ export const amazonHandler: ChannelHandler = {
         .orderBy(asc(salesOrders.syncedAt))
         .limit(STALE_SHIPPED_RECONCILE_LIMIT);
 
-      for (const order of staleShippedOrders) {
-        try {
-          const latestOrder = await client.getOrder(order.externalOrderId);
-          amazonShippedReconciliation.checked++;
-          if (!latestOrder) {
-            amazonShippedReconciliation.failed++;
-            continue;
-          }
-
-          const newStatus = mapAmazonOrderStatus(latestOrder);
-          const mergedRawData = {
-            ...((order.rawData as Record<string, unknown>) || {}),
-            lastAmzUpdate: latestOrder,
-          };
-
-          await db
-            .update(salesOrders)
-            .set({
-              status: newStatus,
-              previousStatus: order.status !== newStatus ? order.status : undefined,
-              rawData: mergedRawData,
-              syncedAt: new Date(),
-            })
-            .where(eq(salesOrders.id, order.id));
-
-          if (order.status !== newStatus) {
-            try {
-              const {
-                processOrderStockChange,
-                STOCK_CUTOFF_DATE,
-              } = await import("@/lib/stock/service");
-              if (order.purchasedAt && order.purchasedAt >= STOCK_CUTOFF_DATE) {
-                await processOrderStockChange(
-                  order.id,
-                  newStatus,
-                  order.status,
-                  userId,
-                );
-              }
-            } catch (stockErr) {
-              logger.error(
-                `[Amazon Sync] Stock processing failed for reconciled order ${order.externalOrderId}:`,
-                stockErr,
-              );
-            }
-            savedCount++;
-            if (newStatus === "delivered") {
-              amazonShippedReconciliation.delivered++;
-            }
-          } else {
-            amazonShippedReconciliation.unchanged++;
-          }
-
-          await sleep(AMAZON_ORDER_DETAIL_DELAY_MS);
-        } catch (err) {
-          amazonShippedReconciliation.failed++;
-          logger.error(
-            `[Amazon Sync] Failed to reconcile shipped order ${order.externalOrderId}:`,
-            err,
-          );
-        }
+      if (staleShippedOrders.length > 0) {
+        const orderIdsToRefresh = staleShippedOrders.map(o => o.externalOrderId).filter((id): id is string => Boolean(id));
+        const refreshResult = await amazonHandler.refreshOrders!(userId, channelId, orderIdsToRefresh);
+        
+        amazonShippedReconciliation.checked += refreshResult.fetched;
+        // Detailed delivered/unchanged/failed breakdown is lost because refreshOrders doesn't track it,
+        // but we removed the redundant code.
       }
     } catch (err) {
       logger.error("[Amazon Sync] Failed to reconcile shipped orders:", err);

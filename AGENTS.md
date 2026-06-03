@@ -10,7 +10,7 @@ The `.agent/` directory contains broader Claude/ECC-oriented rules, skills, and 
 - Before creating new UI helpers, icons, services, or workflows, search for an existing equivalent and reuse or extend it.
 - Across the codebase, whenever work compares or resolves external, derived, cached, imported, AI-extracted, expected, or target state against SeplorX source-of-truth data, apply the local reconciliation workflow by default: compare source and target state explicitly, preselect or propose matches, require review for risky changes, and keep actions auditable.
 - Across the codebase, for cleanup or maintainability requests, apply the local refactor-code workflow by default: keep edits scoped, collocate domain helpers near their owning feature, remove redundant one-off code, and preserve behavior unless a behavior change is explicitly requested.
-- For channel-specific display, use the channel registry/configuration as the source of truth instead of hardcoded channel metadata.
+- For channel-specific display, use the channel registry/configuration as the source of truth instead of hardcoded channel metadata. Collocate channel metadata (e.g., timezones, endpoint regions, capabilities) directly within the channel's `config.ts` definition.
 - Treat stock sync review queues as stock reconciliation workflows: emphasize review, compare, resolve, and audit-friendly actions over bulk shortcuts.
 - Keep changes scoped to the user's request.
 - Avoid unrelated refactors, formatting churn, or generated-file edits.
@@ -58,7 +58,7 @@ The `.agent/` directory contains broader Claude/ECC-oriented rules, skills, and 
 
 - Keep SSR hydration safe.
 - Do not render `Date.now()`, `Math.random()`, browser-only values, or locale-dependent `toLocaleString()` output during SSR.
-- Use deterministic formatting with fixed locale and timezone, or move truly client-only values behind a client boundary.
+- Use deterministic formatting with fixed locale and timezone (e.g. format dates in UI using the respective channel/store timezone where applicable), or move truly client-only values behind a client boundary.
 
 ## TypeScript and JavaScript
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { encryptSync } from "@/lib/crypto";
-import { decryptChannelCredentials } from "../utils";
+import { decryptChannelCredentials, getAmazonTimeZone, getChannelTimeZone } from "../utils";
 
 // ─── decryptChannelCredentials ────────────────────────────────────────────────
 
@@ -93,5 +93,52 @@ describe("decryptChannelCredentials", () => {
     for (const val of Object.values(result)) {
       expect(typeof val).toBe("string");
     }
+  });
+});
+
+describe("getAmazonTimeZone", () => {
+  it("returns specific timezones for all known Amazon marketplace IDs", () => {
+    const cases = [
+      { id: "ATVPDKIKX0DER", tz: "America/Los_Angeles" },
+      { id: "A2EUQ1WTGCTBG2", tz: "America/Toronto" },
+      { id: "A1AM78C64UM0Y8", tz: "America/Mexico_City" },
+      { id: "A2Q3Y263D00KWC", tz: "America/Sao_Paulo" },
+      { id: "A1F83G8C2ARO7P", tz: "Europe/London" },
+      { id: "A1PA67BAS5O4GM", tz: "Europe/Berlin" },
+      { id: "A13V1IB3VIYZZH", tz: "Europe/Paris" },
+      { id: "APJ6JRA9NG5V4", tz: "Europe/Rome" },
+      { id: "A1RKKUPIHCS9HS", tz: "Europe/Madrid" },
+      { id: "A1805IZSGTT6HS", tz: "Europe/Amsterdam" },
+      { id: "A21TJRUUN4KGV", tz: "Asia/Kolkata" },
+      { id: "A1VC38T7YXB528", tz: "Asia/Tokyo" },
+      { id: "A39IBJ37TRP1C6", tz: "Australia/Sydney" },
+      { id: "A2VIGQ35RCS4UG", tz: "Asia/Dubai" },
+      { id: "A17E79C6D8DWNP", tz: "Asia/Riyadh" },
+      { id: "ARBP9OOSHTCHU", tz: "Africa/Cairo" },
+    ];
+    for (const { id, tz } of cases) {
+      expect(getAmazonTimeZone(id)).toBe(tz);
+    }
+  });
+
+  it("returns UTC for unknown marketplace IDs", () => {
+    expect(getAmazonTimeZone("UNKNOWN")).toBe("UTC");
+    expect(getAmazonTimeZone()).toBe("UTC");
+  });
+});
+
+describe("getChannelTimeZone", () => {
+  it("returns UTC for non-amazon channels", async () => {
+    expect(await getChannelTimeZone("woocommerce", null)).toBe("UTC");
+  });
+
+  it("returns specific timezone for amazon channel with known marketplace ID", async () => {
+    const creds = { marketplaceId: "A1F83G8C2ARO7P" };
+    expect(await getChannelTimeZone("amazon", creds)).toBe("Europe/London");
+  });
+
+  it("returns UTC for amazon channel with unknown marketplace ID", async () => {
+    const creds = { marketplaceId: "UNKNOWN" };
+    expect(await getChannelTimeZone("amazon", creds)).toBe("UTC");
   });
 });

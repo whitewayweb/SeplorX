@@ -32,6 +32,7 @@ interface AmazonMarketplace {
   label: string;
   domain: string;
   region: "na" | "eu" | "fe";
+  timezone?: string;
 }
 
 /**
@@ -45,24 +46,28 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
     label: "United States (US)",
     domain: "amazon.com",
     region: "na",
+    timezone: "America/Los_Angeles",
   },
   {
     id: "A2EUQ1WTGCTBG2",
     label: "Canada (CA)",
     domain: "amazon.ca",
     region: "na",
+    timezone: "America/Toronto",
   },
   {
     id: "A1AM78C64UM0Y8",
     label: "Mexico (MX)",
     domain: "amazon.com.mx",
     region: "na",
+    timezone: "America/Mexico_City",
   },
   {
     id: "A2Q3Y263D00KWC",
     label: "Brazil (BR)",
     domain: "amazon.com.br",
     region: "na",
+    timezone: "America/Sao_Paulo",
   },
 
   // Europe (EU) & India
@@ -71,36 +76,42 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
     label: "United Kingdom (UK)",
     domain: "amazon.co.uk",
     region: "eu",
+    timezone: "Europe/London",
   },
   {
     id: "A1PA67BAS5O4GM",
     label: "Germany (DE)",
     domain: "amazon.de",
     region: "eu",
+    timezone: "Europe/Berlin",
   },
   {
     id: "A13V1IB3VIYZZH",
     label: "France (FR)",
     domain: "amazon.fr",
     region: "eu",
+    timezone: "Europe/Paris",
   },
   {
     id: "APJ6JRA9NG5V4",
     label: "Italy (IT)",
     domain: "amazon.it",
     region: "eu",
+    timezone: "Europe/Rome",
   },
   {
     id: "A1RKKUPIHCS9HS",
     label: "Spain (ES)",
     domain: "amazon.es",
     region: "eu",
+    timezone: "Europe/Madrid",
   },
   {
     id: "A1805IZSGTT6HS",
     label: "Netherlands (NL)",
     domain: "amazon.nl",
     region: "eu",
+    timezone: "Europe/Amsterdam",
   },
   {
     id: "A2NODRK31TC262",
@@ -131,24 +142,28 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
     label: "India (IN)",
     domain: "amazon.in",
     region: "eu",
+    timezone: "Asia/Kolkata",
   },
   {
     id: "A2VIGQ35RCS4UG",
     label: "United Arab Emirates (AE)",
     domain: "amazon.ae",
     region: "eu",
+    timezone: "Asia/Dubai",
   },
   {
     id: "A17E79C6D8DWNP",
     label: "Saudi Arabia (SA)",
     domain: "amazon.sa",
     region: "eu",
+    timezone: "Asia/Riyadh",
   },
   {
     id: "ARBP9OOSHTCHU",
     label: "Egypt (EG)",
     domain: "amazon.eg",
     region: "eu",
+    timezone: "Africa/Cairo",
   },
 
   // Far East (FE)
@@ -157,6 +172,7 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
     label: "Japan (JP)",
     domain: "amazon.co.jp",
     region: "fe",
+    timezone: "Asia/Tokyo",
   },
   {
     id: "A19S7P0AHS94K",
@@ -169,6 +185,7 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
     label: "Australia (AU)",
     domain: "amazon.com.au",
     region: "fe",
+    timezone: "Australia/Sydney",
   },
 ];
 
@@ -180,7 +197,7 @@ export const SP_API_ENDPOINTS: Record<string, string> = {
 };
 
 // Faster lookups for runtime
-const MARKETPLACE_MAP = Object.fromEntries(
+export const MARKETPLACE_MAP = Object.fromEntries(
   AMAZON_MARKETPLACES.map((m) => [m.id, m]),
 );
 

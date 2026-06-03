@@ -43,6 +43,7 @@ export async function getConnectedChannelsForUser(userId: number) {
       name: channels.name,
       channelType: channels.channelType,
       status: channels.status,
+      credentials: channels.credentials,
     })
     .from(channels)
     .where(and(eq(channels.userId, userId), eq(channels.status, "connected")));
