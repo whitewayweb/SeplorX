@@ -43,7 +43,6 @@ const FINANCE_SUPPORTED_CHANNEL_TYPES = channelRegistry
   .filter((channel) => channel.capabilities?.canSyncOrderFinances)
   .map((channel) => channel.id);
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const DASHBOARD_RANGES = [
   { days: 7, label: "7 days" },

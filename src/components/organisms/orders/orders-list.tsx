@@ -356,6 +356,7 @@ export function OrdersList({
                             <div key={item.id} className="h-16 w-16 flex-shrink-0 bg-white rounded border border-gray-200 flex items-center justify-center p-1">
                               { }
                               {imgUrl ? (
+                                /* eslint-disable-next-line @next/next/no-img-element */
                                 <img src={imgUrl} alt="product" className="h-full w-full object-contain mix-blend-multiply" />
                               ) : (
                                 <span className="text-gray-300 text-[10px] text-center leading-tight">No Image</span>

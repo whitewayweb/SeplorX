@@ -1,4 +1,3 @@
-import "server-only";
 import { MARKETPLACE_MAP } from "./amazon/config";
 import { decrypt, isEncrypted } from "@/lib/crypto";
 import { logger } from "@/lib/logger";

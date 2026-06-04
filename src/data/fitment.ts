@@ -22,7 +22,12 @@ export async function getFitmentRegistry(): Promise<FitmentRule[]> {
     .limit(1);
 
   if (!result.length || !Array.isArray(result[0].value)) return [];
-  return result[0].value as FitmentRule[];
+  const rules = result[0].value as FitmentRule[];
+  return rules.map(rule => ({
+    ...rule,
+    make: rule.make ? rule.make.trim().toUpperCase() : "",
+    model: rule.model ? rule.model.trim().toUpperCase() : "",
+  }));
 }
 
 export async function saveFitmentRegistry(rules: FitmentRule[]) {
