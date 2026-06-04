@@ -44,3 +44,41 @@ export function formatCurrency(amount: number, currency = "INR"): string {
 export function formatPercent(value: number): string {
   return `${value.toFixed(1)}%`;
 }
+export function formatChannelDateTime(
+  value: Date | string | number | null | undefined,
+  timeZone: string = "UTC",
+  locale: string = "en-US"
+): string {
+  if (!value) return "—";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+
+  return date.toLocaleString(locale, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone,
+  });
+}
+
+export function formatChannelDateTimeLong(
+  value: Date | string | number | null | undefined,
+  timeZone: string = "UTC",
+  locale: string = "en-US"
+): string {
+  if (!value) return "—";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+
+  return date.toLocaleString(locale, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone,
+  });
+}

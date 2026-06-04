@@ -37,7 +37,7 @@ export function SyncStatusPill({
           {channelName}
         </span>
         {lastSyncAt ? (
-          <span className="text-[10px] opacity-70 font-medium">
+          <span className="text-[10px] opacity-70 font-medium" suppressHydrationWarning>
             Synced {formatDistanceToNow(new Date(lastSyncAt), { addSuffix: true })}
           </span>
         ) : (

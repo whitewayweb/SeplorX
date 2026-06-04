@@ -14,7 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { isFinanceEligibleOrderStatus } from "@/lib/order-finance/eligibility";
 import { formatDistanceToNow } from "date-fns";
 import type { OrderItemRow } from "@/lib/orders/queries";
-import { formatChannelDateTime } from "@/lib/channels/utils";
+import { formatChannelDateTime } from "@/lib/utils";
 
 interface Order {
   id: number;
@@ -322,10 +322,10 @@ export function OrdersList({
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex flex-col">
-                        <span className="font-semibold text-gray-900 text-sm">
+                        <span className="font-semibold text-gray-900 text-sm" suppressHydrationWarning>
                           {order.purchasedAt ? formatDistanceToNow(order.purchasedAt, { addSuffix: true }) : "—"}
                         </span>
-                        <span className="text-xs text-gray-500 mt-1">
+                        <span className="text-xs text-gray-500 mt-1" suppressHydrationWarning>
                           {formatChannelDateTime(order.purchasedAt, timeZone, locale)}
                         </span>
                       </div>

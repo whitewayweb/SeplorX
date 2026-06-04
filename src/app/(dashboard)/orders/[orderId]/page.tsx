@@ -13,7 +13,7 @@ import Link from "next/link";
 import { ArrowLeft, CircleHelp, Lock, RotateCcw } from "lucide-react";
 import type { OrdersV0Schema } from "@/lib/channels/amazon/api/types/ordersV0Schema";
 import { ReturnActionDialog } from "@/components/organisms/orders/return-action-dialog";
-import { formatChannelDateTime, formatChannelDateTimeLong } from "@/lib/channels/utils";
+import { formatChannelDateTime, formatChannelDateTimeLong } from "@/lib/utils";
 import { SyncFinancesButton } from "@/components/organisms/orders/sync-finances-button";
 import {
   Tooltip,

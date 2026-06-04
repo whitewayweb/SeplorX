@@ -1,3 +1,4 @@
+import "server-only";
 import { MARKETPLACE_MAP } from "./amazon/config";
 import { decrypt, isEncrypted } from "@/lib/crypto";
 import { logger } from "@/lib/logger";
@@ -80,49 +81,3 @@ export async function getChannelLocale(channelType: string, rawCredentials: Reco
   return "en-US";
 }
 
-/**
- * Formats a date or timestamp to a string using the provided timezone and locale.
- *
- * Use this across all pages that display channel-specific dates.
- */
-export function formatChannelDateTime(
-  value: Date | string | number | null | undefined,
-  timeZone: string = "UTC",
-  locale: string = "en-US"
-): string {
-  if (!value) return "—";
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-
-  return date.toLocaleString(locale, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone,
-  });
-}
-
-/**
- * Formats a date to a long format string using the provided timezone and locale.
- */
-export function formatChannelDateTimeLong(
-  value: Date | string | number | null | undefined,
-  timeZone: string = "UTC",
-  locale: string = "en-US"
-): string {
-  if (!value) return "—";
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-
-  return date.toLocaleString(locale, {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone,
-  });
-}

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { encryptSync } from "@/lib/crypto";
-import { decryptChannelCredentials, getAmazonTimeZone, getChannelTimeZone, getAmazonLocale, getChannelLocale, formatChannelDateTime, formatChannelDateTimeLong } from "../utils";
+import { decryptChannelCredentials, getAmazonTimeZone, getChannelTimeZone, getAmazonLocale, getChannelLocale } from "../utils";
+import { formatChannelDateTime, formatChannelDateTimeLong } from "@/lib/utils";
 
 // ─── decryptChannelCredentials ────────────────────────────────────────────────
 
