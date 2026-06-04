@@ -12,6 +12,8 @@ import {
 } from "@/db/schema";
 import { getPendingStockSyncProductCount } from "@/data/products";
 import { channelRegistry, getChannelById } from "@/lib/channels/registry";
+import { getConnectedChannelsForUser } from "@/lib/channels/queries";
+import { getChannelTimeZone } from "@/lib/channels/utils";
 import { getFinanceProfitAdjustmentSql } from "@/lib/order-finance/service";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
@@ -209,18 +211,29 @@ export function parseDashboardRange(value: string | string[] | undefined): Dashb
   return option?.days ?? 7;
 }
 
-function getDashboardWindow(days: DashboardRangeDays): DashboardWindow {
-  const now = new Date();
-  const todayStart = new Date(now);
-  todayStart.setHours(0, 0, 0, 0);
+async function getDashboardWindow(days: DashboardRangeDays, tz: string): Promise<DashboardWindow> {
+  const result = await db.execute(sql`
+    select 
+      timezone('UTC', date_trunc('day', timezone(${tz}, now()))) as today_start,
+      timezone('UTC', date_trunc('day', timezone(${tz}, now())) - interval '${sql.raw(days.toString())} days') as period_start,
+      timezone('UTC', date_trunc('day', timezone(${tz}, now())) - interval '${sql.raw((days * 2).toString())} days') as previous_period_start,
+      timezone('UTC', date_trunc('day', timezone(${tz}, now())) - interval '30 days') as thirty_days_ago,
+      timezone('UTC', date_trunc('day', timezone(${tz}, now())) - interval '60 days') as sixty_days_ago
+  `);
+  
+  const resultObj = result as unknown as Record<string, unknown>;
+  const rowList = resultObj.rows as Record<string, unknown>[] | undefined;
+  const row = rowList ? rowList[0] : (result as Record<string, unknown>[])[0];
+  const toIso = (val: unknown) => val instanceof Date ? val.toISOString() : new Date(String(val) + "Z").toISOString();
+
   const label = DASHBOARD_RANGES.find((range) => range.days === days)?.label ?? "7 days";
 
   return {
-    todayStart: todayStart.toISOString(),
-    periodStart: new Date(now.getTime() - days * DAY_MS).toISOString(),
-    previousPeriodStart: new Date(now.getTime() - days * 2 * DAY_MS).toISOString(),
-    thirtyDaysAgo: new Date(now.getTime() - 30 * DAY_MS).toISOString(),
-    sixtyDaysAgo: new Date(now.getTime() - 60 * DAY_MS).toISOString(),
+    todayStart: toIso(row.today_start),
+    periodStart: toIso(row.period_start),
+    previousPeriodStart: toIso(row.previous_period_start),
+    thirtyDaysAgo: toIso(row.thirty_days_ago),
+    sixtyDaysAgo: toIso(row.sixty_days_ago),
     days,
     label,
   };
@@ -529,11 +542,14 @@ async function getInventoryRisk(window: DashboardWindow): Promise<DashboardInven
   };
 }
 
-async function getTrend(userId: number, window: DashboardWindow): Promise<DashboardTrendPoint[]> {
+async function getTrend(userId: number, window: DashboardWindow, tz: string): Promise<DashboardTrendPoint[]> {
+  const safeTz = tz.replace(/'/g, "");
+  const dayExpr = sql`date_trunc('day', timezone(${sql.raw(`'${safeTz}'`)}, timezone('UTC', ${salesOrders.purchasedAt})))`;
+
   const rows = await db
     .select({
-      day: sql<string>`to_char(date_trunc('day', ${salesOrders.purchasedAt}), 'Dy')`,
-      sortDay: sql<string>`to_char(date_trunc('day', ${salesOrders.purchasedAt}), 'YYYY-MM-DD')`,
+      day: sql<string>`to_char(${dayExpr}, 'Dy')`,
+      sortDay: sql<string>`to_char(${dayExpr}, 'YYYY-MM-DD')`,
       revenue: sql<string>`coalesce(sum(${salesOrders.totalAmount}), 0)`,
       orders: sql<number>`count(*)::int`,
     })
@@ -546,8 +562,8 @@ async function getTrend(userId: number, window: DashboardWindow): Promise<Dashbo
         inArray(salesOrders.status, ACTIVE_REVENUE_STATUSES),
       ),
     )
-    .groupBy(sql`date_trunc('day', ${salesOrders.purchasedAt})`)
-    .orderBy(sql`date_trunc('day', ${salesOrders.purchasedAt})`);
+    .groupBy(dayExpr)
+    .orderBy(dayExpr);
 
   return rows.map((row) => ({
     id: row.sortDay,
@@ -744,7 +760,13 @@ export async function getCommerceDashboardData(
   userId: number,
   options: { rangeDays?: DashboardRangeDays } = {},
 ): Promise<CommerceDashboardData> {
-  const window = getDashboardWindow(options.rangeDays ?? 7);
+  const userChannels = await getConnectedChannelsForUser(userId);
+  let tz = "UTC";
+  if (userChannels.length > 0) {
+    tz = await getChannelTimeZone(userChannels[0].channelType, userChannels[0].credentials);
+  }
+
+  const window = await getDashboardWindow(options.rangeDays ?? 7, tz);
 
   const [
     sales,
@@ -761,7 +783,7 @@ export async function getCommerceDashboardData(
     getOperationalSummary(userId),
     getInventoryRisk(window),
     getPendingStockSyncProductCount(userId),
-    getTrend(userId, window),
+    getTrend(userId, window, tz),
     getOrderWork(userId),
     getChannelPerformance(userId, window),
     getTopProducts(userId, window),

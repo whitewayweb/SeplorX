@@ -33,6 +33,7 @@ interface AmazonMarketplace {
   domain: string;
   region: "na" | "eu" | "fe";
   timezone?: string;
+  locale?: string;
 }
 
 /**
@@ -47,6 +48,7 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
     domain: "amazon.com",
     region: "na",
     timezone: "America/Los_Angeles",
+    locale: "en-US",
   },
   {
     id: "A2EUQ1WTGCTBG2",
@@ -54,6 +56,7 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
     domain: "amazon.ca",
     region: "na",
     timezone: "America/Toronto",
+    locale: "en-CA",
   },
   {
     id: "A1AM78C64UM0Y8",
@@ -61,6 +64,7 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
     domain: "amazon.com.mx",
     region: "na",
     timezone: "America/Mexico_City",
+    locale: "es-MX",
   },
   {
     id: "A2Q3Y263D00KWC",
@@ -68,6 +72,7 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
     domain: "amazon.com.br",
     region: "na",
     timezone: "America/Sao_Paulo",
+    locale: "pt-BR",
   },
 
   // Europe (EU) & India
@@ -77,6 +82,7 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
     domain: "amazon.co.uk",
     region: "eu",
     timezone: "Europe/London",
+    locale: "en-GB",
   },
   {
     id: "A1PA67BAS5O4GM",
@@ -84,6 +90,7 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
     domain: "amazon.de",
     region: "eu",
     timezone: "Europe/Berlin",
+    locale: "de-DE",
   },
   {
     id: "A13V1IB3VIYZZH",
@@ -91,6 +98,7 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
     domain: "amazon.fr",
     region: "eu",
     timezone: "Europe/Paris",
+    locale: "fr-FR",
   },
   {
     id: "APJ6JRA9NG5V4",
@@ -98,6 +106,7 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
     domain: "amazon.it",
     region: "eu",
     timezone: "Europe/Rome",
+    locale: "it-IT",
   },
   {
     id: "A1RKKUPIHCS9HS",
@@ -105,6 +114,7 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
     domain: "amazon.es",
     region: "eu",
     timezone: "Europe/Madrid",
+    locale: "es-ES",
   },
   {
     id: "A1805IZSGTT6HS",
@@ -112,30 +122,39 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
     domain: "amazon.nl",
     region: "eu",
     timezone: "Europe/Amsterdam",
+    locale: "nl-NL",
   },
   {
     id: "A2NODRK31TC262",
     label: "Sweden (SE)",
     domain: "amazon.se",
     region: "eu",
+    timezone: "Europe/Stockholm",
+    locale: "sv-SE",
   },
   {
     id: "A1C37XADRE6JJA",
     label: "Poland (PL)",
     domain: "amazon.pl",
     region: "eu",
+    timezone: "Europe/Warsaw",
+    locale: "pl-PL",
   },
   {
     id: "AMEN7PMS3EDWL",
     label: "Belgium (BE)",
     domain: "amazon.com.be",
     region: "eu",
+    timezone: "Europe/Brussels",
+    locale: "nl-BE",
   },
   {
     id: "A33AVAJ2PDY3EV",
     label: "Turkey (TR)",
     domain: "amazon.com.tr",
     region: "eu",
+    timezone: "Europe/Istanbul",
+    locale: "tr-TR",
   },
   {
     id: "A21TJRUUN4KGV",
@@ -143,6 +162,7 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
     domain: "amazon.in",
     region: "eu",
     timezone: "Asia/Kolkata",
+    locale: "en-IN",
   },
   {
     id: "A2VIGQ35RCS4UG",
@@ -150,6 +170,7 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
     domain: "amazon.ae",
     region: "eu",
     timezone: "Asia/Dubai",
+    locale: "ar-AE",
   },
   {
     id: "A17E79C6D8DWNP",
@@ -157,6 +178,7 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
     domain: "amazon.sa",
     region: "eu",
     timezone: "Asia/Riyadh",
+    locale: "ar-SA",
   },
   {
     id: "ARBP9OOSHTCHU",
@@ -164,6 +186,7 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
     domain: "amazon.eg",
     region: "eu",
     timezone: "Africa/Cairo",
+    locale: "ar-EG",
   },
 
   // Far East (FE)
@@ -173,12 +196,15 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
     domain: "amazon.co.jp",
     region: "fe",
     timezone: "Asia/Tokyo",
+    locale: "ja-JP",
   },
   {
     id: "A19S7P0AHS94K",
     label: "Singapore (SG)",
     domain: "amazon.sg",
     region: "fe",
+    timezone: "Asia/Singapore",
+    locale: "en-SG",
   },
   {
     id: "A39IBJ37TRP1C6",
@@ -186,6 +212,7 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
     domain: "amazon.com.au",
     region: "fe",
     timezone: "Australia/Sydney",
+    locale: "en-AU",
   },
 ];
 

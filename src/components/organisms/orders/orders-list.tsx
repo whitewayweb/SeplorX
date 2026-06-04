@@ -14,6 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { isFinanceEligibleOrderStatus } from "@/lib/order-finance/eligibility";
 import { formatDistanceToNow } from "date-fns";
 import type { OrderItemRow } from "@/lib/orders/queries";
+import { formatChannelDateTime } from "@/lib/channels/utils";
 
 interface Order {
   id: number;
@@ -37,6 +38,7 @@ interface Channel {
   lastSyncAt?: Date | null;
   color?: string;
   timeZone?: string;
+  locale?: string;
 }
 
 interface OrdersListProps {
@@ -307,6 +309,7 @@ export function OrdersList({
               orders.map((order) => {
                 const financeStatus = getFinanceStatusMeta(order);
                 const timeZone = channels.find((c) => c.id === order.channelId)?.timeZone || "UTC";
+                const locale = channels.find((c) => c.id === order.channelId)?.locale || "en-US";
 
                 return (
                   <tr key={order.id} className="hover:bg-gray-50 transition-colors align-top">
@@ -323,14 +326,7 @@ export function OrdersList({
                           {order.purchasedAt ? formatDistanceToNow(order.purchasedAt, { addSuffix: true }) : "—"}
                         </span>
                         <span className="text-xs text-gray-500 mt-1">
-                          {order.purchasedAt?.toLocaleString("en-IN", {
-                            day: "numeric",
-                            month: "short",
-                            year: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            timeZone,
-                          }) ?? "—"}
+                          {formatChannelDateTime(order.purchasedAt, timeZone, locale)}
                         </span>
                       </div>
                     </td>

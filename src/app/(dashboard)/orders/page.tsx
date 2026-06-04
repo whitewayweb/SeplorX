@@ -2,7 +2,7 @@ import { getAuthenticatedUserId } from "@/lib/auth";
 import { getAllOrders, countAllOrders, getOrderStatusCounts, attachItemsToOrders } from "@/lib/orders/queries";
 import { getConnectedChannelsForUser, getLastSyncDate } from "@/lib/channels/queries";
 import { getChannelById } from "@/lib/channels/registry";
-import { getChannelTimeZone } from "@/lib/channels/utils";
+import { getChannelTimeZone, getChannelLocale } from "@/lib/channels/utils";
 import { getOrdersAwaitingReturnAction } from "@/data/stock";
 import { OrdersList } from "@/components/organisms/orders/orders-list";
 import { redirect } from "next/navigation";
@@ -58,6 +58,7 @@ export default async function OrdersPage({
         lastSyncAt: await getLastSyncDate(c.id),
         color: definition?.color,
         timeZone: await getChannelTimeZone(c.channelType, c.credentials),
+        locale: await getChannelLocale(c.channelType, c.credentials),
       };
     })
   );

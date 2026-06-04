@@ -7,12 +7,13 @@ import {
 } from "@/lib/order-finance/service";
 import { getChannelById } from "@/lib/channels/registry";
 import { getChannelForUser } from "@/lib/channels/queries";
-import { getChannelTimeZone } from "@/lib/channels/utils";
+import { getChannelTimeZone, getChannelLocale } from "@/lib/channels/utils";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, CircleHelp, Lock, RotateCcw } from "lucide-react";
 import type { OrdersV0Schema } from "@/lib/channels/amazon/api/types/ordersV0Schema";
 import { ReturnActionDialog } from "@/components/organisms/orders/return-action-dialog";
+import { formatChannelDateTime, formatChannelDateTimeLong } from "@/lib/channels/utils";
 import { SyncFinancesButton } from "@/components/organisms/orders/sync-finances-button";
 import {
   Tooltip,
@@ -48,18 +49,6 @@ function formatMoney(currency: string | null, amount: number): string {
   } catch {
     return `${currency ?? ""} ${amount.toFixed(2)}`.trim();
   }
-}
-
-function formatDateTime(value: Date | string | number | null, timeZone: string = "UTC"): string {
-  if (!value) return "—";
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-
-  return new Intl.DateTimeFormat("en-GB", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone,
-  }).format(date);
 }
 
 function HelpTooltip({ text }: { text: string }) {
@@ -172,6 +161,7 @@ export default async function OrderDetailPage({
   ]);
   
   const timeZone = channelObj ? await getChannelTimeZone(channelObj.channelType, channelObj.credentials) : "UTC";
+  const locale = channelObj ? await getChannelLocale(channelObj.channelType, channelObj.credentials) : "en-US";
 
   // Read from the narrowed JSONB fields directly
   const rawOrder = order.rawOrder;
@@ -210,10 +200,7 @@ export default async function OrderDetailPage({
           <div>
             <h1 className="text-2xl font-bold font-mono">{order.externalOrderId}</h1>
             <p className="text-gray-500 mt-0.5">
-              {order.purchasedAt?.toLocaleString("en-IN", {
-                weekday: "long", day: "numeric", month: "long", year: "numeric",
-                hour: "2-digit", minute: "2-digit", timeZone
-              })}
+              {formatChannelDateTimeLong(order.purchasedAt, timeZone, locale)}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -394,7 +381,7 @@ export default async function OrderDetailPage({
                         and captured SeplorX product cost.
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
-                        Amazon finance synced {formatDateTime(financeSummary?.syncedAt ?? null, timeZone)}
+                        Amazon finance synced {formatChannelDateTime(financeSummary?.syncedAt ?? null, timeZone, locale)}
                       </p>
                     </div>
                     <div className="text-right shrink-0">
@@ -609,7 +596,7 @@ export default async function OrderDetailPage({
                           {res.productSku ? `SKU: ${res.productSku}` : `ID: ${res.productId ?? "—"}`}
                         </div>
                         <div className="mt-1 text-xs text-gray-500">
-                          Reserved {formatDateTime(res.createdAt, timeZone)}
+                          Reserved {formatChannelDateTime(res.createdAt, timeZone, locale)}
                         </div>
                       </div>
                       <div className="shrink-0 text-right">

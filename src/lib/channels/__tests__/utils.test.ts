@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { encryptSync } from "@/lib/crypto";
-import { decryptChannelCredentials, getAmazonTimeZone, getChannelTimeZone } from "../utils";
+import { decryptChannelCredentials, getAmazonTimeZone, getChannelTimeZone, getAmazonLocale, getChannelLocale, formatChannelDateTime, formatChannelDateTimeLong } from "../utils";
 
 // ─── decryptChannelCredentials ────────────────────────────────────────────────
 
@@ -140,5 +140,71 @@ describe("getChannelTimeZone", () => {
   it("returns UTC for amazon channel with unknown marketplace ID", async () => {
     const creds = { marketplaceId: "UNKNOWN" };
     expect(await getChannelTimeZone("amazon", creds)).toBe("UTC");
+  });
+});
+
+describe("getAmazonLocale", () => {
+  it("returns specific locales for known Amazon marketplace IDs", () => {
+    const cases = [
+      { id: "A21TJRUUN4KGV", locale: "en-IN" },
+      { id: "A1F83G8C2ARO7P", locale: "en-GB" },
+    ];
+    for (const { id, locale } of cases) {
+      expect(getAmazonLocale(id)).toBe(locale);
+    }
+  });
+
+  it("returns en-US for unknown marketplace IDs", () => {
+    expect(getAmazonLocale("UNKNOWN")).toBe("en-US");
+    expect(getAmazonLocale()).toBe("en-US");
+  });
+});
+
+describe("getChannelLocale", () => {
+  it("returns en-US for non-amazon channels", async () => {
+    expect(await getChannelLocale("woocommerce", null)).toBe("en-US");
+  });
+
+  it("returns specific locale for amazon channel with known marketplace ID", async () => {
+    const creds = { marketplaceId: "A21TJRUUN4KGV" };
+    expect(await getChannelLocale("amazon", creds)).toBe("en-IN");
+  });
+
+  it("returns en-US for amazon channel with unknown marketplace ID", async () => {
+    const creds = { marketplaceId: "UNKNOWN" };
+    expect(await getChannelLocale("amazon", creds)).toBe("en-US");
+  });
+});
+
+describe("formatChannelDateTime", () => {
+  const testDate = new Date("2026-06-03T18:30:00.000Z"); // Midnight IST next day, or 6:30 PM UTC
+
+  it("returns fallback for invalid dates", () => {
+    expect(formatChannelDateTime(null)).toBe("—");
+    expect(formatChannelDateTime("invalid-date")).toBe("—");
+  });
+
+  it("formats date correctly with given timezone and locale", () => {
+    // en-GB uses DD MMM YYYY format
+    const formatted = formatChannelDateTime(testDate, "Europe/London", "en-GB");
+    // 18:30 in UTC is 19:30 in BST (London summer time in June)
+    expect(formatted).toMatch(/3 Jun 2026/);
+    expect(formatted).toMatch(/19:30/);
+  });
+});
+
+describe("formatChannelDateTimeLong", () => {
+  const testDate = new Date("2026-06-03T18:30:00.000Z");
+
+  it("returns fallback for invalid dates", () => {
+    expect(formatChannelDateTimeLong(null)).toBe("—");
+    expect(formatChannelDateTimeLong("invalid-date")).toBe("—");
+  });
+
+  it("formats date to long format with given timezone and locale", () => {
+    const formatted = formatChannelDateTimeLong(testDate, "Asia/Kolkata", "en-IN");
+    // 18:30 UTC is exactly 00:00 next day (June 4) in IST (+05:30)
+    expect(formatted).toMatch(/Thursday, 4 June 2026/i);
+    expect(formatted).toMatch(/12:00\s*am/i);
   });
 });
