@@ -257,6 +257,23 @@ export async function POST(request: Request) {
                   maxFinanceBatches: MAX_FINANCE_BATCHES_PER_WORKER,
                   remainingTimeMs: remainingTimeMs(),
                 });
+
+                fetch(request.url, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${process.env.CRON_JOB_KEY}`,
+                    "x-vercel-cron": "0",
+                  },
+                  body: JSON.stringify({ channelId, financeOnly: true }),
+                  cache: "no-store",
+                }).catch((err) => {
+                  logger.error("failed to dispatch finance continuation", {
+                    component: "sync-worker",
+                    channelId,
+                    error: err,
+                  });
+                });
               }
             }
 
