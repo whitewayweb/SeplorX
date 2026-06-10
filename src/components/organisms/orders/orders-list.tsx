@@ -57,12 +57,12 @@ const FINANCE_STATUS_META = {
   unsynced: {
     label: "Missing",
     className: "bg-yellow-50 text-yellow-800 ring-yellow-200",
-    helper: "Auto sync pending",
+    helper: "Manual sync required",
   },
   pending: {
-    label: "Auto sync",
+    label: "Needs sync",
     className: "bg-blue-50 text-blue-800 ring-blue-200",
-    helper: "Automatic retry pending",
+    helper: "Manual sync required",
   },
   synced: {
     label: "Synced",
@@ -72,12 +72,12 @@ const FINANCE_STATUS_META = {
   no_data: {
     label: "No data",
     className: "bg-gray-100 text-gray-700 ring-gray-200",
-    helper: "Auto retry scheduled",
+    helper: "Manual sync required",
   },
   failed: {
     label: "Failed",
     className: "bg-red-50 text-red-800 ring-red-200",
-    helper: "Auto retry scheduled",
+    helper: "Manual retry required",
   },
   not_supported: {
     label: "N/A",
