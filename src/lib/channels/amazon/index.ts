@@ -210,6 +210,12 @@ export const amazonHandler: ChannelHandler = {
       for (const amzOrder of pageOrders) {
         try {
           logger.info(`[Amazon Sync] Processing order ${amzOrder.AmazonOrderId} (${amzOrder.OrderStatus})`);
+          // Skip Non-Amazon (MCF or Removal) orders
+          if (amzOrder.SalesChannel === 'Non-Amazon') {
+            logger.info(`[Amazon Sync] Skipping Non-Amazon order ${amzOrder.AmazonOrderId} (MCF/Removal)`);
+            continue;
+          }
+
           // Pre-check for existing order
           const [existing] = await db
             .select({
@@ -624,6 +630,11 @@ export const amazonHandler: ChannelHandler = {
         const latestOrder = await client.getOrder(externalOrderId);
         fetched++;
         if (!latestOrder) continue;
+
+        // Skip Non-Amazon (MCF or Removal) orders
+        if (latestOrder.SalesChannel === 'Non-Amazon') {
+          continue;
+        }
 
         const [existing] = await db
           .select({
