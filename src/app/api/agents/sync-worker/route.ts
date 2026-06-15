@@ -1,6 +1,5 @@
 import { NextResponse, after } from "next/server";
 import { getChannelHandler } from "@/lib/channels/handlers";
-import type { OrderFinanceSyncResult } from "@/lib/channels/types";
 import {
   claimOrderSyncChannel,
   isOrderSyncEnabled,
@@ -8,11 +7,6 @@ import {
   releaseOrderSyncClaim,
 } from "@/lib/agents/order-sync-state";
 import { logger } from "@/lib/logger";
-
-const BACKGROUND_FINANCE_SYNC_LIMIT = 10;
-const MAX_FINANCE_BATCHES_PER_WORKER = 3;
-const DEFAULT_FINANCE_BATCH_BUDGET_MS = 5_000;
-const AMAZON_FINANCE_BATCH_BUDGET_MS = 30_000;
 
 export const maxDuration = 60;
 
@@ -91,10 +85,7 @@ export async function POST(request: Request) {
             channelType: channel.channelType,
           },
           async () => {
-            const startTime = Date.now();
             let orderSyncSucceeded = false;
-            let orderSyncSavedOrders = false;
-            let orderSyncClaimFinalized = false;
             let orderSyncClaimFinalized = false;
 
             if (handler.fetchAndSaveOrders) {
@@ -117,7 +108,6 @@ export async function POST(request: Request) {
                     });
                     const result = await fetchAndSaveOrders(channel.userId, channel.id);
                     orderSyncSucceeded = true;
-                    orderSyncSavedOrders = result.saved > 0;
                     try {
                       await markOrderSyncSucceeded(channel.id);
                       orderSyncClaimFinalized = true;

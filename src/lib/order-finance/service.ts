@@ -240,6 +240,101 @@ export async function getOrderFinanceSummary(
   };
 }
 
+export async function getOrderFinanceSummariesBulk(
+  userId: number,
+  orderIds: number[],
+): Promise<Map<number, OrderFinanceSummary>> {
+  if (orderIds.length === 0) return new Map();
+
+  const idsList = sql.join(orderIds, sql`, `);
+
+  const rows = await db.execute(sql`
+    WITH owned_orders AS (
+      SELECT so.id
+      FROM sales_orders so
+      JOIN channels c ON c.id = so.channel_id
+      WHERE c.user_id = ${userId}
+        AND so.id IN (${idsList})
+    ),
+    component_totals AS (
+      SELECT
+        sofe.order_id,
+        coalesce(sum(sofc.amount::numeric) filter (where sofc.amount_role = 'principal'), 0) AS "principal",
+        coalesce(sum(sofc.amount::numeric) filter (where sofc.amount_role = 'tax'), 0) AS "tax",
+        coalesce(sum(sofc.amount::numeric) filter (where sofc.amount_role = 'shipping_revenue'), 0) AS "shippingRevenue",
+        coalesce(sum(sofc.amount::numeric) filter (where sofc.amount_role = 'discount'), 0) AS "discount",
+        coalesce(sum(sofc.amount::numeric) filter (where sofc.amount_role = 'order_fee_revenue'), 0) AS "orderFeeRevenue",
+        coalesce(sum(sofc.amount::numeric) filter (where sofc.amount_role = 'marketplace_fee'), 0) AS "marketplaceFee",
+        coalesce(sum(sofc.amount::numeric) filter (where sofc.amount_role = 'payment_fee'), 0) AS "paymentFee",
+        coalesce(sum(sofc.amount::numeric) filter (where sofc.amount_role = 'withholding'), 0) AS "withholding",
+        coalesce(sum(sofc.amount::numeric) filter (where sofc.amount_role = 'refund'), 0) AS "refund",
+        coalesce(sum(sofc.amount::numeric) filter (where sofc.amount_role = 'adjustment'), 0) AS "adjustment",
+        coalesce(sum(sofc.amount::numeric) filter (where sofc.amount_role = 'other'), 0) AS "other",
+        coalesce(sum(sofc.amount::numeric) filter (
+          where sofc.amount_role in ('marketplace_fee', 'payment_fee', 'withholding', 'adjustment', 'other')
+        ), 0) AS "netProfitAdjustment"
+      FROM sales_order_finance_events sofe
+      JOIN sales_order_finance_components sofc ON sofc.finance_event_id = sofe.id
+      WHERE sofe.order_id IN (${idsList})
+      GROUP BY sofe.order_id
+    )
+    SELECT
+      owned_orders.id AS "orderId",
+      sofs.status AS "syncStatus",
+      sofs.source,
+      sofs.last_attempt_at AS "lastAttemptAt",
+      sofs.synced_at AS "syncedAt",
+      sofs.last_error_code AS "lastErrorCode",
+      sofs.last_error_message AS "lastErrorMessage",
+      0 AS "eventCount",
+      null AS "latestPostedAt",
+      coalesce(component_totals."principal", 0) AS "principal",
+      coalesce(component_totals."tax", 0) AS "tax",
+      coalesce(component_totals."shippingRevenue", 0) AS "shippingRevenue",
+      coalesce(component_totals."discount", 0) AS "discount",
+      coalesce(component_totals."orderFeeRevenue", 0) AS "orderFeeRevenue",
+      coalesce(component_totals."marketplaceFee", 0) AS "marketplaceFee",
+      coalesce(component_totals."paymentFee", 0) AS "paymentFee",
+      coalesce(component_totals."withholding", 0) AS "withholding",
+      coalesce(component_totals."refund", 0) AS "refund",
+      coalesce(component_totals."adjustment", 0) AS "adjustment",
+      coalesce(component_totals."other", 0) AS "other",
+      coalesce(component_totals."netProfitAdjustment", 0) AS "netProfitAdjustment"
+    FROM owned_orders
+    LEFT JOIN sales_order_finance_syncs sofs ON sofs.order_id = owned_orders.id
+    LEFT JOIN component_totals ON component_totals.order_id = owned_orders.id
+  `);
+
+  const map = new Map<number, OrderFinanceSummary>();
+  for (const row of rows) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const value = row as any;
+    map.set(value.orderId, {
+      syncStatus: value.syncStatus,
+      source: value.source,
+      lastAttemptAt: toDate(value.lastAttemptAt),
+      syncedAt: toDate(value.syncedAt),
+      lastErrorCode: value.lastErrorCode,
+      lastErrorMessage: value.lastErrorMessage,
+      eventCount: Number(value.eventCount ?? 0),
+      latestPostedAt: toDate(value.latestPostedAt),
+      principal: toNumber(value.principal),
+      tax: toNumber(value.tax),
+      shippingRevenue: toNumber(value.shippingRevenue),
+      discount: toNumber(value.discount),
+      orderFeeRevenue: toNumber(value.orderFeeRevenue),
+      marketplaceFee: toNumber(value.marketplaceFee),
+      paymentFee: toNumber(value.paymentFee),
+      withholding: toNumber(value.withholding),
+      refund: toNumber(value.refund),
+      adjustment: toNumber(value.adjustment),
+      other: toNumber(value.other),
+      netProfitAdjustment: toNumber(value.netProfitAdjustment),
+    });
+  }
+  return map;
+}
+
 export async function getFinanceProfitAdjustmentSql(
   userId: number,
   periodStart: string,

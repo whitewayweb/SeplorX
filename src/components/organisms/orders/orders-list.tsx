@@ -30,6 +30,10 @@ interface Order {
   financeSyncedAt: Date | null;
   financeNextAttemptAt: Date | null;
   items?: OrderItemRow[];
+  estimatedProfit?: number | null;
+  estimatedSales?: number | null;
+  estimatedFees?: number | null;
+  estimatedCost?: number | null;
 }
 
 interface Channel {
@@ -295,7 +299,7 @@ export function OrdersList({
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Image</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product Name</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Financials</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
@@ -406,12 +410,36 @@ export function OrdersList({
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right">
-                      <div className="flex flex-col gap-3 items-end">
+                      <div className="flex flex-col gap-1.5 items-end">
                         <div className="text-sm font-bold text-gray-900">
                           {order.currency && order.totalAmount
                             ? `${order.currency} ${parseFloat(order.totalAmount).toFixed(2)}`
                             : "—"}
                         </div>
+                        {order.estimatedProfit !== undefined && order.estimatedProfit !== null && order.currency ? (
+                          <div className="text-[11px] text-gray-500 flex flex-col items-end gap-0.5 mt-1 border-t border-gray-100 pt-1.5 min-w-[130px]">
+                            <div className="flex justify-between w-full gap-3">
+                              <span>Sales:</span>
+                              <span className="font-medium text-gray-700">{order.estimatedSales ? order.estimatedSales.toFixed(2) : "0.00"}</span>
+                            </div>
+                            <div className="flex justify-between w-full gap-3">
+                              <span>Fees:</span>
+                              <span className="font-medium text-gray-700">{order.estimatedFees ? order.estimatedFees.toFixed(2) : "0.00"}</span>
+                            </div>
+                            <div className="flex justify-between w-full gap-3">
+                              <span>Cost:</span>
+                              <span className="font-medium text-gray-700">{order.estimatedCost ? order.estimatedCost.toFixed(2) : "0.00"}</span>
+                            </div>
+                            <div className="flex justify-between w-full gap-3 pt-0.5 border-t border-dashed border-gray-200 mt-0.5">
+                              <span className="font-semibold text-gray-800">Profit:</span>
+                              <span className={cn("font-bold", order.estimatedProfit >= 0 ? "text-green-600" : "text-red-600")}>
+                                {order.estimatedProfit.toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-gray-400 mt-1">Profit missing</span>
+                        )}
                       </div>
                     </td>
                   </tr>

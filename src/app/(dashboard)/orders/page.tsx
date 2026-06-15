@@ -10,6 +10,7 @@ import Link from "next/link";
 import { parsePaginationParams } from "@/lib/utils/pagination";
 import { salesOrderStatusEnum } from "@/db/schema";
 import { triggerOnDemandSync } from "@/lib/agents/on-demand-sync";
+import { getOrderFinanceSummariesBulk } from "@/lib/order-finance/service";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +66,44 @@ export default async function OrdersPage({
 
   const ordersWithItems = await attachItemsToOrders(userId, allOrders);
 
+  const orderIds = ordersWithItems.map((o) => o.id);
+  const financeSummariesMap = await getOrderFinanceSummariesBulk(userId, orderIds);
+
+  const enrichedOrders = ordersWithItems.map((order) => {
+    const summary = financeSummariesMap.get(order.id);
+    let estimatedProfit: number | null = null;
+    let estimatedSales: number | null = null;
+    let estimatedFees: number | null = null;
+    let estimatedCost: number | null = null;
+
+    if (summary) {
+      const salesRevenue = summary.principal + summary.shippingRevenue + summary.orderFeeRevenue + summary.discount;
+      const amazonFees = summary.marketplaceFee + summary.paymentFee + summary.other;
+      const netBeforeProductCost = salesRevenue + amazonFees + summary.withholding + (summary.refund + summary.adjustment);
+
+      const productCost = (order.items || []).reduce((total, item) => {
+        const unitCost = item.unitCost !== null ? Number(item.unitCost) : null;
+        if (unitCost !== null && Number.isFinite(unitCost)) {
+          return total + unitCost * item.quantity;
+        }
+        return total;
+      }, 0);
+
+      estimatedProfit = netBeforeProductCost - productCost;
+      estimatedSales = salesRevenue;
+      estimatedFees = Math.abs(amazonFees + summary.withholding + summary.refund + summary.adjustment);
+      estimatedCost = productCost;
+    }
+
+    return {
+      ...order,
+      estimatedProfit,
+      estimatedSales,
+      estimatedFees,
+      estimatedCost,
+    };
+  });
+
   return (
     <>
       {returnsAwaiting.length > 0 && (
@@ -82,7 +121,7 @@ export default async function OrdersPage({
         </div>
       )}
       <OrdersList
-        orders={ordersWithItems}
+        orders={enrichedOrders}
         channels={connectedChannels}
         title="All Sales Orders"
         currentPage={page}

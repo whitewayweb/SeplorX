@@ -65,15 +65,11 @@ describe("sync-worker route", () => {
     });
   });
 
-  it("fetches orders before running channel finance sync", async () => {
+  it("fetches orders for channel sync", async () => {
     const calls: string[] = [];
     const fetchAndSaveOrders = vi.fn(async () => {
       calls.push("orders");
       return { fetched: 1, saved: 0 };
-    });
-    const syncOrderFinances = vi.fn(async () => {
-      calls.push("finance");
-      return { checked: 0, synced: 0, noData: 0, failed: 0, notSupported: 0 };
     });
     mocks.markOrderSyncSucceeded.mockImplementation(async () => {
       calls.push("mark");
@@ -81,7 +77,6 @@ describe("sync-worker route", () => {
 
     mocks.getChannelHandler.mockReturnValue({
       fetchAndSaveOrders,
-      syncOrderFinances,
     });
 
     const response = await POST(createSyncRequest());
@@ -89,37 +84,17 @@ describe("sync-worker route", () => {
 
     await mocks.afterCallbacks[0]();
 
-    expect(calls).toEqual(["orders", "mark", "finance"]);
+    expect(calls).toEqual(["orders", "mark"]);
     expect(fetchAndSaveOrders).toHaveBeenCalledWith(1, 12);
-    expect(syncOrderFinances).toHaveBeenCalledWith(1, 12, {
-      limit: 10,
-      retryFailed: true,
-    });
     expect(mocks.markOrderSyncSucceeded).toHaveBeenCalledWith(12);
     expect(mocks.releaseOrderSyncClaim).not.toHaveBeenCalled();
   });
 
-  it("keeps finance-only requests scoped to finance work", async () => {
-    const fetchAndSaveOrders = vi.fn();
-    const syncOrderFinances = vi.fn(async () => ({
-      checked: 0,
-      synced: 0,
-      noData: 0,
-      failed: 0,
-      notSupported: 0,
-    }));
-
-    mocks.getChannelHandler.mockReturnValue({
-      fetchAndSaveOrders,
-      syncOrderFinances,
-    });
-
-    await POST(createSyncRequest({ channelId: 12, financeOnly: true }));
-    await mocks.afterCallbacks[0]();
-
-    expect(fetchAndSaveOrders).not.toHaveBeenCalled();
-    expect(syncOrderFinances).toHaveBeenCalledOnce();
-    expect(mocks.markOrderSyncSucceeded).not.toHaveBeenCalled();
-    expect(mocks.releaseOrderSyncClaim).toHaveBeenCalledWith(12);
+  it("skips finance-only requests because auto-finance sync is disabled", async () => {
+    const response = await POST(createSyncRequest({ channelId: 12, financeOnly: true }));
+    expect(response.status).toBe(202);
+    const data = await response.json();
+    expect(data.skipped).toBe(true);
+    expect(mocks.afterCallbacks).toHaveLength(0);
   });
 });
