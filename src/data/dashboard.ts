@@ -179,6 +179,8 @@ interface SalesSummary {
   ordersPeriod: number;
   knownCostRevenuePeriod: number;
   grossProfitPeriod: number;
+  baseGrossProfitPeriod: number;
+  financeAdjustmentsPeriod: number;
   estimatedCostPeriod: number;
   missingCostRevenue: number;
 }
@@ -188,6 +190,8 @@ export interface DashboardProfitAndLoss {
   knownCostRevenue: number;
   estimatedCost: number;
   grossProfit: number;
+  baseGrossProfit: number;
+  financeAdjustments: number;
   missingCostRevenue: number;
   grossMarginPercent: number;
   averageOrderValue: number;
@@ -338,7 +342,7 @@ async function getSalesSummary(userId: number, window: DashboardWindow): Promise
           ${salesOrderItems.price}::numeric * ${salesOrderItems.quantity}
         ) filter (where ${salesOrderItems.unitCost} is not null), 0)`,
         grossProfitPeriod: sql<string>`coalesce(sum(
-          (${salesOrderItems.price}::numeric - ${salesOrderItems.unitCost}) * ${salesOrderItems.quantity}
+          (coalesce(${salesOrderItems.price}::numeric, 0) - ${salesOrderItems.unitCost}) * ${salesOrderItems.quantity}
         ) filter (where ${salesOrderItems.unitCost} is not null), 0)`,
         estimatedCostPeriod: sql<string>`coalesce(sum(
           ${salesOrderItems.unitCost} * ${salesOrderItems.quantity}
@@ -371,6 +375,8 @@ async function getSalesSummary(userId: number, window: DashboardWindow): Promise
     ordersPeriod: toNumber(row?.ordersPeriod),
     knownCostRevenuePeriod: toNumber(profit?.knownCostRevenuePeriod),
     grossProfitPeriod: toNumber(profit?.grossProfitPeriod) + financeProfitAdjustmentPeriod,
+    baseGrossProfitPeriod: toNumber(profit?.grossProfitPeriod),
+    financeAdjustmentsPeriod: financeProfitAdjustmentPeriod,
     estimatedCostPeriod: toNumber(profit?.estimatedCostPeriod),
     missingCostRevenue: toNumber(profit?.missingCostRevenue),
   };
@@ -795,11 +801,13 @@ export async function getCommerceDashboardData(
   const averageOrderValue = sales.ordersPeriod > 0
     ? sales.revenuePeriod / sales.ordersPeriod
     : 0;
-  const profitAndLoss = {
+  const profitAndLoss: DashboardProfitAndLoss = {
     revenue: sales.revenuePeriod,
     knownCostRevenue: sales.knownCostRevenuePeriod,
     estimatedCost: sales.estimatedCostPeriod,
     grossProfit: sales.grossProfitPeriod,
+    baseGrossProfit: sales.baseGrossProfitPeriod,
+    financeAdjustments: sales.financeAdjustmentsPeriod,
     missingCostRevenue: sales.missingCostRevenue,
     grossMarginPercent,
     averageOrderValue,

@@ -58,3 +58,4 @@ next-env.d.ts
 /src/db
 *.sql
 !/drizzle/*.sql
+/scratch

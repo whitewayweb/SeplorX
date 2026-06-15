@@ -144,9 +144,21 @@ function ProfitAndLossCard({ dashboard }: { dashboard: CommerceDashboardData }) 
       tone: "text-muted-foreground",
     },
     {
-      label: "Known-cost gross profit",
+      label: "Base gross profit",
+      value: formatCurrency(dashboard.profitAndLoss.baseGrossProfit),
+      tone: "text-muted-foreground",
+    },
+    {
+      label: "Finance & marketplace fees",
+      value: dashboard.profitAndLoss.financeAdjustments < 0 
+        ? formatCurrency(dashboard.profitAndLoss.financeAdjustments)
+        : `+${formatCurrency(dashboard.profitAndLoss.financeAdjustments)}`,
+      tone: "text-amber-700",
+    },
+    {
+      label: "Known-cost net profit",
       value: formatCurrency(dashboard.profitAndLoss.grossProfit),
-      tone: "text-emerald-700",
+      tone: dashboard.profitAndLoss.grossProfit >= 0 ? "text-emerald-700" : "text-destructive",
     },
     {
       label: "Sales missing product cost",
