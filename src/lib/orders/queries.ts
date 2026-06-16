@@ -39,6 +39,7 @@ export interface OrderRow {
   financeSyncStatus: FinanceSyncStatus | null;
   financeSyncedAt: Date | null;
   financeNextAttemptAt: Date | null;
+  stockProcessed: boolean;
 }
 
 export interface OrderDetail {
@@ -104,6 +105,7 @@ export async function getAllOrders(
       financeSyncStatus: salesOrderFinanceSyncs.status,
       financeSyncedAt: salesOrderFinanceSyncs.syncedAt,
       financeNextAttemptAt: salesOrderFinanceSyncs.nextAttemptAt,
+      stockProcessed: salesOrders.stockProcessed,
     })
     .from(salesOrders)
     .innerJoin(channels, eq(salesOrders.channelId, channels.id))
@@ -192,6 +194,7 @@ export async function getOrdersByChannel(
       financeSyncStatus: salesOrderFinanceSyncs.status,
       financeSyncedAt: salesOrderFinanceSyncs.syncedAt,
       financeNextAttemptAt: salesOrderFinanceSyncs.nextAttemptAt,
+      stockProcessed: salesOrders.stockProcessed,
     })
     .from(salesOrders)
     .innerJoin(

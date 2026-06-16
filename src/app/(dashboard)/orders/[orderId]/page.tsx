@@ -5,6 +5,11 @@ import {
   getOrderFinanceComponentBreakdown,
   getOrderFinanceSummary,
 } from "@/lib/order-finance/service";
+import {
+  computeProductCost,
+  buildSellerFinanceView,
+  computeEffectiveProductCost,
+} from "@/lib/order-finance/profit";
 import { getChannelById } from "@/lib/channels/registry";
 import { getChannelForUser } from "@/lib/channels/queries";
 import { getChannelTimeZone, getChannelLocale } from "@/lib/channels/utils";
@@ -81,67 +86,6 @@ function parseMoneyValue(value: string | null): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function getOrderProductCost(
-  items: Awaited<ReturnType<typeof getOrderItems>>,
-): {
-  capturedCost: number;
-  missingCostCount: number;
-  costedItemCount: number;
-} {
-  return items.reduce(
-    (total, item) => {
-      const unitCost = parseMoneyValue(item.unitCost);
-      if (unitCost === null) {
-        return {
-          ...total,
-          missingCostCount: total.missingCostCount + 1,
-        };
-      }
-
-      // If the item was physically returned and restocked into inventory,
-      // the seller recovered the asset. Don't count the restocked units as an expense.
-      const isRestocked = item.returnDisposition === "restocked";
-      const effectiveQuantity = isRestocked 
-        ? Math.max(0, item.quantity - (item.returnQuantity ?? 0))
-        : item.quantity;
-
-      return {
-        capturedCost: total.capturedCost + unitCost * effectiveQuantity,
-        missingCostCount: total.missingCostCount,
-        costedItemCount: total.costedItemCount + 1,
-      };
-    },
-    { capturedCost: 0, missingCostCount: 0, costedItemCount: 0 },
-  );
-}
-
-function getSellerFinanceView(summary: NonNullable<Awaited<ReturnType<typeof getOrderFinanceSummary>>>) {
-  const salesRevenue =
-    summary.principal +
-    summary.shippingRevenue +
-    summary.orderFeeRevenue +
-    summary.discount;
-  const amazonFees =
-    summary.marketplaceFee +
-    summary.paymentFee +
-    summary.other;
-  const withholding = summary.withholding;
-  const refunds = summary.refund + summary.adjustment;
-  const netBeforeProductCost = salesRevenue + amazonFees + withholding + refunds;
-
-  return {
-    salesRevenue,
-    tax: summary.tax,
-    amazonFees,
-    marketplaceFee: summary.marketplaceFee,
-    paymentFee: summary.paymentFee,
-    otherFeesAndRebates: summary.other,
-    withholding,
-    refunds,
-    netBeforeProductCost,
-  };
-}
-
 export default async function OrderDetailPage({
   params,
 }: {
@@ -181,28 +125,19 @@ export default async function OrderDetailPage({
   const canSyncFinances = channelDefinition?.capabilities?.canSyncOrderFinances === true;
   const financeStatus = financeSummary?.syncStatus ?? "pending";
   const financeBadge = FINANCE_STATUS_BADGES[financeStatus] ?? FINANCE_STATUS_BADGES.pending;
-  const productCost = getOrderProductCost(items);
-  const sellerFinance = financeSummary ? getSellerFinanceView(financeSummary) : null;
+  const productCost = computeProductCost(items);
+  const sellerFinance = financeSummary ? buildSellerFinanceView(financeSummary) : null;
   const amazonFeeBreakdown = financeBreakdown.filter((row) =>
     row.amountRole === "marketplace_fee" ||
     row.amountRole === "payment_fee" ||
     row.amountRole === "other"
   );
-  const isCancelledOrFailed = order.status === "cancelled" || order.status === "failed";
-  let effectiveProductCost = isCancelledOrFailed ? 0 : productCost.capturedCost;
-
-  // Legacy / Unprocessed Returns Heuristic: 
-  // If an order's physical stock was never processed by SeplorX (stockProcessed is false),
-  // it either predates the inventory system or was never fulfilled from physical stock.
-  // For these orders, we shouldn't require manual 'Restocked' UI actions. Instead, we
-  // proportionally reduce the product cost based on the financial refund amount.
-  if (!isCancelledOrFailed && order.stockProcessed === false && sellerFinance && sellerFinance.refunds < 0) {
-    const salesRevenue = sellerFinance.salesRevenue;
-    if (salesRevenue > 0) {
-      const refundRatio = Math.min(1, Math.abs(sellerFinance.refunds) / salesRevenue);
-      effectiveProductCost = effectiveProductCost * (1 - refundRatio);
-    }
-  }
+  const effectiveProductCost = computeEffectiveProductCost({
+    rawProductCost: productCost.capturedCost,
+    orderStatus: order.status,
+    stockProcessed: order.stockProcessed,
+    sellerFinance,
+  });
 
   const estimatedOperatingProfit = sellerFinance
     ? sellerFinance.netBeforeProductCost - effectiveProductCost
@@ -544,7 +479,7 @@ export default async function OrderDetailPage({
                           <HelpTooltip text="Captured sales-order item unit cost multiplied by quantity. This uses the historical order cost snapshot, not current inventory valuation." />
                         </div>
                         <div className="text-xs text-gray-500">
-                          {isCancelledOrFailed
+                          {effectiveProductCost === 0 && (order.status === "cancelled" || order.status === "failed")
                             ? "Product cost is zero for cancelled or failed orders"
                             : productCost.missingCostCount > 0
                             ? `${productCost.missingCostCount} item cost missing`
