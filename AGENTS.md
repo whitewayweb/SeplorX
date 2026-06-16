@@ -47,6 +47,13 @@ The `.agent/` directory contains broader Claude/ECC-oriented rules, skills, and 
 - Inventory reconciliation remains a separate workflow. Reserve, deduct, release, restock, or discard inventory only through the order stock-processing and return workflows.
 - Manual sales-cost audit resolution should be reviewable and audit-friendly: show source channel data, affected order scope, selected SeplorX target product, and clear success/failure feedback.
 
+## Order Returns and Profit Calculation
+
+- **Amazon Status Mapping**: Amazon's API permanently reports orders as `Shipped` even when a refund occurs later. Do not attempt to force Amazon order statuses to `Refunded`; SeplorX keeps the primary order status aligned with the channel source of truth to prevent sync conflicts.
+- **Return Disposition**: An order item being "refunded" does not automatically mean the product was returned to inventory. Refunds can be concessions or for damaged goods.
+- **Profit Impact**: Do not automatically zero out product costs for refunded orders. Product cost must remain an expense (as the item was lost) unless the item is explicitly marked with a `Restocked` return disposition. Only `Restocked` items have their product cost excluded from the P&L of that specific order.
+- **Manual Finance Sync**: Explicit manual finance syncs (e.g., triggered from UI buttons or bulk actions) must bypass the `pending`/`failed` status gate so that users can force a re-sync of already `synced` orders to pull in delayed refund data.
+
 ## Performance
 
 - Treat performance as required from day one.

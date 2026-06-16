@@ -32,15 +32,20 @@ export function isRetryableFinanceSyncStatus(
 export function shouldSyncOrderFinance(
   orderStatus: string | null | undefined,
   financeSyncStatus: string | null | undefined,
+  forceResync = false,
 ): boolean {
   if (
     !isFinanceEligibleOrderStatus(orderStatus) &&
-    !isRetryableFinanceSyncStatus(financeSyncStatus)
+    !isRetryableFinanceSyncStatus(financeSyncStatus) &&
+    !forceResync
   ) {
     return false;
   }
 
-  return financeSyncStatus !== "synced" && financeSyncStatus !== "not_supported";
+  if (financeSyncStatus === "not_supported") return false;
+  if (!forceResync && financeSyncStatus === "synced") return false;
+  
+  return true;
 }
 
 export function getFinanceSkipReason(

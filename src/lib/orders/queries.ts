@@ -54,6 +54,7 @@ export interface OrderDetail {
   channelName: string | null;
   channelType: string;
   returnDisposition: string | null;
+  stockProcessed: boolean;
   /** Extracted sub-fields from rawData JSONB — only what the UI needs. */
   rawOrder: OrdersV0Schema["Order"] | null;
   shippingAddress: OrdersV0Schema["OrderAddress"] | null;
@@ -259,6 +260,7 @@ export async function getOrderDetail(
       rawOrder: sql<OrdersV0Schema["Order"] | null>`(${salesOrders.rawData}->>'order')::jsonb`,
       shippingAddress: sql<OrdersV0Schema["OrderAddress"] | null>`(${salesOrders.rawData}->>'shippingAddress')::jsonb`,
       returnDisposition: salesOrders.returnDisposition,
+      stockProcessed: salesOrders.stockProcessed,
     })
     .from(salesOrders)
     .innerJoin(

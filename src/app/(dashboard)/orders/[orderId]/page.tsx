@@ -98,8 +98,15 @@ function getOrderProductCost(
         };
       }
 
+      // If the item was physically returned and restocked into inventory,
+      // the seller recovered the asset. Don't count the restocked units as an expense.
+      const isRestocked = item.returnDisposition === "restocked";
+      const effectiveQuantity = isRestocked 
+        ? Math.max(0, item.quantity - (item.returnQuantity ?? 0))
+        : item.quantity;
+
       return {
-        capturedCost: total.capturedCost + unitCost * item.quantity,
+        capturedCost: total.capturedCost + unitCost * effectiveQuantity,
         missingCostCount: total.missingCostCount,
         costedItemCount: total.costedItemCount + 1,
       };
@@ -182,7 +189,20 @@ export default async function OrderDetailPage({
     row.amountRole === "other"
   );
   const isCancelledOrFailed = order.status === "cancelled" || order.status === "failed";
-  const effectiveProductCost = isCancelledOrFailed ? 0 : productCost.capturedCost;
+  let effectiveProductCost = isCancelledOrFailed ? 0 : productCost.capturedCost;
+
+  // Legacy / Unprocessed Returns Heuristic: 
+  // If an order's physical stock was never processed by SeplorX (stockProcessed is false),
+  // it either predates the inventory system or was never fulfilled from physical stock.
+  // For these orders, we shouldn't require manual 'Restocked' UI actions. Instead, we
+  // proportionally reduce the product cost based on the financial refund amount.
+  if (!isCancelledOrFailed && order.stockProcessed === false && sellerFinance && sellerFinance.refunds < 0) {
+    const salesRevenue = sellerFinance.salesRevenue;
+    if (salesRevenue > 0) {
+      const refundRatio = Math.min(1, Math.abs(sellerFinance.refunds) / salesRevenue);
+      effectiveProductCost = effectiveProductCost * (1 - refundRatio);
+    }
+  }
 
   const estimatedOperatingProfit = sellerFinance
     ? sellerFinance.netBeforeProductCost - effectiveProductCost
@@ -242,8 +262,9 @@ export default async function OrderDetailPage({
               {items.map((item) => {
                 const rawItem = item.rawData as OrdersV0Schema["OrderItem"] | null;
                 const itemDisposition = item.returnDisposition;
+                const isReturnable = ["shipped", "delivered", "returned", "refunded"].includes(order.status || "");
                 const maxReturnable = item.quantity - item.returnQuantity;
-                const showReturnDialog = isReturned && item.productId && maxReturnable > 0;
+                const showReturnDialog = isReturnable && item.productId && maxReturnable > 0;
 
                 return (
                   <div key={item.id} className="px-6 py-4">

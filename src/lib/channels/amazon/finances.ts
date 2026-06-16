@@ -265,7 +265,9 @@ async function getCandidateOrders(
   const defaultLimit = options.orderId ? 1 : DEFAULT_FINANCE_SYNC_LIMIT;
   const maxLimit = options.orderId ? 1 : MANUAL_FINANCE_SYNC_LIMIT;
   const limit = Math.max(1, Math.min(options.limit ?? defaultLimit, maxLimit));
-  const statusScope = sql`and sofs.status in ${FINANCE_RETRYABLE_SYNC_STATUSES_SQL}`;
+  const statusScope = options.orderId
+    ? sql``
+    : sql`and sofs.status in ${FINANCE_RETRYABLE_SYNC_STATUSES_SQL}`;
   const attemptScope = options.orderId
     ? sql``
     : sql`and sofs.attempt_count < ${MAX_FINANCE_ATTEMPTS}`;

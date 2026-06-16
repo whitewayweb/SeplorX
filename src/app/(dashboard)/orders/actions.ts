@@ -215,24 +215,9 @@ export async function smartSyncSelectedOrderAction(rawOrderId: unknown): Promise
     });
   }
 
-  if (orderSync.failed > 0) {
-    return {
-      success: true,
-      orderSync: {
-        fetched: orderSync.fetched,
-        updated: orderSync.saved,
-        failed: orderSync.failed,
-      },
-      financeSync: {
-        checked: 0,
-        synced: 0,
-        noData: 0,
-        failed: 0,
-        skipped: 1,
-        skipReason: "order refresh failed",
-      },
-    };
-  }
+  // We no longer return early if order sync fails.
+  // Instead, we just proceed with the finance sync using the existing order data,
+  // which is especially important for old orders where the order API might reject the refresh.
 
   const [refreshedOrder] = await db
     .select({
@@ -262,7 +247,7 @@ export async function smartSyncSelectedOrderAction(rawOrderId: unknown): Promise
   }
 
   const skipReason = getFinanceSkipReason(refreshedOrder.status, refreshedOrder.financeSyncStatus);
-  if (!handler.syncOrderFinances || !shouldSyncOrderFinance(refreshedOrder.status, refreshedOrder.financeSyncStatus)) {
+  if (!handler.syncOrderFinances || !shouldSyncOrderFinance(refreshedOrder.status, refreshedOrder.financeSyncStatus, true)) {
     financeSync.skipped = 1;
     financeSync.skipReason = skipReason ?? "not supported";
   } else {
