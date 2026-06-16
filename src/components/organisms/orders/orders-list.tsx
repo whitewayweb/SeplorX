@@ -437,9 +437,7 @@ export function OrdersList({
                               </span>
                             </div>
                           </div>
-                        ) : (
-                          <span className="text-[11px] text-gray-400 mt-1">Profit missing</span>
-                        )}
+                        ) : null}
                       </div>
                     </td>
                   </tr>

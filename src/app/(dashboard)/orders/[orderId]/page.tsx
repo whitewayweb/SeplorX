@@ -181,8 +181,11 @@ export default async function OrderDetailPage({
     row.amountRole === "payment_fee" ||
     row.amountRole === "other"
   );
+  const isCancelledOrFailed = order.status === "cancelled" || order.status === "failed";
+  const effectiveProductCost = isCancelledOrFailed ? 0 : productCost.capturedCost;
+
   const estimatedOperatingProfit = sellerFinance
-    ? sellerFinance.netBeforeProductCost - productCost.capturedCost
+    ? sellerFinance.netBeforeProductCost - effectiveProductCost
     : null;
 
   return (
@@ -412,7 +415,7 @@ export default async function OrderDetailPage({
                     <div>
                       <div className="text-xs font-medium text-gray-500">Product cost</div>
                       <div className="text-lg font-semibold text-gray-900">
-                        {formatMoney(order.currency, productCost.capturedCost)}
+                        {formatMoney(order.currency, effectiveProductCost)}
                       </div>
                     </div>
                     <div className="hidden text-gray-300 md:block">=</div>
@@ -520,13 +523,15 @@ export default async function OrderDetailPage({
                           <HelpTooltip text="Captured sales-order item unit cost multiplied by quantity. This uses the historical order cost snapshot, not current inventory valuation." />
                         </div>
                         <div className="text-xs text-gray-500">
-                          {productCost.missingCostCount > 0
+                          {isCancelledOrFailed
+                            ? "Product cost is zero for cancelled or failed orders"
+                            : productCost.missingCostCount > 0
                             ? `${productCost.missingCostCount} item cost missing`
                             : "All order items have captured cost"}
                         </div>
                       </div>
                       <div className="text-right font-semibold text-gray-900">
-                        {formatMoney(order.currency, -productCost.capturedCost)}
+                        {formatMoney(order.currency, -effectiveProductCost)}
                       </div>
                     </div>
                     <div className="grid grid-cols-[1fr_auto] gap-4 bg-gray-50 px-4 py-3 text-sm">

@@ -76,7 +76,9 @@ export default async function OrdersPage({
     let estimatedFees: number | null = null;
     let estimatedCost: number | null = null;
 
-    if (summary) {
+    const isCancelledOrFailed = order.status === "cancelled" || order.status === "failed";
+
+    if (!isCancelledOrFailed && summary && summary.syncStatus === "synced") {
       const salesRevenue = summary.principal + summary.shippingRevenue + summary.orderFeeRevenue + summary.discount;
       const amazonFees = summary.marketplaceFee + summary.paymentFee + summary.other;
       const netBeforeProductCost = salesRevenue + amazonFees + summary.withholding + (summary.refund + summary.adjustment);
