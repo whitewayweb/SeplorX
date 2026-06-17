@@ -1,3 +1,4 @@
+import { findSeplorxProduct } from "@/data/products";
 /**
  * Channel Mapping Agent — matches SeplorX products to channel products.
  *
@@ -26,12 +27,9 @@ import {
   saveChannelMappingProposal,
   fetchSeplorxProducts,
   fetchChannelProducts,
-  lookupFitmentSeries,
-  findSeplorxProduct,
-  createPendingFitmentRuleFromExtraction,
-} from "./tools/channel-mapping-tools";
+  } from "./tools/channel-mapping-tools";
 import { logger } from "@/lib/logger";
-import { getFitmentRegistry, type FitmentRule } from "@/data/fitment";
+import { getFitmentRegistry, type FitmentRule, lookupFitmentSeries, createPendingFitmentRuleFromExtraction } from "@/data/fitment";
 
 // ─── Provider Cascade ─────────────────────────────────────────────────────────
 
@@ -195,15 +193,17 @@ export async function runChannelMappingAgent(
         }
 
         // Step C: Match series + color → SeplorX product
-        const seplorx = findSeplorxProduct(fitment.series, extraction.color, seplorxProducts);
+        const seplorx = findSeplorxProduct(fitment.series, extraction.color, seplorxProducts, fitment.seriesRear);
+
+        const seriesLabel = fitment.seriesRear ? `Series ${fitment.series} & ${fitment.seriesRear}` : `Series ${fitment.series}`;
 
         if (!seplorx) {
-          logger.info(`[agent/channel-mapping] ⚠️ No SeplorX match found for "${product.name}" (Series ${fitment.series}, Color: ${extraction.color || 'none'})`);
+          logger.info(`[agent/channel-mapping] ⚠️ No SeplorX match found for "${product.name}" (${seriesLabel}, Color: ${extraction.color || 'none'})`);
           unmatchCount++;
           continue;
         }
 
-        logger.info(`[agent/channel-mapping] ✅ Mapped: "${product.name}" -> "${seplorx.name}" (Series ${fitment.series})`);
+        logger.info(`[agent/channel-mapping] ✅ Mapped: "${product.name}" -> "${seplorx.name}" (${seriesLabel})`);
         
         proposals.push({
           seplorxProductId: seplorx.id,
@@ -213,7 +213,7 @@ export async function runChannelMappingAgent(
           externalProductName: product.name,
           externalSku: product.sku,
           confidence: "high",
-          rationale: `${fitment.matchedMake} ${fitment.matchedModel} ${extraction.position} → Series ${fitment.series}${extraction.color ? ` (${extraction.color})` : ""}`,
+          rationale: `${fitment.matchedMake} ${fitment.matchedModel} ${extraction.position} → ${seriesLabel}${extraction.color ? ` (${extraction.color})` : ""}`,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

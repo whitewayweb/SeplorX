@@ -80,11 +80,6 @@ function getFinanceCodeDescription(role: string): string {
   return "Settlement entry";
 }
 
-function parseMoneyValue(value: string | null): number | null {
-  if (value === null) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
 
 export default async function OrderDetailPage({
   params,

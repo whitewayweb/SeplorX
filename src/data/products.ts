@@ -922,3 +922,92 @@ export async function getAttributeValues(key: string, tx: QueryClient = db) {
   `);
   return result as unknown as { value: string; count: number }[];
 }
+
+export type SeplorxProductLookup = {
+  id: number;
+  name: string;
+  sku: string | null;
+  attributes: Record<string, string>;
+};
+
+/**
+ * Find a SeplorX product by its series letter (A–E) and optionally color.
+ * Checks product attributes first (Series, Color), then falls back to name pattern.
+ */
+export function findSeplorxProduct(
+  series: string,
+  color: string | null,
+  seplorxProducts: SeplorxProductLookup[],
+  seriesRear?: string
+): SeplorxProductLookup | null {
+  const seriesUpper = series.toUpperCase();
+  const seriesRearUpper = seriesRear?.toUpperCase();
+  const colorLower = color?.trim().toLowerCase() ?? null;
+
+  if (seriesRearUpper) {
+    // Attempt to find a bundle matching BOTH series
+    const byBundleName = seplorxProducts.filter((p) => {
+      const nameUpper = p.name.toUpperCase();
+      const isBundle = nameUpper.includes("BOTH") || nameUpper.includes("4PC") || nameUpper.includes("PAIR") || nameUpper.includes("BUNDLE");
+      if (!isBundle) return false;
+
+      // Bundle names usually look like "Series A & D" or "Series D & A"
+      let hasBothSeries = false;
+      if (seriesUpper === seriesRearUpper) {
+        // e.g. "Series A & A" or just "Series A (BOTH-4PCs)"
+        hasBothSeries = nameUpper.includes(`SERIES ${seriesUpper} & ${seriesUpper}`) ||
+                        (nameUpper.includes(`SERIES ${seriesUpper}`) && !nameUpper.includes("&"));
+      } else {
+        const pattern1 = new RegExp(`SERIES\\s+${seriesUpper}\\s*&\\s*${seriesRearUpper}\\b`);
+        const pattern2 = new RegExp(`SERIES\\s+${seriesRearUpper}\\s*&\\s*${seriesUpper}\\b`);
+        hasBothSeries = pattern1.test(nameUpper) || pattern2.test(nameUpper);
+      }
+
+      if (!hasBothSeries) return false;
+
+      if (colorLower) {
+        return nameUpper.toLowerCase().includes(colorLower);
+      }
+      return true;
+    });
+
+    return byBundleName.length > 0 ? byBundleName[0] : null;
+  }
+
+  // Try matching by attributes (most reliable)
+  const byAttributes = seplorxProducts.filter((p) => {
+    const pSeries = (p.attributes?.Series ?? p.attributes?.series ?? "").toString();
+    // Match "Series C" or just "C"
+    const seriesMatch =
+      pSeries.toUpperCase() === `SERIES ${seriesUpper}` ||
+      pSeries.toUpperCase() === seriesUpper;
+    if (!seriesMatch) return false;
+
+    // If color was extracted, also match color
+    if (colorLower) {
+      const pColor = (p.attributes?.Color ?? p.attributes?.color ?? "").toString().toLowerCase();
+      return pColor === colorLower;
+    }
+    return true;
+  });
+
+  if (byAttributes.length > 0) return byAttributes[0];
+
+  // Fallback: match by name patterns like `CAR COIL SPRING BUFFER - "C" - YELLOW`
+  const byName = seplorxProducts.filter((p) => {
+    const nameUpper = p.name.toUpperCase();
+    const hasSeriesInName =
+      nameUpper.includes(`"${seriesUpper}"`) ||
+      nameUpper.includes(`SERIES ${seriesUpper}`) ||
+      nameUpper.match(new RegExp(`\\bSERIES\\s*[-]?\\s*${seriesUpper}\\b`));
+    if (!hasSeriesInName) return false;
+
+    if (colorLower) {
+      return nameUpper.toLowerCase().includes(colorLower);
+    }
+    return true;
+  });
+
+  return byName.length > 0 ? byName[0] : null;
+}
+
